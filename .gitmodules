@@ -1,0 +1,15 @@
+[submodule "packages/renpy_core"]
+	path = packages/renpy_core
+	url = https://git.cypherstack.com/FiestaBerry/renpy_core.git
+[submodule "packages/renpy_parser"]
+	path = packages/renpy_parser
+	url = https://git.cypherstack.com/FiestaBerry/renpy_parser.git
+[submodule "packages/renpy_cli"]
+	path = packages/renpy_cli
+	url = https://git.cypherstack.com/FiestaBerry/renpy_cli.git
+[submodule "packages/renpy_flutter"]
+	path = packages/renpy_flutter
+	url = https://git.cypherstack.com/FiestaBerry/renpy_flutter.git
+[submodule "examples/flutteren"]
+	path = examples/flutteren
+	url = https://git.cypherstack.com/FiestaBerry/flutteren.git
