@@ -10,7 +10,6 @@ fiestavn/                     # FiestaVN Melos monorepo with only Dart and Flutt
 ├── packages/
 │   ├── renpy_parser/         # RenPy script parser in Dart.
 │   ├── renpy_core/           # Core engine logic in pure Dart.
-│   ├── renpy_cli/            # CLI runner for testing.
 │   └── renpy_flutter/        # Flutter UI implementation.
 └── examples/
     └── flutteren/            # Example Flutter application.
