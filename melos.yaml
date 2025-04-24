@@ -1,10 +1,9 @@
 name: fiestavn
-repository: https://git.cypherstack.com/FiestaBerry/fiestavn
 
 packages:
   - packages/**
   - examples/**
-  -
+
 scripts:
   analyze:
     exec: dart analyze .
