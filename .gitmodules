@@ -1,6 +1,3 @@
-[submodule "packages/renpy_core"]
-	path = packages/renpy_core
-	url = https://git.cypherstack.com/FiestaBerry/renpy_core.git
 [submodule "examples/flutteren"]
 	path = examples/flutteren
 	url = https://git.cypherstack.com/FiestaBerry/flutteren.git
