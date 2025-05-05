@@ -1,0 +1,20 @@
+name: renpy_core
+description: RenPy commandline interface runner & tests.
+version: 0.0.1
+repository: https://git.cypherstack.com/FiestaBerry/renpy_core
+
+environment:
+  sdk: ^3.7.2
+
+dependencies:
+  path: ^1.8.0
+  meta: ^1.8.0
+  renpy_parser:
+    path: ../renpy_parser
+
+dev_dependencies:
+  test: ^1.21.0
+  lints: ^2.0.0
+
+examples:
+  - example/renpy_core_example.dart
