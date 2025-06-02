@@ -36,8 +36,10 @@ dependencies:
   cupertino_icons: ^1.0.8
 
   # RenPy packages.
-  renpy_flutter:
-    path: ../../packages/renpy_flutter
+  renpy_parser:
+    path: ../../packages/renpy_parser
+  renpy_core:
+    path: ../../packages/renpy_core
 
   # File handling.
   file_picker: ^6.1.1

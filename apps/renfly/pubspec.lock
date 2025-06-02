@@ -177,21 +177,14 @@ packages:
     source: hosted
     version: "2.1.8"
   renpy_core:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/renpy_core"
       relative: true
     source: path
     version: "0.0.1"
-  renpy_flutter:
-    dependency: "direct main"
-    description:
-      path: "../../packages/renpy_flutter"
-      relative: true
-    source: path
-    version: "0.0.1"
   renpy_parser:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/renpy_parser"
       relative: true
