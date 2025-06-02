@@ -5,14 +5,13 @@ FiestaVN's standalone Dart/Flutter Melos monorepo implementing a RenPy Visual No
 ## Structure
 
 ```
-fiestavn/                     # FiestaVN Melos monorepo with only Dart and Flutter.
+fiestavn/                     # FiestaVN Melos monorepo with only Dart and Flutter apps.
 ├── melos.yaml                # Melos config specific to Dart/Flutter codebase.
 ├── packages/
 │   ├── renpy_parser/         # RenPy script parser in Dart.
-│   ├── renpy_core/           # Core engine logic in pure Dart.
-│   └── renpy_flutter/        # Flutter UI implementation.
-└── examples/
-    └── flutteren/            # Example Flutter application.
+│   └── renpy_core/           # Core engine logic in Dart.
+└── apps/
+    └── renfly/               # Example Flutter application.
 ```
 
 ## Getting Started
@@ -37,7 +36,7 @@ fiestavn/                     # FiestaVN Melos monorepo with only Dart and Flutt
 
 ## Usage
 
-Check out the example project in `examples/flutteren` to see how to use FiestaVN in a Flutter application.
+Check out the example project in `apps/renfly` to see how to use FiestaVN in a Flutter application.
 
 ## License
 
