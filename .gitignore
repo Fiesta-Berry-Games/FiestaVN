@@ -2,3 +2,5 @@
 .idea/
 
 .dart_tool/package_config.json
+
+apps/renfly/build/
