@@ -22,49 +22,65 @@ class _SpineSpriteState extends State<SpineSprite> {
   static const _atlas = 'assets/chibi-stickers/export/chibi-stickers.atlas';
   static const _skel = 'assets/chibi-stickers/export/chibi-stickers-pro.skel';
 
+  String? _currentImageName;
+  String? _currentSkinName;
+
   @override
   void initState() {
     super.initState();
 
     _ctrl = spine.SpineWidgetController(onInitialized: (_) {
-      try {
-        print('SpineSprite: Initializing ${widget.imageName} at ${widget.atLeft ? "left" : "right"}');
+      _setImageAndAnimation(widget.imageName);
+    });
+  }
 
-        // Parse "<skin>-<animation>.spine".
-        final file = widget.imageName.replaceFirst('.spine', '');
-        final lastDash = file.lastIndexOf('-');
+  @override
+  void didUpdateWidget(SpineSprite oldWidget) {
+    super.didUpdateWidget(oldWidget);
 
-        String skinName, animName;
-        if (lastDash == -1) {
-          skinName = 'spineboy';
-          animName = 'movement/idle-front';
+    // Only update animation if the imageName changed.
+    if (widget.imageName != oldWidget.imageName) {
+      _setImageAndAnimation(widget.imageName);
+    }
+  }
+
+  void _setImageAndAnimation(String imageName) {
+    try {
+      print('SpineSprite: Setting ${imageName} at ${widget.atLeft ? "left" : "right"}');
+
+      // Parse "<skin>-<animation>.spine".
+      final file = imageName.replaceFirst('.spine', '');
+      final lastDash = file.lastIndexOf('-');
+
+      String skinName, animName;
+      if (lastDash == -1) {
+        skinName = 'spineboy';
+        animName = 'movement/idle-front';
+      } else {
+        // Split on the last dash to handle paths like "erikari-movement/idle-front".
+        final beforeDash = file.substring(0, lastDash);
+        final afterDash = file.substring(lastDash + 1);
+
+        // Check if this looks like a path (contains /).
+        if (beforeDash.contains('/')) {
+          // This means we have something like "erikari-movement/idle-front".
+          // We need to find the skin name differently.
+          final parts = file.split('-');
+          skinName = parts[0]; // First part should be skin.
+          animName = parts.sublist(1).join('-'); // Rest is animation.
         } else {
-          // Split on the last dash to handle paths like "erikari-movement/idle-front".
-          final beforeDash = file.substring(0, lastDash);
-          final afterDash = file.substring(lastDash + 1);
-
-          // Check if this looks like a path (contains /).
-          if (beforeDash.contains('/')) {
-            // This means we have something like "erikari-movement/idle-front".
-            // We need to find the skin name differently.
-            final parts = file.split('-');
-            skinName = parts[0]; // First part should be skin.
-            animName = parts.sublist(1).join('-'); // Rest is animation.
-          } else {
-            skinName = beforeDash;
-            animName = afterDash;
-          }
+          skinName = beforeDash;
+          animName = afterDash;
         }
+      }
 
-        print('SpineSprite: Parsed - skin: $skinName, animation: $animName');
+      print('SpineSprite: Parsed - skin: $skinName, animation: $animName');
 
-        final skeleton = _ctrl.drawable.skeleton;
-        final skeletonData = skeleton.getData();
+      final skeleton = _ctrl.drawable.skeleton;
+      final skeletonData = skeleton.getData();
 
-        // Debug: Print available skins.
-        final skins = skeletonData?.getSkins();
-        print('Available skins: ${skins?.map((s) => s.getName()).toList()}');
-
+      // Only change skin if it's different from current.
+      if (_currentSkinName != skinName) {
         // Find the skin.
         final skinObj = skeletonData?.findSkin(skinName) ??
             skeletonData?.getDefaultSkin();
@@ -73,60 +89,64 @@ class _SpineSpriteState extends State<SpineSprite> {
           print('Setting skin: ${skinObj.getName()}');
           skeleton.setSkin(skinObj);
           skeleton.setSlotsToSetupPose();
+          _currentSkinName = skinName;
         } else {
           print('ERROR: Could not find skin: $skinName, using default');
           final defaultSkin = skeletonData?.getDefaultSkin();
           if (defaultSkin != null) {
             skeleton.setSkin(defaultSkin);
             skeleton.setSlotsToSetupPose();
+            _currentSkinName = defaultSkin.getName();
           }
         }
-
-        // Debug: Print available animations.
-        final animations = _ctrl.animationState.getData().getSkeletonData().getAnimations();
-        print('Available animations: ${animations.map((a) => a.getName()).toList()}');
-
-        // Try to set the animation with various fallbacks.
-        bool animationSet = false;
-        final animationsToTry = [
-          animName,
-          'movement/$animName',
-          'emotes/$animName',
-          '$animName-front',
-          'movement/$animName-front',
-          'movement/idle-front',
-          'idle',
-        ];
-
-        for (final tryAnim in animationsToTry) {
-          try {
-            final trackEntry = _ctrl.animationState.setAnimationByName(0, tryAnim, true);
-            trackEntry.setTrackTime(0);
-            print('Successfully set animation: $tryAnim');
-            animationSet = true;
-            break;
-          } catch (e) {
-            print('Failed to set animation $tryAnim: $e');
-          }
-        }
-
-        if (!animationSet) {
-          print('Could not set any animation, trying first available animation');
-          if (animations.isNotEmpty) {
-            try {
-              final firstAnim = animations.first.getName();
-              final trackEntry = _ctrl.animationState.setAnimationByName(0, firstAnim, true);
-              trackEntry.setTrackTime(0);
-              print('Set first available animation: $firstAnim');
-            } catch (e) {
-              print('Even first animation failed: $e');
-            }
-          }
-        }
-      } catch (e) {
-        print('SpineSprite initialization error: $e');
       }
-    });
+
+      // Always try to set the animation (this is what changes frequently).
+      bool animationSet = false;
+      final animationsToTry = [
+        animName,
+        'movement/$animName',
+        'emotes/$animName',
+        '$animName-front',
+        'movement/$animName-front',
+        'movement/idle-front',
+        'idle',
+      ];
+
+      for (final tryAnim in animationsToTry) {
+        try {
+          // Use blend time for smooth transition between animations.
+          _ctrl.animationState.getData().setDefaultMix(0.1);
+          final trackEntry = _ctrl.animationState.setAnimationByName(0, tryAnim, true);
+          trackEntry.setTrackTime(0);
+          print('Successfully set animation: $tryAnim');
+          animationSet = true;
+          break;
+        } catch (e) {
+          // Silently try next animation
+        }
+      }
+
+      if (!animationSet) {
+        print('Could not set any animation, trying first available animation');
+        final animations = _ctrl.animationState.getData().getSkeletonData().getAnimations();
+        if (animations.isNotEmpty) {
+          try {
+            final firstAnim = animations.first.getName();
+            _ctrl.animationState.getData().setDefaultMix(0.1);
+            final trackEntry = _ctrl.animationState.setAnimationByName(0, firstAnim, true);
+            trackEntry.setTrackTime(0);
+            print('Set first available animation: $firstAnim');
+          } catch (e) {
+            print('Even first animation failed: $e');
+          }
+        }
+      }
+
+      _currentImageName = imageName;
+    } catch (e) {
+      print('SpineSprite animation change error: $e');
+    }
   }
 
   @override
@@ -146,18 +166,11 @@ class _SpineSpriteState extends State<SpineSprite> {
       child: Container(
         width: 200,
         height: 300,
-        // // Add a colored border for debugging positioning.
-        // decoration: BoxDecoration(
-        //   border: Border.all(
-        //       color: widget.atLeft ? const Color(0xFF00FF00) : const Color(0xFF0000FF),
-        //       width: 2
-        //   ),
-        // ),
         child: spine.SpineWidget.fromAsset(
           _atlas,
           _skel,
           _ctrl,
-          // Use broader bounds to ensure nothing is clipped
+          // Use broader bounds to ensure nothing is clipped.
           boundsProvider: spine.SkinAndAnimationBounds(
               skins: const ['erikari', 'harri']
           ),
