@@ -83,8 +83,15 @@ class _GameScreenState extends State<GameScreen> {
 
   Future<void> _bootstrap() async {
     _source = await rootBundle.loadString(widget.assetPath);
-    _ctrl.load(_source);
-    if (mounted) setState(() => _loading = false);
+
+    // First draw the real game screen so that SpineLayer attaches its listener.
+    if (!mounted) return;
+    setState(() => _loading = false);
+
+    // Run the script on the very next frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _ctrl.load(_source);
+    });
   }
 
   @override

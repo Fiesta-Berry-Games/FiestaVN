@@ -1,43 +1,49 @@
 init:
-    # Ali → erikari       Harp → harri
-    image ali idle   = Image("erikari-movement/idle-front.spine")
-    image ali angry  = Image("erikari-emotes/angry.spine")
-    image ali laugh  = Image("erikari-emotes/laugh.spine")
+    image erikari idle   = Image("erikari-movement/idle-front.spine")
+    image erikari angry  = Image("erikari-emotes/angry.spine")
+    image erikari laugh  = Image("erikari-emotes/laugh.spine")
+    image erikari wave  = Image("erikari-emotes/wave.spine")
 
-    image harp idle  = Image("harri-movement/idle-front.spine")
-    image harp shrug = Image("harri-emotes/shrug.spine")
-    image harp wave  = Image("harri-emotes/wave.spine")
+    image harri idle  = Image("harri-movement/idle-front.spine")
+    image harri shrug = Image("harri-emotes/shrug.spine")
+    image harri wave  = Image("harri-emotes/wave.spine")
+    image harri laugh  = Image("harri-emotes/laugh.spine")
 
 label start:
-    $ ali = Character("Ali")
-    $ hp  = Character("Harp")
+    $ erikari = Character("Erikari")
+    $ harri = Character("Harri")
 
+    # Clear scene but immediately show both characters
     scene
-    show ali idle  at left
-    show harp idle at right
+    show erikari wave at left
+    show harri wave at right
 
-    ali "Hi there!  I'm Ali – a Spine character with the *erikari* skin."
-    hp  "And I'm Harp, rocking the *harri* skin."
+    # Add a small pause to ensure characters are loaded
+    pause 0.1
 
-    ali "Watch us switch animations at runtime!"
+    erikari "Hi there! I'm Erikari – a Spine character with the *erikari* skin."
+    harri "And I'm Harri, rocking the *harri* skin."
+    show harri shrug at right
 
-    show ali angry               # no need to hide – just replace
-    ali "Grrr… now I'm angry!"
+    erikari "Watch us switch animations at runtime!"
 
-    hp  "Whoa, deep breaths…"
+    show erikari angry at left
+    erikari "Grrr… now I'm angry!"
 
-    show ali laugh
-    ali "Haha, just kidding!"
+    harri "Whoa, deep breaths…"
+
+    show erikari laugh at left
+    erikari "Haha, just kidding!"
 
     menu:
-        "Ask Harp to wave":
-            show harp wave
-            hp "Hello there! 👋"
+        "Ask Harri to wave":
+            show harri wave at right
+            harri "Hello there! 👋"
             pause 0.4
-            show harp shrug
-            hp "So… what now?"
+            show harri shrug at right
+            harri "So… what now?"
         "End the demo":
             pass
 
-    hp "That concludes the RenSpine showcase. Tap the restart button to watch it again!"
+    harri "That concludes the RenSpine showcase. Tap the restart button to watch it again!"
     return
