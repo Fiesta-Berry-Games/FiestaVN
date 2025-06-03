@@ -1,6 +1,6 @@
 name: renpy_core
 description: RenPy commandline interface runner & tests.
-version: 0.0.2
+version: 0.0.1
 repository: https://git.cypherstack.com/FiestaBerry/renpy_core
 
 environment:
@@ -9,8 +9,7 @@ environment:
 dependencies:
   path: ^1.8.0
   meta: ^1.8.0
-  renpy_parser:
-    path: ../renpy_parser
+  renpy_parser: ^0.0.1
 
 dev_dependencies:
   test: ^1.21.0
