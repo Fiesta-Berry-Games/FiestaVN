@@ -1,6 +1,6 @@
 name: renpy_parser
 description: RenPy .rpy format script parser in Dart for Flutter.
-version: 0.0.2
+version: 0.0.1
 repository: https://git.cypherstack.com/FiestaBerry/renpy_parser
 
 environment:
