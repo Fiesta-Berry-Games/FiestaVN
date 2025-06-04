@@ -15,25 +15,17 @@ Packages with breaking changes:
 
 Packages with other changes:
 
- - [`renpy_core` - `v0.0.2`](#renpy_core---v002)
- - [`renpy_parser` - `v0.0.2`](#renpy_parser---v002)
+ - [`renpy_core` - `v0.0.1`](#renpy_core---v002)
+ - [`renpy_parser` - `v0.0.1`](#renpy_parser---v002)
 
 ---
 
-#### `renpy_core` - `v0.0.2`
+#### `renpy_core` - `v0.0.1`
 
- - **FEAT**(melos): convert from submodules to melos monorepo.
- - **FEAT**: Removed submodule packages/renpy_core.
- - **FEAT**(renpy_core): integrate features menus+ from reference (test) game 2.
- - **FEAT**: renpy_parser, renpy_core tests and examples.
- - **FEAT**: melos monorepo structure.
+ - **FEAT**: renpy_core tests and examples.
+ - **FEAT**(renpy_core): integrate features like menus (and more) from reference (test) game 2.
 
-#### `renpy_parser` - `v0.0.2`
+#### `renpy_parser` - `v0.0.1`
 
- - **FEAT**(melos): convert from submodules to melos monorepo.
- - **FEAT**: Removed submodule packages/renpy_parser.
- - **FEAT**(renpy_parser): add features (like menus) from reference (test) game 2.
- - **FEAT**: renpy_parser, renpy_core tests and examples.
+ - **FEAT**: renpy_parser tests and examples.
  - **FEAT**: basic lexer, parser, etc.
- - **FEAT**: melos monorepo structure.
-
