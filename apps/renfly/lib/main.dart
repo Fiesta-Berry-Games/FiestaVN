@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:renfly/widgets/dialogue_view.dart';
 import 'package:renfly/widgets/menu_selector.dart';
-import 'package:renpy_core/renpy_core.dart';
+import 'package:renfly/widgets/image_layer.dart';
 
 import 'controller.dart';
 
@@ -14,7 +14,7 @@ class FiestaVNApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'FiestaVN (RenPy-Flutter demo)',
+      title: 'RenFly - FiestaVN Demo',
       theme: ThemeData.dark(useMaterial3: true),
       debugShowCheckedModeBanner: false,
       home: const _LauncherScreen(),
@@ -84,8 +84,15 @@ class _GameScreenState extends State<GameScreen> {
 
   Future<void> _bootstrap() async {
     _source = await rootBundle.loadString(widget.assetPath);
-    _ctrl.load(_source);
-    if (mounted) setState(() => _loading = false);
+
+    // First draw the real game screen so that ImageLayer attaches its listener.
+    if (!mounted) return;
+    setState(() => _loading = false);
+
+    // Run the script on the very next frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _ctrl.load(_source);
+    });
   }
 
   @override
@@ -106,6 +113,7 @@ class _GameScreenState extends State<GameScreen> {
         fit: StackFit.expand,
         children: [
           Container(color: Colors.grey.shade900),
+          ImageLayer(controller: _ctrl),
           DialogueView(controller: _ctrl),
           MenuSelector(controller: _ctrl),
         ],

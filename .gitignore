@@ -1,6 +1,6 @@
 
 .idea/
+.dart_tool
+build/
 
-.dart_tool/package_config.json
-
-apps/renfly/build/
+apps/renspine/assets/chibi-stickers/source/
