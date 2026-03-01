@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:renpy_core/renpy_core.dart';
-import 'package:renpy_parser/renpy_parser.dart';
 import 'package:test/test.dart';
 
 void main() {

@@ -1,10 +1,9 @@
 import 'dart:io';
 import 'package:renpy_core/renpy_core.dart';
-import 'package:renpy_parser/renpy_parser.dart';
 import 'package:test/test.dart';
 
 void main() async {
-  group('RenPy Core – runner & integration', () {
+  group('RenPy Core - runner & integration', () {
     late RenPyParser parser;
 
     setUp(() => parser = RenPyParser());
@@ -62,7 +61,7 @@ void main() async {
       if (show != null) images.add('show:$show');
     };
 
-    // --- no onMenu → automatic first-choice selection ---
+    // --- no onMenu -> automatic first-choice selection ---
     runner.jumpToLabel('start');
     runner.run();
     while (runner.state == RenPyRunnerState.waitingForInput) {
@@ -71,7 +70,7 @@ void main() async {
 
     expect(runner.state, RenPyRunnerState.complete);
 
-    // Choosing the first option at both menu levels eventually shows “S6”
+    // Choosing the first option at both menu levels eventually shows "S6"
     expect(images, contains('show:S6'));
   });
 
@@ -94,10 +93,10 @@ void main() async {
       var handledTopMenu = false;
       runner.onMenu = (choices, onChoice, caption) {
         if (!handledTopMenu) {
-          onChoice(1); // second option → “Nope, nothing said…”
+          onChoice(1); // second option -> "Nope, nothing said..."
           handledTopMenu = true;
         } else {
-          onChoice(0); // default for any nested menu (shouldn’t fire)
+          onChoice(0); // default for any nested menu (shouldn't fire)
         }
       };
 

@@ -1,18 +1,16 @@
 import 'dart:io';
 import 'package:renpy_core/renpy_core.dart';
-import 'package:renpy_parser/renpy_parser.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('RenPy Core – runner & integration', ()
-  {
+  group('RenPy Core - runner & integration', () {
     late RenPyParser parser;
 
     setUp(() => parser = RenPyParser());
 
     test(
       'Runner can execute tutorial script Reference Game 1 script',
-          () async {
+      () async {
         final file = File('test/games/1/game/script.rpy');
         final source = await file.readAsString();
 
@@ -25,7 +23,7 @@ void main() {
         runner.onDialogue = (c, t) => dialogue.add({'c': c, 't': t});
         runner.onImage =
             (scene, show, hide) =>
-            images.add({'scene': scene, 'show': show, 'hide': hide});
+                images.add({'scene': scene, 'show': show, 'hide': hide});
 
         runner.jumpToLabel('start');
         runner.run();

@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:renpy_parser/renpy_parser.dart';
 import 'package:renpy_core/renpy_core.dart';
 
 /// CLI example demonstrating how to execute a RenPy script with [RenPyRunner].
@@ -57,7 +56,7 @@ Future<void> main(List<String> args) async {
   };
 
   runner.onMenu = (choices, onChoice, caption) {
-    stdout.writeln('\n— Menu —');
+    stdout.writeln('\n- Menu -');
     for (var i = 0; i < choices.length; i++) {
       stdout.writeln('  ${i + 1}. ${choices[i]}');
     }
@@ -87,7 +86,7 @@ Future<void> main(List<String> args) async {
 
   // Finished.
   if (runner.state == RenPyRunnerState.complete) {
-    stdout.writeln('\n— End of script —');
+    stdout.writeln('\n- End of script -');
   } else if (runner.state == RenPyRunnerState.error) {
     stderr.writeln('Error: ${runner.errorMessage}');
     exit(1);

@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import 'package:renpy_core/renpy_core.dart';
 
 /// Renders RenPy inline text tags using Flutter text spans.
 class RenPyText extends StatelessWidget {
@@ -42,51 +43,20 @@ class RenPyTextSpanParser {
   const RenPyTextSpanParser._();
 
   static TextSpan parse(String text, {TextStyle? style}) {
-    return TextSpan(style: style, children: _parseChildren(text));
-  }
-
-  static List<TextSpan> _parseChildren(String text) {
-    final spans = <TextSpan>[];
-    var bold = false;
-    var italic = false;
-    var index = 0;
-
-    for (final match in RegExp(r'\{[^}]+\}').allMatches(text)) {
-      if (match.start > index) {
-        spans.add(_span(text.substring(index, match.start), bold, italic));
-      }
-
-      switch (match.group(0)) {
-        case '{b}':
-          bold = true;
-          break;
-        case '{/b}':
-          bold = false;
-          break;
-        case '{i}':
-          italic = true;
-          break;
-        case '{/i}':
-          italic = false;
-          break;
-      }
-
-      index = match.end;
-    }
-
-    if (index < text.length) {
-      spans.add(_span(text.substring(index), bold, italic));
-    }
-
-    return spans.isEmpty ? [TextSpan(text: text)] : spans;
-  }
-
-  static TextSpan _span(String value, bool bold, bool italic) {
     return TextSpan(
-      text: value,
+      style: style,
+      children: [
+        for (final run in RenPyStyledText.parse(text).runs) _span(run),
+      ],
+    );
+  }
+
+  static TextSpan _span(RenPyTextRun run) {
+    return TextSpan(
+      text: run.text,
       style: TextStyle(
-        fontWeight: bold ? FontWeight.bold : null,
-        fontStyle: italic ? FontStyle.italic : null,
+        fontWeight: run.bold ? FontWeight.bold : null,
+        fontStyle: run.italic ? FontStyle.italic : null,
       ),
     );
   }
