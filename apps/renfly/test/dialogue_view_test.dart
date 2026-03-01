@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:renfly/controller.dart';
 import 'package:renfly/widgets/dialogue_view.dart';
+import 'package:renpy_flutter/renpy_flutter.dart';
 
 void main() {
   testWidgets('dialogue renders RenPy bold tags as styled text', (
@@ -19,7 +20,9 @@ void main() {
     expect(find.text('{b}Good Ending{/b}.'), findsNothing);
     expect(find.text('Good Ending.'), findsOneWidget);
 
-    final text = tester.widget<Text>(find.byType(Text).last);
+    final text = tester.widget<Text>(
+      find.descendant(of: find.byType(RenPyText), matching: find.byType(Text)),
+    );
     final spans = (text.textSpan! as TextSpan).children!.cast<TextSpan>();
     expect(
       spans.singleWhere((span) => span.text == 'Good Ending').style?.fontWeight,
@@ -39,5 +42,6 @@ void main() {
 
     expect(find.text('Huh?{p=0.3}{nw}'), findsNothing);
     expect(find.text('Huh?'), findsOneWidget);
+    expect(find.byType(RenPyText), findsOneWidget);
   });
 }

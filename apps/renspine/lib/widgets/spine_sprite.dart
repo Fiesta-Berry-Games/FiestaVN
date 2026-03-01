@@ -4,11 +4,7 @@ import 'package:spine_flutter/spine_flutter.dart' as spine;
 /// A RenPy image name tied to a single Spine character such as
 /// "erikari-angry.spine".
 class SpineSprite extends StatefulWidget {
-  const SpineSprite({
-    super.key,
-    required this.imageName,
-    required this.atLeft,
-  });
+  const SpineSprite({super.key, required this.imageName, required this.atLeft});
 
   final String imageName; // e.g. "erikari-angry.spine".
   final bool atLeft; // Simple L/R positioning.
@@ -22,16 +18,17 @@ class _SpineSpriteState extends State<SpineSprite> {
   static const _atlas = 'assets/chibi-stickers/export/chibi-stickers.atlas';
   static const _skel = 'assets/chibi-stickers/export/chibi-stickers-pro.skel';
 
-  String? _currentImageName;
   String? _currentSkinName;
 
   @override
   void initState() {
     super.initState();
 
-    _ctrl = spine.SpineWidgetController(onInitialized: (_) {
-      _setImageAndAnimation(widget.imageName);
-    });
+    _ctrl = spine.SpineWidgetController(
+      onInitialized: (_) {
+        _setImageAndAnimation(widget.imageName);
+      },
+    );
   }
 
   @override
@@ -46,7 +43,9 @@ class _SpineSpriteState extends State<SpineSprite> {
 
   void _setImageAndAnimation(String imageName) {
     try {
-      print('SpineSprite: Setting ${imageName} at ${widget.atLeft ? "left" : "right"}');
+      debugPrint(
+        'SpineSprite: Setting $imageName at ${widget.atLeft ? "left" : "right"}',
+      );
 
       // Parse "<skin>-<animation>.spine".
       final file = imageName.replaceFirst('.spine', '');
@@ -74,7 +73,7 @@ class _SpineSpriteState extends State<SpineSprite> {
         }
       }
 
-      print('SpineSprite: Parsed - skin: $skinName, animation: $animName');
+      debugPrint('SpineSprite: Parsed - skin: $skinName, animation: $animName');
 
       final skeleton = _ctrl.drawable.skeleton;
       final skeletonData = skeleton.getData();
@@ -82,16 +81,16 @@ class _SpineSpriteState extends State<SpineSprite> {
       // Only change skin if it's different from current.
       if (_currentSkinName != skinName) {
         // Find the skin.
-        final skinObj = skeletonData?.findSkin(skinName) ??
-            skeletonData?.getDefaultSkin();
+        final skinObj =
+            skeletonData?.findSkin(skinName) ?? skeletonData?.getDefaultSkin();
 
         if (skinObj != null) {
-          print('Setting skin: ${skinObj.getName()}');
+          debugPrint('Setting skin: ${skinObj.getName()}');
           skeleton.setSkin(skinObj);
           skeleton.setSlotsToSetupPose();
           _currentSkinName = skinName;
         } else {
-          print('ERROR: Could not find skin: $skinName, using default');
+          debugPrint('ERROR: Could not find skin: $skinName, using default');
           final defaultSkin = skeletonData?.getDefaultSkin();
           if (defaultSkin != null) {
             skeleton.setSkin(defaultSkin);
@@ -117,9 +116,13 @@ class _SpineSpriteState extends State<SpineSprite> {
         try {
           // Use blend time for smooth transition between animations.
           _ctrl.animationState.getData().setDefaultMix(0.1);
-          final trackEntry = _ctrl.animationState.setAnimationByName(0, tryAnim, true);
+          final trackEntry = _ctrl.animationState.setAnimationByName(
+            0,
+            tryAnim,
+            true,
+          );
           trackEntry.setTrackTime(0);
-          print('Successfully set animation: $tryAnim');
+          debugPrint('Successfully set animation: $tryAnim');
           animationSet = true;
           break;
         } catch (e) {
@@ -128,24 +131,29 @@ class _SpineSpriteState extends State<SpineSprite> {
       }
 
       if (!animationSet) {
-        print('Could not set any animation, trying first available animation');
-        final animations = _ctrl.animationState.getData().getSkeletonData().getAnimations();
+        debugPrint(
+          'Could not set any animation, trying first available animation',
+        );
+        final animations =
+            _ctrl.animationState.getData().getSkeletonData().getAnimations();
         if (animations.isNotEmpty) {
           try {
             final firstAnim = animations.first.getName();
             _ctrl.animationState.getData().setDefaultMix(0.1);
-            final trackEntry = _ctrl.animationState.setAnimationByName(0, firstAnim, true);
+            final trackEntry = _ctrl.animationState.setAnimationByName(
+              0,
+              firstAnim,
+              true,
+            );
             trackEntry.setTrackTime(0);
-            print('Set first available animation: $firstAnim');
+            debugPrint('Set first available animation: $firstAnim');
           } catch (e) {
-            print('Even first animation failed: $e');
+            debugPrint('Even first animation failed: $e');
           }
         }
       }
-
-      _currentImageName = imageName;
     } catch (e) {
-      print('SpineSprite animation change error: $e');
+      debugPrint('SpineSprite animation change error: $e');
     }
   }
 
@@ -157,13 +165,15 @@ class _SpineSpriteState extends State<SpineSprite> {
 
   @override
   Widget build(BuildContext context) {
-    print('Building SpineSprite: ${widget.imageName} at ${widget.atLeft ? "left" : "right"}');
+    debugPrint(
+      'Building SpineSprite: ${widget.imageName} at ${widget.atLeft ? "left" : "right"}',
+    );
 
     return Positioned(
       left: widget.atLeft ? 50 : null,
       right: widget.atLeft ? null : 50,
       bottom: 0,
-      child: Container(
+      child: SizedBox(
         width: 200,
         height: 300,
         child: spine.SpineWidget.fromAsset(
@@ -172,7 +182,7 @@ class _SpineSpriteState extends State<SpineSprite> {
           _ctrl,
           // Use broader bounds to ensure nothing is clipped.
           boundsProvider: spine.SkinAndAnimationBounds(
-              skins: const ['erikari', 'harri']
+            skins: const ['erikari', 'harri'],
           ),
         ),
       ),

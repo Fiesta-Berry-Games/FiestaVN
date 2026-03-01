@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:renpy_flutter/renpy_flutter.dart';
 import '../controller.dart';
 
 /// Displays dialogue lines coming from [RenPyFlutterController].
@@ -17,7 +18,7 @@ class DialogueView extends StatelessWidget {
             onTap: controller.continueGame,
             child: Container(
               padding: const EdgeInsets.all(16),
-              color: Colors.black.withOpacity(0.6),
+              color: Colors.black.withValues(alpha: 0.6),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -30,7 +31,7 @@ class DialogueView extends StatelessWidget {
                       ).textTheme.titleMedium?.copyWith(color: Colors.white),
                     ),
                   const SizedBox(height: 4),
-                  Text(
+                  RenPyText(
                     status.text,
                     style: Theme.of(
                       context,
@@ -44,7 +45,7 @@ class DialogueView extends StatelessWidget {
         if (status is RenPyError) {
           return Center(child: Text('Error: ${status.message}'));
         }
-        // Anything else → render nothing (background stays visible).
+        // Anything else -> render nothing (background stays visible).
         return const SizedBox.shrink();
       },
     );

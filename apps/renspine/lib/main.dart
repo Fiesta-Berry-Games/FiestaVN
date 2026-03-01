@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
-import 'package:renpy_core/renpy_core.dart';
 import 'package:renspine/widgets/spine_layer.dart';
 import 'package:renspine/widgets/dialogue_view.dart';
 import 'package:renspine/widgets/menu_selector.dart';
@@ -34,9 +33,9 @@ class _LauncherScreen extends StatelessWidget {
 
   // Convenience helper
   void _startGame(BuildContext ctx, String assetPath) {
-    Navigator.of(ctx).push(
-      MaterialPageRoute(builder: (_) => GameScreen(assetPath: assetPath)),
-    );
+    Navigator.of(
+      ctx,
+    ).push(MaterialPageRoute(builder: (_) => GameScreen(assetPath: assetPath)));
   }
 
   @override
@@ -50,8 +49,8 @@ class _LauncherScreen extends StatelessWidget {
             ElevatedButton.icon(
               icon: const Icon(Icons.looks_one),
               label: const Text('Reference Game 1'),
-              onPressed: () =>
-                  _startGame(context, 'assets/games/1/game/script.rpy'),
+              onPressed:
+                  () => _startGame(context, 'assets/games/1/game/script.rpy'),
             ),
           ],
         ),

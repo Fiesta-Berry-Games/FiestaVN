@@ -38,6 +38,8 @@ dependencies:
   # RenPy packages.
   renpy_core:
     path: ../../packages/renpy_core
+  renpy_flutter:
+    path: ../../packages/renpy_flutter
 
 dependency_overrides:
   renpy_parser:

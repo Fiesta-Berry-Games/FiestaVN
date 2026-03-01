@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:renpy_flutter/renpy_flutter.dart';
 import '../controller.dart';
 
 /// Displays dialogue lines coming from [RenPyFlutterController].
@@ -43,7 +44,7 @@ class DialogueView extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                       ],
-                      _RenPyText(
+                      RenPyText(
                         status.text,
                         style: Theme.of(
                           context,
@@ -62,63 +63,6 @@ class DialogueView extends StatelessWidget {
         // Anything else -> render nothing (background stays visible).
         return const SizedBox.shrink();
       },
-    );
-  }
-}
-
-class _RenPyText extends StatelessWidget {
-  const _RenPyText(this.text, {required this.style});
-
-  final String text;
-  final TextStyle? style;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text.rich(TextSpan(style: style, children: _parseSpans()));
-  }
-
-  List<TextSpan> _parseSpans() {
-    final spans = <TextSpan>[];
-    var bold = false;
-    var italic = false;
-    var index = 0;
-
-    for (final match in RegExp(r'\{[^}]+\}').allMatches(text)) {
-      if (match.start > index) {
-        spans.add(_span(text.substring(index, match.start), bold, italic));
-      }
-
-      switch (match.group(0)) {
-        case '{b}':
-          bold = true;
-          break;
-        case '{/b}':
-          bold = false;
-          break;
-        case '{i}':
-          italic = true;
-          break;
-        case '{/i}':
-          italic = false;
-          break;
-      }
-      index = match.end;
-    }
-
-    if (index < text.length) {
-      spans.add(_span(text.substring(index), bold, italic));
-    }
-
-    return spans.isEmpty ? [TextSpan(text: text)] : spans;
-  }
-
-  TextSpan _span(String value, bool bold, bool italic) {
-    return TextSpan(
-      text: value,
-      style: TextStyle(
-        fontWeight: bold ? FontWeight.bold : null,
-        fontStyle: italic ? FontStyle.italic : null,
-      ),
     );
   }
 }

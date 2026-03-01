@@ -1,0 +1,23 @@
+name: renpy_flutter
+description: Flutter UI adapters and widgets for RenPy-compatible visual novels.
+version: 0.0.1
+publish_to: 'none'
+
+environment:
+  sdk: ^3.7.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  renpy_core:
+    path: ../renpy_core
+
+dependency_overrides:
+  renpy_parser:
+    path: ../renpy_parser
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+

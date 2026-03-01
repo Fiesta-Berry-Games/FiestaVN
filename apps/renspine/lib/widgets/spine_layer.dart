@@ -11,9 +11,8 @@ class SpineLayer extends StatefulWidget {
 }
 
 class _SpineLayerState extends State<SpineLayer> {
-  final _sprites   = <String, Widget>{}; // Character → widget.
-  final _positions = <String, bool>{};   // Character → atLeft?
-  bool  _sceneCleared = false;
+  final _sprites = <String, Widget>{}; // Character -> widget.
+  final _positions = <String, bool>{}; // Character -> atLeft?
 
   @override
   void initState() {
@@ -26,28 +25,27 @@ class _SpineLayerState extends State<SpineLayer> {
     if (s is! RenPyImageChange) return;
 
     setState(() {
-      // ── scene ─────────────────────────────────────────────────────────────
+      // -- scene -------------------------------------------------------------
       if (s.scene != null) {
         _sprites.clear();
         _positions.clear();
-        _sceneCleared = true;
       }
 
-      // ── hide ──────────────────────────────────────────────────────────────
+      // -- hide --------------------------------------------------------------
       if (s.hide != null) {
         final name = s.hide!.trim().split(RegExp(r'\s+')).first;
         _sprites.remove(name);
         _positions.remove(name);
       }
 
-      // ── show ──────────────────────────────────────────────────────────────
+      // -- show --------------------------------------------------------------
       if (s.show != null) {
         final clean = s.show!.split('#')[0].trim();
         final parts = clean.split(RegExp(r'\s+'));
         if (parts.length < 2) return; // Malformed.
 
         final name = parts[0]; // Character name.
-        final anim = parts[1]; // idle / wave / angry …
+        final anim = parts[1]; // idle / wave / angry ...
 
         // Optional "at left/right".
         bool? explicitLeft;
@@ -63,7 +61,7 @@ class _SpineLayerState extends State<SpineLayer> {
         } else if (_positions.containsKey(name)) {
           atLeft = _positions[name]!; // Stick to previous side.
         } else {
-          // First unseen character → left, next → right, then alternate.
+          // First unseen character -> left, next -> right, then alternate.
           final leftTaken = _positions.values.where((v) => v).length;
           final rightTaken = _positions.length - leftTaken;
           atLeft = leftTaken <= rightTaken;
@@ -72,9 +70,10 @@ class _SpineLayerState extends State<SpineLayer> {
 
         // Build Spine file path (assume skin name == character name).
         final skin = name;
-        final file = (anim == 'idle')
-            ? '$skin-movement/idle-front.spine'
-            : '$skin-emotes/$anim.spine';
+        final file =
+            (anim == 'idle')
+                ? '$skin-movement/idle-front.spine'
+                : '$skin-emotes/$anim.spine';
 
         // Check if we already have a sprite for this character.
         if (_sprites.containsKey(name)) {
