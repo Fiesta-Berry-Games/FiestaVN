@@ -28,7 +28,7 @@ void main() {
       expect(nestedMenus.first.items.length, equals(2));
     });
 
-    test('scene/show statements record “with” transition', () {
+    test('scene/show statements record "with" transition', () {
       final sceneS2 = result.script
           .findStatements<RenPySceneStatement>((s) => s.imageName == 'S2')
           .single;
@@ -64,13 +64,13 @@ void main() {
       expect(plays.every((p) => p.channel == 'sound'), isTrue);
     });
 
-    test('simple “=“ assignment captured as DefineStatement', () {
+    test('simple "=" assignment captured as DefineStatement', () {
       final defines = result.script
           .findStatements<RenPyDefineStatement>((_) => true);
       expect(defines.any((d) => d.name == 'AyyNoticed1'), isTrue);
     });
 
-    test('“+=“ compound assignment captured as PythonStatement', () {
+    test('"+=" compound assignment captured as PythonStatement', () {
       final pyLines = result.script
           .findStatements<RenPyPythonStatement>((_) => true);
       expect(pyLines.any((p) => p.code.contains('AyyInfo.L += 1')), isTrue);

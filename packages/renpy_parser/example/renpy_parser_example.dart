@@ -27,7 +27,7 @@ Future<void> main(List<String> args) async {
 
   // Show any non-fatal warnings.
   if (result.warnings.isNotEmpty) {
-    stdout.writeln('— Warnings —');
+    stdout.writeln('- Warnings -');
     result.warnings.forEach(stdout.writeln);
     stdout.writeln();
   }
@@ -43,7 +43,7 @@ Future<void> main(List<String> args) async {
 
   final images = result.script
       .findStatements<RenPyImageStatement>((_) => true)
-      .map((i) => '${i.name}  →  ${i.expression}')
+      .map((i) => '${i.name}  ->  ${i.expression}')
       .join('\n');
   if (images.isNotEmpty) {
     stdout.writeln('\nImages found:\n$images');
