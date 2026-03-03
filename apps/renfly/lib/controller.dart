@@ -5,7 +5,7 @@ import 'package:renpy_core/renpy_core.dart';
 /// Public, minimal information describing what the player should currently see.
 sealed class RenPyGameStatus {}
 
-/// Idle → waiting for the app to load a script, nothing on screen yet.
+/// Idle -> waiting for the app to load a script, nothing on screen yet.
 final class RenPyIdle extends RenPyGameStatus {}
 
 /// A line of dialogue (optionally attributed to a character).
@@ -56,9 +56,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
 
   RenPyRunner? _runner;
   StreamSubscription? _ticker; // Nullable so we can dispose/re-create.
-  String? _gameRoot;
-  Set<String> _availableAssets = {};
-  Map<String, String> _imageAliases = {};
+  RenPyImageResolver _imageResolver = RenPyImageResolver();
 
   /// Loads a `.rpy` script (raw source string) and immediately jumps
   /// to the `start` label if it exists.  Calling [load] again cleanly
@@ -73,12 +71,14 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     _ticker?.cancel();
     _runner = null;
     value = RenPyIdle();
-    _gameRoot = gameRoot;
-    _availableAssets = availableAssets;
 
     final parser = RenPyParser();
     final result = parser.parse(source, filename);
-    _imageAliases = _buildImageAliases(result.script);
+    _imageResolver = RenPyImageResolver.fromScript(
+      result.script,
+      assetRoot: gameRoot,
+      availableAssets: availableAssets,
+    );
 
     debugPrint(
       'Parsed script with ${result.script.statements.length} statements',
@@ -169,68 +169,9 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       scene: scene,
       show: show,
       hide: hide,
-      sceneAsset: _resolveImageAsset(scene),
-      showAsset: _resolveImageAsset(show),
+      sceneAsset: _imageResolver.resolve(scene),
+      showAsset: _imageResolver.resolve(show),
     );
-  }
-
-  Map<String, String> _buildImageAliases(RenPyScript script) {
-    final aliases = <String, String>{};
-    for (final image in script.findStatements<RenPyImageStatement>(
-      (_) => true,
-    )) {
-      final expression = image.expression.trim();
-      final imageCall = RegExp(
-        r'''Image\s*\(\s*["']([^"']+)["']\s*\)''',
-      ).firstMatch(expression);
-      final quoted = RegExp(r'''^["']([^"']+)["']$''').firstMatch(expression);
-      aliases[image.name] =
-          imageCall?.group(1) ?? quoted?.group(1) ?? expression;
-    }
-    return aliases;
-  }
-
-  String? _resolveImageAsset(String? imageName) {
-    final root = _gameRoot;
-    if (imageName == null || root == null) return null;
-    if (imageName == 'black') return null;
-
-    final clean = imageName.split('#').first.trim();
-    final alias = _imageAliases[clean];
-    final candidates = <String>[];
-
-    void addCandidate(String relativePath) {
-      final normalized = relativePath.replaceAll(RegExp(r'^/+'), '');
-      if (normalized.startsWith('assets/')) {
-        candidates.add(normalized);
-      } else {
-        candidates.add('$root/$normalized');
-        candidates.add('$root/images/$normalized');
-      }
-    }
-
-    if (alias != null) {
-      addCandidate(alias);
-    }
-
-    final hasExtension = RegExp(
-      r'\.(png|jpg|jpeg|webp|gif)$',
-      caseSensitive: false,
-    ).hasMatch(clean);
-    if (hasExtension) {
-      addCandidate(clean);
-    } else {
-      for (final extension in const ['png', 'jpg', 'jpeg', 'webp', 'gif']) {
-        addCandidate('$clean.$extension');
-        addCandidate('${clean.replaceAll(' ', '_')}.$extension');
-      }
-    }
-
-    for (final candidate in candidates) {
-      if (_availableAssets.contains(candidate)) return candidate;
-    }
-
-    return candidates.isNotEmpty ? candidates.first : null;
   }
 
   @override
