@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:renpy_flutter/renpy_flutter.dart';
-import '../controller.dart';
 
 /// Displays dialogue lines coming from [RenPyFlutterController].
 class DialogueView extends StatelessWidget {

@@ -1,23 +1,26 @@
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:renpy_core/renpy_core.dart';
 
 /// Public, minimal information describing what the player should currently see.
 sealed class RenPyGameStatus {}
 
-/// Idle -> waiting for the app to load a script, nothing on screen yet.
+/// Idle: waiting for the app to load a script, nothing on screen yet.
 final class RenPyIdle extends RenPyGameStatus {}
 
-/// A line of dialogue (optionally attributed to a character).
+/// A line of dialogue, optionally attributed to a character.
 final class RenPyDialogue extends RenPyGameStatus {
   RenPyDialogue(this.character, this.text);
+
   final String? character;
   final String text;
 }
 
-/// A choice menu.  UI must call [onChoice] with the index the user picked.
+/// A choice menu. UI must call [onChoice] with the index the user picked.
 final class RenPyMenu extends RenPyGameStatus {
   RenPyMenu(this.choices, this.onChoice, {this.caption});
+
   final List<String> choices;
   final void Function(int) onChoice;
   final String? caption;
@@ -32,6 +35,7 @@ final class RenPyImageChange extends RenPyGameStatus {
     this.sceneAsset,
     this.showAsset,
   });
+
   final String? scene;
   final String? show;
   final String? hide;
@@ -45,6 +49,7 @@ final class RenPyComplete extends RenPyGameStatus {}
 /// The runner encountered an unrecoverable error.
 final class RenPyError extends RenPyGameStatus {
   RenPyError(this.message);
+
   final String message;
 }
 
@@ -55,12 +60,12 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   final VoidCallback? onComplete;
 
   RenPyRunner? _runner;
-  StreamSubscription? _ticker; // Nullable so we can dispose/re-create.
+  StreamSubscription? _ticker;
   RenPyImageResolver _imageResolver = RenPyImageResolver();
 
-  /// Loads a `.rpy` script (raw source string) and immediately jumps
-  /// to the `start` label if it exists.  Calling [load] again cleanly
-  /// restarts the controller with the new script.
+  /// Loads a `.rpy` script and immediately jumps to `start` when present.
+  ///
+  /// Calling [load] again cleanly restarts the controller with the new script.
   void load(
     String source, {
     String filename = '<memory>',
@@ -100,29 +105,28 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
 
     _startTicker();
     debugPrint('Starting initial execution...');
-    runner.run(); // Start first run-loop cycle.
+    runner.run();
   }
 
   /// Player pressed "next".
   void continueGame() {
-    final r = _runner;
-    if (r == null) return;
-    if (r.state == RenPyRunnerState.waitingForInput) {
+    final runner = _runner;
+    if (runner == null) return;
+    if (runner.state == RenPyRunnerState.waitingForInput) {
       debugPrint('Continuing game execution...');
-      r.continueExecution();
+      runner.continueExecution();
       _ticker?.resume();
     }
   }
 
   void _startTicker() {
-    // (re)create a 1 ms timer-based ticker that drives the runner forward.
     _ticker = Stream.periodic(const Duration(milliseconds: 1)).listen((_) {
-      final r = _runner;
-      if (r == null) return;
+      final runner = _runner;
+      if (runner == null) return;
 
-      switch (r.state) {
+      switch (runner.state) {
         case RenPyRunnerState.waitingForInput:
-          _ticker?.pause(); // Wait for player / menu.
+          _ticker?.pause();
           break;
         case RenPyRunnerState.complete:
           debugPrint('Script execution complete');
@@ -131,19 +135,19 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
           onComplete?.call();
           break;
         case RenPyRunnerState.error:
-          debugPrint('Script execution error: ${r.errorMessage}');
-          value = RenPyError(r.errorMessage ?? 'Unknown error');
+          debugPrint('Script execution error: ${runner.errorMessage}');
+          value = RenPyError(runner.errorMessage ?? 'Unknown error');
           _ticker?.cancel();
           break;
         default:
-          r.continueExecution(); // Keep crunching through script.
+          runner.continueExecution();
       }
     });
   }
 
   void _onDialogue(String? character, String text) {
     debugPrint('Dialogue: ${character ?? "Narrator"}: $text');
-    _ticker?.pause(); // Freeze on dialogue.
+    _ticker?.pause();
     value = RenPyDialogue(character, text);
   }
 
@@ -153,18 +157,16 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     String? caption,
   ) {
     debugPrint('Menu with choices: $choices');
-    // Called for every menu, including nested ones.
     _ticker?.pause();
     value = RenPyMenu(choices, (i) {
       debugPrint('Menu choice selected: ${choices[i]}');
-      onChoice(i); // Notify runner.
-      _ticker?.resume(); // Resume execution afterwards.
+      onChoice(i);
+      _ticker?.resume();
     }, caption: caption);
   }
 
   void _onImage(String? scene, String? show, String? hide) {
     debugPrint('Image command - scene: $scene, show: $show, hide: $hide');
-    // _ticker?.pause(); // Can be used to allow a reaction before continuing.
     value = RenPyImageChange(
       scene: scene,
       show: show,

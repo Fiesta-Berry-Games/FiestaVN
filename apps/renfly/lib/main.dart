@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show AssetManifest, rootBundle;
+import 'package:renpy_flutter/renpy_flutter.dart';
 import 'package:renfly/widgets/dialogue_view.dart';
 import 'package:renfly/widgets/menu_selector.dart';
 import 'package:renfly/widgets/image_layer.dart';
-
-import 'controller.dart';
 
 void main() => runApp(const FiestaVNApp());
 

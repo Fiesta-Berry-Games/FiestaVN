@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:renfly/controller.dart';
 import 'package:renfly/widgets/dialogue_view.dart';
 import 'package:renpy_flutter/renpy_flutter.dart';
 

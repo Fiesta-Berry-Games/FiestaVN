@@ -3,9 +3,8 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:renspine/widgets/spine_layer.dart';
 import 'package:renspine/widgets/dialogue_view.dart';
 import 'package:renspine/widgets/menu_selector.dart';
+import 'package:renpy_flutter/renpy_flutter.dart';
 import 'package:spine_flutter/spine_flutter.dart' show initSpineFlutter;
-
-import 'controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

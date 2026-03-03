@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:renfly/controller.dart';
+import 'package:renpy_flutter/renpy_flutter.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

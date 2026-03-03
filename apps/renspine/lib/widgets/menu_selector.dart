@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../controller.dart';
+import 'package:renpy_flutter/renpy_flutter.dart';
 
 /// Overlay that shows Ren'Py in-game menus.
 ///

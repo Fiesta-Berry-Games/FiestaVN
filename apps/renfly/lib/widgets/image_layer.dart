@@ -1,5 +1,5 @@
 import 'package:flutter/widgets.dart';
-import '../controller.dart';
+import 'package:renpy_flutter/renpy_flutter.dart';
 import 'image_sprite.dart';
 
 class ImageLayer extends StatefulWidget {
@@ -11,8 +11,8 @@ class ImageLayer extends StatefulWidget {
 }
 
 class _ImageLayerState extends State<ImageLayer> {
-  final _sprites = <String, Widget>{}; // Character → widget.
-  final _positions = <String, bool>{}; // Character → atLeft?
+  final _sprites = <String, Widget>{}; // Character -> widget.
+  final _positions = <String, bool>{}; // Character -> atLeft?
   String? _backgroundAsset;
 
   @override
@@ -26,21 +26,21 @@ class _ImageLayerState extends State<ImageLayer> {
     if (s is! RenPyImageChange) return;
 
     setState(() {
-      // ── scene ─────────────────────────────────────────────────────────────
+      // -- scene -------------------------------------------------------------
       if (s.scene != null) {
         _sprites.clear();
         _positions.clear();
         _backgroundAsset = s.scene == 'black' ? null : s.sceneAsset;
       }
 
-      // ── hide ──────────────────────────────────────────────────────────────
+      // -- hide --------------------------------------------------------------
       if (s.hide != null) {
         final name = s.hide!.trim().split(RegExp(r'\s+')).first;
         _sprites.remove(name);
         _positions.remove(name);
       }
 
-      // ── show ──────────────────────────────────────────────────────────────
+      // -- show --------------------------------------------------------------
       if (s.show != null) {
         final clean = s.show!.split('#')[0].trim();
         final parts = clean.split(RegExp(r'\s+'));
@@ -62,7 +62,7 @@ class _ImageLayerState extends State<ImageLayer> {
         } else if (_positions.containsKey(name)) {
           atLeft = _positions[name]!; // Stick to previous side.
         } else {
-          // First unseen character → left, next → right, then alternate.
+          // First unseen character -> left, next -> right, then alternate.
           final leftTaken = _positions.values.where((v) => v).length;
           final rightTaken = _positions.length - leftTaken;
           atLeft = leftTaken <= rightTaken;

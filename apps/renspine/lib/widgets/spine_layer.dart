@@ -1,5 +1,5 @@
 import 'package:flutter/widgets.dart';
-import '../controller.dart';
+import 'package:renpy_flutter/renpy_flutter.dart';
 import 'spine_sprite.dart';
 
 class SpineLayer extends StatefulWidget {
