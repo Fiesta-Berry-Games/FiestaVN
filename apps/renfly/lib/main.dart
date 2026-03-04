@@ -3,7 +3,6 @@ import 'package:flutter/services.dart' show AssetManifest, rootBundle;
 import 'package:renpy_flutter/renpy_flutter.dart';
 import 'package:renfly/widgets/dialogue_view.dart';
 import 'package:renfly/widgets/menu_selector.dart';
-import 'package:renfly/widgets/image_layer.dart';
 
 void main() => runApp(const FiestaVNApp());
 
@@ -137,7 +136,7 @@ class _GameScreenState extends State<GameScreen> {
         fit: StackFit.expand,
         children: [
           Container(color: Colors.grey.shade900),
-          ImageLayer(controller: _ctrl),
+          RenPyImageLayer(controller: _ctrl),
           DialogueView(controller: _ctrl),
           MenuSelector(controller: _ctrl),
         ],
