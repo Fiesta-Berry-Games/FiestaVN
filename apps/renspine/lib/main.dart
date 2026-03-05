@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:renspine/widgets/spine_layer.dart';
-import 'package:renspine/widgets/dialogue_view.dart';
-import 'package:renspine/widgets/menu_selector.dart';
 import 'package:renpy_flutter/renpy_flutter.dart';
 import 'package:spine_flutter/spine_flutter.dart' show initSpineFlutter;
 
@@ -111,8 +109,8 @@ class _GameScreenState extends State<GameScreen> {
         children: [
           Container(color: Colors.grey.shade900),
           SpineLayer(controller: _ctrl),
-          DialogueView(controller: _ctrl),
-          MenuSelector(controller: _ctrl),
+          RenPyDialogueView(controller: _ctrl),
+          RenPyMenuSelector(controller: _ctrl),
         ],
       ),
       floatingActionButton: FloatingActionButton(

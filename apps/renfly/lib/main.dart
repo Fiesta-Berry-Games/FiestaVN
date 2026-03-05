@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show AssetManifest, rootBundle;
 import 'package:renpy_flutter/renpy_flutter.dart';
-import 'package:renfly/widgets/dialogue_view.dart';
-import 'package:renfly/widgets/menu_selector.dart';
 
 void main() => runApp(const FiestaVNApp());
 
@@ -137,8 +135,8 @@ class _GameScreenState extends State<GameScreen> {
         children: [
           Container(color: Colors.grey.shade900),
           RenPyImageLayer(controller: _ctrl),
-          DialogueView(controller: _ctrl),
-          MenuSelector(controller: _ctrl),
+          RenPyDialogueView(controller: _ctrl),
+          RenPyMenuSelector(controller: _ctrl),
         ],
       ),
       floatingActionButton: FloatingActionButton(

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:renfly/widgets/dialogue_view.dart';
 import 'package:renpy_flutter/renpy_flutter.dart';
 
 void main() {
@@ -13,7 +12,9 @@ void main() {
     controller.value = RenPyDialogue(null, '{b}Good Ending{/b}.');
 
     await tester.pumpWidget(
-      MaterialApp(home: Scaffold(body: DialogueView(controller: controller))),
+      MaterialApp(
+        home: Scaffold(body: RenPyDialogueView(controller: controller)),
+      ),
     );
 
     expect(find.text('{b}Good Ending{/b}.'), findsNothing);
@@ -36,7 +37,9 @@ void main() {
     controller.value = RenPyDialogue(null, 'Huh?{p=0.3}{nw}');
 
     await tester.pumpWidget(
-      MaterialApp(home: Scaffold(body: DialogueView(controller: controller))),
+      MaterialApp(
+        home: Scaffold(body: RenPyDialogueView(controller: controller)),
+      ),
     );
 
     expect(find.text('Huh?{p=0.3}{nw}'), findsNothing);
