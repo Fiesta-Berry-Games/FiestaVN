@@ -3,4 +3,5 @@
 export 'src/renpy_chrome.dart';
 export 'src/renpy_flutter_controller.dart';
 export 'src/renpy_image_layer.dart';
+export 'src/renpy_player.dart';
 export 'src/renpy_text.dart';

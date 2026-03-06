@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show AssetManifest, rootBundle;
 import 'package:renpy_flutter/renpy_flutter.dart';
 
 void main() => runApp(const FiestaVNApp());
@@ -64,91 +63,17 @@ class _LauncherScreen extends StatelessWidget {
 }
 
 /// The game screen itself.
-class GameScreen extends StatefulWidget {
+class GameScreen extends StatelessWidget {
   const GameScreen({super.key, required this.assetPath});
   final String assetPath;
 
   @override
-  State<GameScreen> createState() => _GameScreenState();
-}
-
-class _GameScreenState extends State<GameScreen> {
-  late final RenPyFlutterController _ctrl;
-  late String _source;
-  Set<String> _availableAssets = {};
-  bool _loading = true;
-
-  String get _gameRoot => widget.assetPath.substring(
-    0,
-    widget.assetPath.lastIndexOf('/script.rpy'),
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = RenPyFlutterController();
-    _bootstrap();
-  }
-
-  Future<void> _bootstrap() async {
-    _source = await rootBundle.loadString(widget.assetPath);
-    final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
-    _availableAssets =
-        manifest
-            .listAssets()
-            .where((asset) => asset.startsWith(_gameRoot))
-            .toSet();
-
-    // First draw the real game screen so that ImageLayer attaches its listener.
-    if (!mounted) return;
-    setState(() => _loading = false);
-
-    // Run the script on the very next frame.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _ctrl.load(
-          _source,
-          filename: widget.assetPath,
-          gameRoot: _gameRoot,
-          availableAssets: _availableAssets,
-        );
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
     return Scaffold(
-      appBar: AppBar(title: Text(widget.assetPath.split('/').elementAt(2))),
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          Container(color: Colors.grey.shade900),
-          RenPyImageLayer(controller: _ctrl),
-          RenPyDialogueView(controller: _ctrl),
-          RenPyMenuSelector(controller: _ctrl),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        tooltip: 'Restart',
-        onPressed:
-            () => _ctrl.load(
-              _source,
-              filename: widget.assetPath,
-              gameRoot: _gameRoot,
-              availableAssets: _availableAssets,
-            ),
-        child: const Icon(Icons.refresh),
+      appBar: AppBar(title: Text(assetPath.split('/').elementAt(2))),
+      body: RenPyAssetPlayer(
+        scriptAsset: assetPath,
+        backgroundColor: Colors.grey.shade900,
       ),
     );
   }
