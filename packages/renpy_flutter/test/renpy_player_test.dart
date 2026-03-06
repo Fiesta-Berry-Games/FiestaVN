@@ -67,6 +67,183 @@ label start:
     expect(find.text('First.'), findsOneWidget);
     expect(find.text('Second.'), findsNothing);
   });
+
+  testWidgets('asset player supports a custom image layer', (tester) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    show sylvie green normal
+    "Hello."
+''',
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+          imageLayerBuilder: (context, controller) {
+            return _RecordingImageLayer(controller: controller);
+          },
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('custom:sylvie green normal'));
+
+    expect(find.text('Hello.'), findsOneWidget);
+  });
+
+  testWidgets('asset player exposes loading and load failure builders', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({});
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/missing/script.rpy',
+          bundle: bundle,
+          loadingBuilder: (context) => const Text('Loading script...'),
+          loadErrorBuilder:
+              (context, error, stackTrace) => Text('Load failed: $error'),
+        ),
+      ),
+    );
+
+    expect(find.text('Loading script...'), findsOneWidget);
+
+    await tester.pump();
+
+    expect(
+      find.textContaining('Load failed: Missing test asset'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('asset player switches script assets without stale dialogue', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/one.rpy': '''
+label start:
+    "First script."
+''',
+      'assets/game/two.rpy': '''
+label start:
+    "Second script."
+''',
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/one.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+        ),
+      ),
+    );
+    await _pumpUntil(tester, find.text('First script.'));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/two.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+        ),
+      ),
+    );
+    await _pumpUntil(tester, find.text('Second script.'));
+
+    expect(find.text('Second script.'), findsOneWidget);
+    expect(find.text('First script.'), findsNothing);
+  });
+
+  testWidgets('asset player does not reload when dependencies are unchanged', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    "Stable."
+''',
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+        ),
+      ),
+    );
+    await _pumpUntil(tester, find.text('Stable.'));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData.light(),
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(bundle.loadStringCalls('assets/game/script.rpy'), 1);
+  });
+
+  testWidgets('asset player surfaces controller start failures', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    jump missing_label
+''',
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.textContaining('Label not found'));
+
+    expect(find.textContaining('Label not found'), findsOneWidget);
+  });
+
+  testWidgets('asset player surfaces parser failures as player errors', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': 'label start:\n\t"Tabs are invalid."',
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.textContaining('Tab characters'));
+
+    expect(find.textContaining('Tab characters'), findsOneWidget);
+  });
 }
 
 Future<void> _pumpUntil(WidgetTester tester, Finder finder) async {
@@ -82,9 +259,11 @@ class _MemoryAssetBundle extends CachingAssetBundle {
   _MemoryAssetBundle(this.assets);
 
   final Map<String, String> assets;
+  final Map<String, int> loadStringCallCounts = {};
 
   @override
   Future<String> loadString(String key, {bool cache = true}) async {
+    loadStringCallCounts.update(key, (count) => count + 1, ifAbsent: () => 1);
     final value = assets[key];
     if (value == null) {
       throw FlutterError('Missing test asset: $key');
@@ -95,5 +274,45 @@ class _MemoryAssetBundle extends CachingAssetBundle {
   @override
   Future<ByteData> load(String key) {
     throw UnimplementedError('Binary assets are not used by this test.');
+  }
+
+  int loadStringCalls(String key) => loadStringCallCounts[key] ?? 0;
+}
+
+class _RecordingImageLayer extends StatefulWidget {
+  const _RecordingImageLayer({required this.controller});
+
+  final RenPyFlutterController controller;
+
+  @override
+  State<_RecordingImageLayer> createState() => _RecordingImageLayerState();
+}
+
+class _RecordingImageLayerState extends State<_RecordingImageLayer> {
+  String? show;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onStatusChanged);
+  }
+
+  void _onStatusChanged() {
+    final status = widget.controller.value;
+    if (status is RenPyImageChange && status.show != null) {
+      setState(() => show = status.show);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onStatusChanged);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final show = this.show;
+    return show == null ? const SizedBox.shrink() : Text('custom:$show');
   }
 }

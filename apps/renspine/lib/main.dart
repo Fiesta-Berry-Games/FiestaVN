@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:renspine/widgets/spine_layer.dart';
 import 'package:renpy_flutter/renpy_flutter.dart';
 import 'package:spine_flutter/spine_flutter.dart' show initSpineFlutter;
@@ -57,66 +56,19 @@ class _LauncherScreen extends StatelessWidget {
 }
 
 /// The game screen itself.
-class GameScreen extends StatefulWidget {
+class GameScreen extends StatelessWidget {
   const GameScreen({super.key, required this.assetPath});
   final String assetPath;
 
   @override
-  State<GameScreen> createState() => _GameScreenState();
-}
-
-class _GameScreenState extends State<GameScreen> {
-  late final RenPyFlutterController _ctrl;
-  late String _source;
-  bool _loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = RenPyFlutterController();
-    _bootstrap();
-  }
-
-  Future<void> _bootstrap() async {
-    _source = await rootBundle.loadString(widget.assetPath);
-
-    // First draw the real game screen so that SpineLayer attaches its listener.
-    if (!mounted) return;
-    setState(() => _loading = false);
-
-    // Run the script on the very next frame.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _ctrl.load(_source);
-    });
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
     return Scaffold(
-      appBar: AppBar(title: Text(widget.assetPath.split('/').elementAt(2))),
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          Container(color: Colors.grey.shade900),
-          SpineLayer(controller: _ctrl),
-          RenPyDialogueView(controller: _ctrl),
-          RenPyMenuSelector(controller: _ctrl),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        tooltip: 'Restart',
-        onPressed: () => _ctrl.load(_source), // quick reset
-        child: const Icon(Icons.refresh),
+      appBar: AppBar(title: Text(assetPath.split('/').elementAt(2))),
+      body: RenPyAssetPlayer(
+        scriptAsset: assetPath,
+        backgroundColor: Colors.grey.shade900,
+        imageLayerBuilder:
+            (context, controller) => SpineLayer(controller: controller),
       ),
     );
   }

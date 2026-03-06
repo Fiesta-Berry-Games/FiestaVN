@@ -5,6 +5,12 @@ import 'renpy_chrome.dart';
 import 'renpy_flutter_controller.dart';
 import 'renpy_image_layer.dart';
 
+typedef RenPyLayerBuilder =
+    Widget Function(BuildContext context, RenPyFlutterController controller);
+typedef RenPyLoadingBuilder = Widget Function(BuildContext context);
+typedef RenPyLoadErrorBuilder =
+    Widget Function(BuildContext context, Object error, StackTrace stackTrace);
+
 /// A reusable visual novel surface for an already-managed controller.
 class RenPyPlayer extends StatelessWidget {
   const RenPyPlayer({
@@ -13,12 +19,14 @@ class RenPyPlayer extends StatelessWidget {
     this.backgroundColor = const Color(0xFF212121),
     this.showRestartButton = true,
     this.onRestart,
+    this.imageLayerBuilder,
   });
 
   final RenPyFlutterController controller;
   final Color backgroundColor;
   final bool showRestartButton;
   final VoidCallback? onRestart;
+  final RenPyLayerBuilder? imageLayerBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +34,10 @@ class RenPyPlayer extends StatelessWidget {
       fit: StackFit.expand,
       children: [
         ColoredBox(color: backgroundColor),
-        RenPyImageLayer(controller: controller),
+        if (imageLayerBuilder != null)
+          imageLayerBuilder!(context, controller)
+        else
+          RenPyImageLayer(controller: controller),
         RenPyDialogueView(controller: controller),
         RenPyMenuSelector(controller: controller),
         if (showRestartButton && onRestart != null)
@@ -54,6 +65,9 @@ class RenPyAssetPlayer extends StatefulWidget {
     this.availableAssets,
     this.backgroundColor = const Color(0xFF212121),
     this.showRestartButton = true,
+    this.imageLayerBuilder,
+    this.loadingBuilder,
+    this.loadErrorBuilder,
   });
 
   final String scriptAsset;
@@ -62,6 +76,9 @@ class RenPyAssetPlayer extends StatefulWidget {
   final Set<String>? availableAssets;
   final Color backgroundColor;
   final bool showRestartButton;
+  final RenPyLayerBuilder? imageLayerBuilder;
+  final RenPyLoadingBuilder? loadingBuilder;
+  final RenPyLoadErrorBuilder? loadErrorBuilder;
 
   @override
   State<RenPyAssetPlayer> createState() => _RenPyAssetPlayerState();
@@ -71,6 +88,13 @@ class _RenPyAssetPlayerState extends State<RenPyAssetPlayer> {
   late final RenPyFlutterController _controller;
   String? _source;
   late Set<String> _availableAssets;
+  Object? _loadError;
+  StackTrace? _loadStackTrace;
+  int _bootstrapGeneration = 0;
+  String? _bootstrappedScriptAsset;
+  String? _bootstrappedGameRoot;
+  AssetBundle? _bootstrappedBundle;
+  Set<String>? _bootstrappedAvailableAssets;
 
   String get _gameRoot {
     final explicit = widget.gameRoot;
@@ -98,38 +122,66 @@ class _RenPyAssetPlayerState extends State<RenPyAssetPlayer> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _bootstrap();
+    _bootstrapIfNeeded();
   }
 
   @override
   void didUpdateWidget(RenPyAssetPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.scriptAsset != oldWidget.scriptAsset ||
-        widget.bundle != oldWidget.bundle ||
-        widget.gameRoot != oldWidget.gameRoot ||
-        widget.availableAssets != oldWidget.availableAssets) {
+    _bootstrapIfNeeded();
+  }
+
+  void _bootstrapIfNeeded() {
+    final bundle = _bundle;
+    if (_bootstrappedScriptAsset == widget.scriptAsset &&
+        _bootstrappedGameRoot == widget.gameRoot &&
+        identical(_bootstrappedBundle, bundle) &&
+        identical(_bootstrappedAvailableAssets, widget.availableAssets)) {
+      return;
+    }
+
+    _bootstrappedScriptAsset = widget.scriptAsset;
+    _bootstrappedGameRoot = widget.gameRoot;
+    _bootstrappedBundle = bundle;
+    _bootstrappedAvailableAssets = widget.availableAssets;
+    _bootstrap(bundle);
+  }
+
+  Future<void> _bootstrap(AssetBundle bundle) async {
+    final generation = ++_bootstrapGeneration;
+    setState(() {
       _source = null;
+      _loadError = null;
+      _loadStackTrace = null;
       _availableAssets = widget.availableAssets ?? const {};
-      _bootstrap();
+    });
+
+    try {
+      final source = await bundle.loadString(widget.scriptAsset);
+      final availableAssets =
+          widget.availableAssets ?? await _loadAvailableAssets(bundle);
+      if (!mounted || generation != _bootstrapGeneration) return;
+
+      _source = source;
+      _availableAssets = availableAssets;
+
+      setState(() {});
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && generation == _bootstrapGeneration) _loadController();
+      });
+    } catch (error, stackTrace) {
+      if (!mounted || generation != _bootstrapGeneration) return;
+
+      setState(() {
+        _loadError = error;
+        _loadStackTrace = stackTrace;
+      });
     }
   }
 
-  Future<void> _bootstrap() async {
-    final source = await _bundle.loadString(widget.scriptAsset);
-    if (!mounted) return;
-
-    _source = source;
-    _availableAssets = widget.availableAssets ?? await _loadAvailableAssets();
-
-    setState(() {});
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _loadController();
-    });
-  }
-
-  Future<Set<String>> _loadAvailableAssets() async {
-    final manifest = await AssetManifest.loadFromAssetBundle(_bundle);
+  Future<Set<String>> _loadAvailableAssets(AssetBundle bundle) async {
+    final manifest = await AssetManifest.loadFromAssetBundle(bundle);
     return manifest
         .listAssets()
         .where((asset) => asset.startsWith(_gameRoot))
@@ -140,23 +192,38 @@ class _RenPyAssetPlayerState extends State<RenPyAssetPlayer> {
     final source = _source;
     if (source == null) return;
 
-    _controller.load(
-      source,
-      filename: widget.scriptAsset,
-      gameRoot: _gameRoot,
-      availableAssets: _availableAssets,
-    );
+    try {
+      _controller.load(
+        source,
+        filename: widget.scriptAsset,
+        gameRoot: _gameRoot,
+        availableAssets: _availableAssets,
+      );
+    } catch (error) {
+      _controller.value = RenPyError(error.toString());
+    }
   }
 
   @override
   void dispose() {
+    _bootstrapGeneration++;
     _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final error = _loadError;
+    final stackTrace = _loadStackTrace;
+    if (error != null && stackTrace != null) {
+      final builder = widget.loadErrorBuilder;
+      if (builder != null) return builder(context, error, stackTrace);
+      return Center(child: Text('Failed to load RenPy script: $error'));
+    }
+
     if (_source == null) {
+      final builder = widget.loadingBuilder;
+      if (builder != null) return builder(context);
       return const Center(child: CircularProgressIndicator());
     }
 
@@ -165,6 +232,7 @@ class _RenPyAssetPlayerState extends State<RenPyAssetPlayer> {
       backgroundColor: widget.backgroundColor,
       showRestartButton: widget.showRestartButton,
       onRestart: _loadController,
+      imageLayerBuilder: widget.imageLayerBuilder,
     );
   }
 }
