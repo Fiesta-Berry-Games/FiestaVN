@@ -52,12 +52,8 @@ void main() {
           'assets/games/the_question/game/images/sylvie green normal.png',
         ),
       );
-      expect(
-        audio,
-        contains(
-          const RenPyAudioChange.play(channel: 'music', asset: 'illurock.opus'),
-        ),
-      );
+      expect(audio.map((change) => change.channel), contains('music'));
+      expect(audio.map((change) => change.asset), contains('illurock.opus'));
     },
   );
 

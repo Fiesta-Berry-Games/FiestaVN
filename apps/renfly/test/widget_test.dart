@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:renfly/main.dart';
 import 'package:flutter/widgets.dart';
+import 'package:renpy_flutter/renpy_flutter.dart';
 
 void main() {
   testWidgets('launcher lists The Question', (tester) async {
@@ -42,7 +43,12 @@ void main() {
 Future<void> _pumpFreshApp(WidgetTester tester) async {
   await tester.pumpWidget(const SizedBox.shrink());
   await tester.pump();
-  await tester.pumpWidget(FiestaVNApp(key: UniqueKey()));
+  await tester.pumpWidget(
+    FiestaVNApp(
+      key: UniqueKey(),
+      audioPlayback: const RenPyNoOpAudioPlayback(),
+    ),
+  );
   await tester.pump();
 }
 

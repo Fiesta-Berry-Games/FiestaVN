@@ -4,7 +4,9 @@ import 'package:renpy_flutter/renpy_flutter.dart';
 void main() => runApp(const FiestaVNApp());
 
 class FiestaVNApp extends StatelessWidget {
-  const FiestaVNApp({super.key});
+  const FiestaVNApp({super.key, this.audioPlayback});
+
+  final RenPyAudioPlayback? audioPlayback;
 
   @override
   Widget build(BuildContext context) {
@@ -12,20 +14,26 @@ class FiestaVNApp extends StatelessWidget {
       title: 'RenFly - FiestaVN Demo',
       theme: ThemeData.dark(useMaterial3: true),
       debugShowCheckedModeBanner: false,
-      home: const _LauncherScreen(),
+      home: _LauncherScreen(audioPlayback: audioPlayback),
     );
   }
 }
 
 /// Choose which game to play.
 class _LauncherScreen extends StatelessWidget {
-  const _LauncherScreen();
+  const _LauncherScreen({this.audioPlayback});
+
+  final RenPyAudioPlayback? audioPlayback;
 
   // Convenience helper
   void _startGame(BuildContext ctx, String assetPath) {
-    Navigator.of(
-      ctx,
-    ).push(MaterialPageRoute(builder: (_) => GameScreen(assetPath: assetPath)));
+    Navigator.of(ctx).push(
+      MaterialPageRoute(
+        builder:
+            (_) =>
+                GameScreen(assetPath: assetPath, audioPlayback: audioPlayback),
+      ),
+    );
   }
 
   @override
@@ -64,8 +72,10 @@ class _LauncherScreen extends StatelessWidget {
 
 /// The game screen itself.
 class GameScreen extends StatelessWidget {
-  const GameScreen({super.key, required this.assetPath});
+  const GameScreen({super.key, required this.assetPath, this.audioPlayback});
+
   final String assetPath;
+  final RenPyAudioPlayback? audioPlayback;
 
   @override
   Widget build(BuildContext context) {
@@ -74,6 +84,7 @@ class GameScreen extends StatelessWidget {
       body: RenPyAssetPlayer(
         scriptAsset: assetPath,
         backgroundColor: Colors.grey.shade900,
+        audioPlayback: audioPlayback,
       ),
     );
   }

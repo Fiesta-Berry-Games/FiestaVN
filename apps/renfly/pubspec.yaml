@@ -104,4 +104,5 @@ flutter:
     - assets/games/2/game/images/
     - assets/games/3/game/script.rpy
     - assets/games/the_question/game/script.rpy
+    - assets/games/the_question/game/illurock.opus
     - assets/games/the_question/game/images/
