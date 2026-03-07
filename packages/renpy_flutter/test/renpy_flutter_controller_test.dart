@@ -55,9 +55,32 @@ label start:
 
     await _continueUntil(controller, (status) => status is RenPyDialogue);
 
-    expect(audio, [
-      const RenPyAudioChange.play(channel: 'music', asset: 'illurock.opus'),
-    ]);
+    expect(audio, hasLength(1));
+    expect(audio.single.channel, 'music');
+    expect(audio.single.asset, 'illurock.opus');
+  });
+
+  test('controller emits repeated identical audio commands', () async {
+    final controller = RenPyFlutterController();
+    final audio = <RenPyAudioChange>[];
+    addTearDown(controller.dispose);
+
+    controller.addListener(() {
+      final status = controller.value;
+      if (status is RenPyAudioChange) audio.add(status);
+    });
+
+    controller.load('''
+label start:
+    play sound "click.opus"
+    play sound "click.opus"
+    "Welcome."
+''');
+
+    await _continueUntil(controller, (status) => status is RenPyDialogue);
+
+    expect(audio, hasLength(2));
+    expect(audio.map((change) => change.asset), ['click.opus', 'click.opus']);
   });
 }
 

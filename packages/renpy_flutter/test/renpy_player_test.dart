@@ -95,6 +95,41 @@ label start:
     expect(find.text('Hello.'), findsOneWidget);
   });
 
+  testWidgets('asset player wires RenPy audio into the audio layer', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    play music "illurock.opus"
+    "Hello."
+''',
+    });
+    final playback = _RecordingAudioPlayback();
+    addTearDown(playback.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+          audioPlayback: playback,
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('Hello.'));
+
+    expect(playback.calls, [
+      const _AudioCall(
+        channel: 'music',
+        asset: 'illurock.opus',
+        assetSourcePath: 'game/illurock.opus',
+      ),
+    ]);
+  });
+
   testWidgets('asset player exposes loading and load failure builders', (
     tester,
   ) async {
@@ -277,6 +312,58 @@ class _MemoryAssetBundle extends CachingAssetBundle {
   }
 
   int loadStringCalls(String key) => loadStringCallCounts[key] ?? 0;
+}
+
+class _RecordingAudioPlayback implements RenPyAudioPlayback {
+  final List<_AudioCall> calls = [];
+
+  @override
+  Future<void> play({
+    required String channel,
+    required String asset,
+    required String assetSourcePath,
+  }) async {
+    calls.add(
+      _AudioCall(
+        channel: channel,
+        asset: asset,
+        assetSourcePath: assetSourcePath,
+      ),
+    );
+  }
+
+  @override
+  Future<void> dispose() async {}
+}
+
+class _AudioCall {
+  const _AudioCall({
+    required this.channel,
+    required this.asset,
+    required this.assetSourcePath,
+  });
+
+  final String channel;
+  final String asset;
+  final String assetSourcePath;
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        other is _AudioCall &&
+            channel == other.channel &&
+            asset == other.asset &&
+            assetSourcePath == other.assetSourcePath;
+  }
+
+  @override
+  int get hashCode => Object.hash(channel, asset, assetSourcePath);
+
+  @override
+  String toString() {
+    return '_AudioCall(channel: $channel, asset: $asset, '
+        'assetSourcePath: $assetSourcePath)';
+  }
 }
 
 class _RecordingImageLayer extends StatefulWidget {

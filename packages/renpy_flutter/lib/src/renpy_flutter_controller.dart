@@ -55,18 +55,6 @@ final class RenPyAudioChange extends RenPyGameStatus {
   final String asset;
 
   @override
-  bool operator ==(Object other) {
-    return identical(this, other) ||
-        other is RenPyAudioChange &&
-            action == other.action &&
-            channel == other.channel &&
-            asset == other.asset;
-  }
-
-  @override
-  int get hashCode => Object.hash(action, channel, asset);
-
-  @override
   String toString() {
     return 'RenPyAudioChange.$action(channel: $channel, asset: $asset)';
   }

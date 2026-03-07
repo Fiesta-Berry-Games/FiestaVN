@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'renpy_audio_layer.dart';
 import 'renpy_chrome.dart';
 import 'renpy_flutter_controller.dart';
 import 'renpy_image_layer.dart';
@@ -20,6 +21,8 @@ class RenPyPlayer extends StatelessWidget {
     this.showRestartButton = true,
     this.onRestart,
     this.imageLayerBuilder,
+    this.gameRoot = '',
+    this.audioPlayback,
   });
 
   final RenPyFlutterController controller;
@@ -27,6 +30,8 @@ class RenPyPlayer extends StatelessWidget {
   final bool showRestartButton;
   final VoidCallback? onRestart;
   final RenPyLayerBuilder? imageLayerBuilder;
+  final String gameRoot;
+  final RenPyAudioPlayback? audioPlayback;
 
   @override
   Widget build(BuildContext context) {
@@ -38,6 +43,11 @@ class RenPyPlayer extends StatelessWidget {
           imageLayerBuilder!(context, controller)
         else
           RenPyImageLayer(controller: controller),
+        RenPyAudioLayer(
+          controller: controller,
+          gameRoot: gameRoot,
+          playback: audioPlayback,
+        ),
         RenPyDialogueView(controller: controller),
         RenPyMenuSelector(controller: controller),
         if (showRestartButton && onRestart != null)
@@ -66,6 +76,7 @@ class RenPyAssetPlayer extends StatefulWidget {
     this.backgroundColor = const Color(0xFF212121),
     this.showRestartButton = true,
     this.imageLayerBuilder,
+    this.audioPlayback,
     this.loadingBuilder,
     this.loadErrorBuilder,
   });
@@ -77,6 +88,7 @@ class RenPyAssetPlayer extends StatefulWidget {
   final Color backgroundColor;
   final bool showRestartButton;
   final RenPyLayerBuilder? imageLayerBuilder;
+  final RenPyAudioPlayback? audioPlayback;
   final RenPyLoadingBuilder? loadingBuilder;
   final RenPyLoadErrorBuilder? loadErrorBuilder;
 
@@ -233,6 +245,8 @@ class _RenPyAssetPlayerState extends State<RenPyAssetPlayer> {
       showRestartButton: widget.showRestartButton,
       onRestart: _loadController,
       imageLayerBuilder: widget.imageLayerBuilder,
+      gameRoot: _gameRoot,
+      audioPlayback: widget.audioPlayback,
     );
   }
 }
