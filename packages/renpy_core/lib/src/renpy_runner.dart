@@ -1,5 +1,7 @@
 import 'package:renpy_parser/renpy_parser.dart';
 
+import 'renpy_audio_event.dart';
+
 class _ExecutionContext {
   final List<RenPyStatement> block;
   final int position; // where we should resume afterwards
@@ -39,6 +41,9 @@ typedef MenuCallback =
 typedef ImageCallback =
     void Function(String? scene, String? show, String? hide);
 
+/// Callback for audio events.
+typedef AudioCallback = void Function(RenPyAudioEvent event);
+
 /// A runner for executing RenPy scripts
 class RenPyRunner {
   /// The parsed script
@@ -71,6 +76,7 @@ class RenPyRunner {
   DialogueCallback? onDialogue;
   MenuCallback? onMenu;
   ImageCallback? onImage;
+  AudioCallback? onAudio;
 
   /// Error message if an error occurred
   String? _errorMessage;
@@ -193,10 +199,10 @@ class RenPyRunner {
 
   /// Execute the next statement in the script.
   void _executeNext() {
-    // ❶  finished the current block?
+    // 1  finished the current block?
     if (_position >= _currentBlock.length) {
       if (_stack.isNotEmpty) {
-        // Pop back to the parent context (e.g., we’re done with a menu branch)
+        // Pop back to the parent context (e.g., we're done with a menu branch)
         final ctx = _stack.removeLast();
         _currentBlock = ctx.block;
         _position = ctx.position;
@@ -340,7 +346,7 @@ class RenPyRunner {
     _stack.add(_ExecutionContext(_currentBlock, _position + 1));
 
     if (choice.block.isEmpty) {
-      // Nothing inside → behave like “pass”.
+      // Nothing inside -> behave like "pass".
       _currentBlock = _stack.removeLast().block;
       _position++; // Resume after menu statement.
       return _executeNext();
@@ -348,7 +354,7 @@ class RenPyRunner {
 
     _currentBlock = choice.block;
     _position = 0;
-    _state = RenPyRunnerState.running; // We just answered – keep going.
+    _state = RenPyRunnerState.running; // We just answered - keep going.
     _executeNext();
   }
 
@@ -442,14 +448,20 @@ class RenPyRunner {
   }
 
   /// Execute a play statement.
-  ///
-  /// Plays a sound.  This is a placeholder for actual sound handling which will
-  /// be implemented later. TODO
   void _executePlayStatement(RenPyPlayStatement stmt) {
-    // TODO: Handle sound playing.
-    print('[Play ${stmt.channel}] ${stmt.expression}');
+    onAudio?.call(
+      RenPyAudioEvent.play(
+        channel: stmt.channel,
+        asset: _evaluateAudioAsset(stmt.expression),
+      ),
+    );
     _position++;
     _executeNext();
+  }
+
+  String _evaluateAudioAsset(String expression) {
+    final value = _evaluateExpression(expression);
+    return value?.toString() ?? expression.trim();
   }
 
   void _executeReturnStatement(RenPyReturnStatement stmt) {

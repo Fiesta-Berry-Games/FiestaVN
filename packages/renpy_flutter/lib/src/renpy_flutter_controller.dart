@@ -4,7 +4,9 @@ import 'package:flutter/foundation.dart';
 import 'package:renpy_core/renpy_core.dart';
 
 /// Public, minimal information describing what the player should currently see.
-sealed class RenPyGameStatus {}
+sealed class RenPyGameStatus {
+  const RenPyGameStatus();
+}
 
 /// Idle: waiting for the app to load a script, nothing on screen yet.
 final class RenPyIdle extends RenPyGameStatus {}
@@ -41,6 +43,33 @@ final class RenPyImageChange extends RenPyGameStatus {
   final String? hide;
   final String? sceneAsset;
   final String? showAsset;
+}
+
+/// Emitted when a RenPy audio command is encountered.
+final class RenPyAudioChange extends RenPyGameStatus {
+  const RenPyAudioChange.play({required this.channel, required this.asset})
+    : action = RenPyAudioAction.play;
+
+  final RenPyAudioAction action;
+  final String channel;
+  final String asset;
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        other is RenPyAudioChange &&
+            action == other.action &&
+            channel == other.channel &&
+            asset == other.asset;
+  }
+
+  @override
+  int get hashCode => Object.hash(action, channel, asset);
+
+  @override
+  String toString() {
+    return 'RenPyAudioChange.$action(channel: $channel, asset: $asset)';
+  }
 }
 
 /// The game finished running normally.
@@ -93,7 +122,8 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
         RenPyRunner(result.script)
           ..onDialogue = _onDialogue
           ..onMenu = _onMenu
-          ..onImage = _onImage;
+          ..onImage = _onImage
+          ..onAudio = _onAudio;
     _runner = runner;
 
     if (result.script.findLabel('start') != null) {
@@ -174,6 +204,19 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       sceneAsset: _imageResolver.resolve(scene),
       showAsset: _imageResolver.resolve(show),
     );
+  }
+
+  void _onAudio(RenPyAudioEvent event) {
+    debugPrint(
+      'Audio command - ${event.action}: ${event.channel} ${event.asset}',
+    );
+    switch (event.action) {
+      case RenPyAudioAction.play:
+        value = RenPyAudioChange.play(
+          channel: event.channel,
+          asset: event.asset,
+        );
+    }
   }
 
   @override
