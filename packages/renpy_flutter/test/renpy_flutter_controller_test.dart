@@ -82,6 +82,30 @@ label start:
     expect(audio, hasLength(2));
     expect(audio.map((change) => change.asset), ['click.opus', 'click.opus']);
   });
+
+  test('controller emits transition changes from with statements', () async {
+    final controller = RenPyFlutterController();
+    final transitions = <RenPyTransitionChange>[];
+    addTearDown(controller.dispose);
+
+    controller.addListener(() {
+      final status = controller.value;
+      if (status is RenPyTransitionChange) transitions.add(status);
+    });
+
+    controller.load('''
+label start:
+    scene bg lecturehall
+    with fade
+    show sylvie green normal
+    with dissolve
+    "Welcome."
+''');
+
+    await _continueUntil(controller, (status) => status is RenPyDialogue);
+
+    expect(transitions.map((change) => change.name), ['fade', 'dissolve']);
+  });
 }
 
 Future<void> _continueUntil(

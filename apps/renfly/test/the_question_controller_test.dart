@@ -14,12 +14,14 @@ void main() {
       final controller = RenPyFlutterController();
       final images = <RenPyImageChange>[];
       final audio = <RenPyAudioChange>[];
+      final transitions = <RenPyTransitionChange>[];
       addTearDown(controller.dispose);
 
       controller.addListener(() {
         final status = controller.value;
         if (status is RenPyImageChange) images.add(status);
         if (status is RenPyAudioChange) audio.add(status);
+        if (status is RenPyTransitionChange) transitions.add(status);
       });
 
       controller.load(
@@ -54,6 +56,11 @@ void main() {
       );
       expect(audio.map((change) => change.channel), contains('music'));
       expect(audio.map((change) => change.asset), contains('illurock.opus'));
+      expect(transitions.map((transition) => transition.name), [
+        'fade',
+        'fade',
+        'dissolve',
+      ]);
     },
   );
 

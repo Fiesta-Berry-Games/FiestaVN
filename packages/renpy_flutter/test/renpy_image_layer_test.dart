@@ -59,6 +59,43 @@ void main() {
 
     expect(find.byType(Image), findsNothing);
   });
+
+  testWidgets('image layer crossfades previous and current visual states', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(
+      scene: 'bg lecturehall',
+      sceneAsset: 'assets/game/images/bg lecturehall.jpg',
+    );
+    await tester.pump();
+
+    controller.value = RenPyImageChange(
+      scene: 'bg uni',
+      sceneAsset: 'assets/game/images/bg uni.jpg',
+    );
+    await tester.pump();
+    controller.value = const RenPyTransitionChange('fade');
+    await tester.pump();
+
+    expect(
+      _assetNames(tester),
+      containsAll([
+        'assets/game/images/bg lecturehall.jpg',
+        'assets/game/images/bg uni.jpg',
+      ]),
+    );
+
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(_assetNames(tester), ['assets/game/images/bg uni.jpg']);
+  });
 }
 
 List<String> _assetNames(WidgetTester tester) {

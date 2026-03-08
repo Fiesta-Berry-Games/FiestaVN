@@ -1,6 +1,7 @@
 import 'package:renpy_parser/renpy_parser.dart';
 
 import 'renpy_audio_event.dart';
+import 'renpy_transition_event.dart';
 
 class _ExecutionContext {
   final List<RenPyStatement> block;
@@ -44,6 +45,9 @@ typedef ImageCallback =
 /// Callback for audio events.
 typedef AudioCallback = void Function(RenPyAudioEvent event);
 
+/// Callback for visual transition events.
+typedef TransitionCallback = void Function(RenPyTransitionEvent event);
+
 /// A runner for executing RenPy scripts
 class RenPyRunner {
   /// The parsed script
@@ -77,6 +81,7 @@ class RenPyRunner {
   MenuCallback? onMenu;
   ImageCallback? onImage;
   AudioCallback? onAudio;
+  TransitionCallback? onTransition;
 
   /// Error message if an error occurred
   String? _errorMessage;
@@ -389,7 +394,7 @@ class RenPyRunner {
 
   /// Execute a with statement.
   void _executeWithStatement(RenPyWithStatement stmt) {
-    // In a real implementation, this would handle transitions.
+    onTransition?.call(RenPyTransitionEvent(stmt.transition));
 
     _position++;
     _executeNext();

@@ -60,6 +60,16 @@ final class RenPyAudioChange extends RenPyGameStatus {
   }
 }
 
+/// Emitted when a RenPy `with` transition command is encountered.
+final class RenPyTransitionChange extends RenPyGameStatus {
+  const RenPyTransitionChange(this.name);
+
+  final String name;
+
+  @override
+  String toString() => 'RenPyTransitionChange($name)';
+}
+
 /// The game finished running normally.
 final class RenPyComplete extends RenPyGameStatus {}
 
@@ -111,7 +121,8 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
           ..onDialogue = _onDialogue
           ..onMenu = _onMenu
           ..onImage = _onImage
-          ..onAudio = _onAudio;
+          ..onAudio = _onAudio
+          ..onTransition = _onTransition;
     _runner = runner;
 
     if (result.script.findLabel('start') != null) {
@@ -205,6 +216,11 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
           asset: event.asset,
         );
     }
+  }
+
+  void _onTransition(RenPyTransitionEvent event) {
+    debugPrint('Transition command - ${event.name}');
+    value = RenPyTransitionChange(event.name);
   }
 
   @override
