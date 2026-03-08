@@ -2,6 +2,7 @@ import 'package:renpy_parser/renpy_parser.dart';
 
 import 'renpy_audio_event.dart';
 import 'renpy_dialogue_event.dart';
+import 'renpy_image_event.dart';
 import 'renpy_transition_event.dart';
 
 class _ExecutionContext {
@@ -46,6 +47,9 @@ typedef MenuCallback =
 typedef ImageCallback =
     void Function(String? scene, String? show, String? hide);
 
+/// Callback for structured image events.
+typedef ImageEventCallback = void Function(RenPyImageEvent event);
+
 /// Callback for audio events.
 typedef AudioCallback = void Function(RenPyAudioEvent event);
 
@@ -85,6 +89,7 @@ class RenPyRunner {
   DialogueEventCallback? onDialogueEvent;
   MenuCallback? onMenu;
   ImageCallback? onImage;
+  ImageEventCallback? onImageEvent;
   AudioCallback? onAudio;
   TransitionCallback? onTransition;
 
@@ -380,6 +385,9 @@ class RenPyRunner {
 
   /// Execute a show statement.
   void _executeShowStatement(RenPyShowStatement stmt) {
+    onImageEvent?.call(
+      RenPyImageEvent.show(stmt.imageName, at: stmt.atExpression),
+    );
     if (onImage != null) {
       onImage!(null, stmt.imageName, null);
     }
@@ -390,6 +398,9 @@ class RenPyRunner {
 
   /// Execute a scene statement.
   void _executeSceneStatement(RenPySceneStatement stmt) {
+    onImageEvent?.call(
+      RenPyImageEvent.scene(stmt.imageName, at: stmt.atExpression),
+    );
     if (onImage != null) {
       onImage!(stmt.imageName, null, null);
     }
@@ -399,6 +410,7 @@ class RenPyRunner {
   }
 
   void _executeHideStatement(RenPyHideStatement stmt) {
+    onImageEvent?.call(RenPyImageEvent.hide(stmt.imageName));
     if (onImage != null) {
       onImage!(null, null, stmt.imageName);
     }

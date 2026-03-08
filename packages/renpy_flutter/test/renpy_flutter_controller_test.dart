@@ -37,6 +37,40 @@ label start:
     },
   );
 
+  test('controller carries image placement metadata', () async {
+    final controller = RenPyFlutterController();
+    final images = <RenPyImageChange>[];
+    addTearDown(controller.dispose);
+
+    controller.addListener(() {
+      final status = controller.value;
+      if (status is RenPyImageChange) images.add(status);
+    });
+
+    controller.load(
+      '''
+label start:
+    scene bg lecturehall at center
+    show sylvie green normal at right
+    "Welcome."
+''',
+      gameRoot: 'assets/game',
+      availableAssets: const {
+        'assets/game/images/bg lecturehall.png',
+        'assets/game/images/sylvie green normal.png',
+      },
+    );
+
+    await _continueUntil(controller, (status) => status is RenPyDialogue);
+
+    expect(images.first.scene, 'bg lecturehall');
+    expect(images.first.sceneAt, 'center');
+    expect(images.first.sceneAsset, 'assets/game/images/bg lecturehall.png');
+    expect(images.last.show, 'sylvie green normal');
+    expect(images.last.showAt, 'right');
+    expect(images.last.showAsset, 'assets/game/images/sylvie green normal.png');
+  });
+
   test('controller carries character metadata into dialogue states', () async {
     final controller = RenPyFlutterController();
     addTearDown(controller.dispose);

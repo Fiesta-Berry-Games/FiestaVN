@@ -16,7 +16,7 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
   static const _transitionDuration = Duration(milliseconds: 300);
 
   final _sprites = <String, _RenPySpriteState>{};
-  final _positions = <String, bool>{};
+  final _positions = <String, _RenPySpritePlacement>{};
   String? _backgroundAsset;
   _RenPyVisualState? _previousVisualState;
   bool _transitionActive = false;
@@ -66,25 +66,18 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
 
         final name = parts.first;
 
-        bool? explicitLeft;
-        final atIndex = parts.indexOf('at');
-        if (atIndex != -1 && atIndex + 1 < parts.length) {
-          explicitLeft = parts[atIndex + 1] == 'left';
-        }
-
-        final atLeft =
-            explicitLeft ??
+        final placement =
+            _RenPySpritePlacement.fromExpression(status.showAt) ??
             _positions[name] ??
-            (_positions.values.where((isLeft) => isLeft).length <=
-                _positions.values.where((isLeft) => !isLeft).length);
-        _positions[name] = atLeft;
+            _RenPySpritePlacement.center;
+        _positions[name] = placement;
 
         final imagePath = status.showAsset;
         if (imagePath == null) return;
 
         _sprites[name] = _RenPySpriteState(
           imagePath: imagePath,
-          atLeft: atLeft,
+          placement: placement,
         );
       }
     });
@@ -145,10 +138,30 @@ class _RenPyVisualState {
 }
 
 class _RenPySpriteState {
-  const _RenPySpriteState({required this.imagePath, required this.atLeft});
+  const _RenPySpriteState({required this.imagePath, required this.placement});
 
   final String imagePath;
-  final bool atLeft;
+  final _RenPySpritePlacement placement;
+}
+
+enum _RenPySpritePlacement {
+  left(Alignment.bottomLeft),
+  center(Alignment.bottomCenter),
+  right(Alignment.bottomRight);
+
+  const _RenPySpritePlacement(this.alignment);
+
+  final Alignment alignment;
+
+  static _RenPySpritePlacement? fromExpression(String? expression) {
+    final value = expression?.trim().toLowerCase();
+    return switch (value) {
+      'left' => _RenPySpritePlacement.left,
+      'right' => _RenPySpritePlacement.right,
+      'center' || 'truecenter' => _RenPySpritePlacement.center,
+      _ => null,
+    };
+  }
 }
 
 class _RenPyVisualFrame extends StatelessWidget {
@@ -175,7 +188,7 @@ class _RenPyVisualFrame extends StatelessWidget {
           _RenPyImageSprite(
             key: ValueKey(entry.key),
             imagePath: entry.value.imagePath,
-            atLeft: entry.value.atLeft,
+            placement: entry.value.placement,
           ),
       ],
     );
@@ -186,54 +199,66 @@ class _RenPyImageSprite extends StatelessWidget {
   const _RenPyImageSprite({
     super.key,
     required this.imagePath,
-    required this.atLeft,
+    required this.placement,
   });
 
   final String imagePath;
-  final bool atLeft;
+  final _RenPySpritePlacement placement;
 
   @override
   Widget build(BuildContext context) {
-    return Positioned(
-      left: atLeft ? 50 : null,
-      right: atLeft ? null : 50,
-      bottom: 0,
-      child: Image.asset(
-        imagePath,
-        width: 200,
-        height: 300,
-        fit: BoxFit.contain,
-        errorBuilder: (context, error, stackTrace) {
-          return Container(
-            width: 200,
-            height: 300,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade600,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.image_not_supported,
-                  size: 48,
-                  color: Colors.grey.shade300,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Image not found',
-                  style: TextStyle(color: Colors.grey.shade300, fontSize: 12),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  imagePath.split('/').last,
-                  style: TextStyle(color: Colors.grey.shade400, fontSize: 10),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          );
-        },
+    return Positioned.fill(
+      child: Align(
+        alignment: placement.alignment,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: (constraints.maxWidth * 0.45).clamp(160, 420),
+                maxHeight: constraints.maxHeight * 0.9,
+              ),
+              child: Image.asset(
+                imagePath,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade600,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.image_not_supported,
+                          size: 48,
+                          color: Colors.grey.shade300,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Image not found',
+                          style: TextStyle(
+                            color: Colors.grey.shade300,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          imagePath.split('/').last,
+                          style: TextStyle(
+                            color: Colors.grey.shade400,
+                            fontSize: 10,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            );
+          },
+        ),
       ),
     );
   }

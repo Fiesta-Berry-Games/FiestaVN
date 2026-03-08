@@ -54,6 +54,12 @@ void main() {
           'assets/games/the_question/game/images/sylvie green normal.png',
         ),
       );
+      expect(
+        images
+            .where((image) => image.show == 'sylvie green normal')
+            .map((image) => image.showAt),
+        contains(isNull),
+      );
       expect(audio.map((change) => change.channel), contains('music'));
       expect(audio.map((change) => change.asset), contains('illurock.opus'));
       expect(transitions.map((transition) => transition.name), [

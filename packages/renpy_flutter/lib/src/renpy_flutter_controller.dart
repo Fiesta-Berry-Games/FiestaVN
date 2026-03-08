@@ -41,6 +41,8 @@ final class RenPyImageChange extends RenPyGameStatus {
     this.scene,
     this.show,
     this.hide,
+    this.sceneAt,
+    this.showAt,
     this.sceneAsset,
     this.showAsset,
   });
@@ -48,6 +50,8 @@ final class RenPyImageChange extends RenPyGameStatus {
   final String? scene;
   final String? show;
   final String? hide;
+  final String? sceneAt;
+  final String? showAt;
   final String? sceneAsset;
   final String? showAsset;
 }
@@ -127,7 +131,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
         RenPyRunner(result.script)
           ..onDialogueEvent = _onDialogueEvent
           ..onMenu = _onMenu
-          ..onImage = _onImage
+          ..onImageEvent = _onImageEvent
           ..onAudio = _onAudio
           ..onTransition = _onTransition;
     _runner = runner;
@@ -206,15 +210,26 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     }, caption: caption);
   }
 
-  void _onImage(String? scene, String? show, String? hide) {
-    debugPrint('Image command - scene: $scene, show: $show, hide: $hide');
-    value = RenPyImageChange(
-      scene: scene,
-      show: show,
-      hide: hide,
-      sceneAsset: _imageResolver.resolve(scene),
-      showAsset: _imageResolver.resolve(show),
+  void _onImageEvent(RenPyImageEvent event) {
+    debugPrint(
+      'Image command - ${event.action}: ${event.imageName} at ${event.at}',
     );
+    switch (event.action) {
+      case RenPyImageAction.scene:
+        value = RenPyImageChange(
+          scene: event.imageName,
+          sceneAt: event.at,
+          sceneAsset: _imageResolver.resolve(event.imageName),
+        );
+      case RenPyImageAction.show:
+        value = RenPyImageChange(
+          show: event.imageName,
+          showAt: event.at,
+          showAsset: _imageResolver.resolve(event.imageName),
+        );
+      case RenPyImageAction.hide:
+        value = RenPyImageChange(hide: event.imageName);
+    }
   }
 
   void _onAudio(RenPyAudioEvent event) {
