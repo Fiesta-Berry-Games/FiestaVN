@@ -37,6 +37,26 @@ label start:
     },
   );
 
+  test('controller carries character metadata into dialogue states', () async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    controller.load('''
+define s = Character(_("Sylvie"), color="#c8ffc8")
+
+label start:
+    s "Hi there!"
+''');
+
+    await _continueUntil(controller, (status) => status is RenPyDialogue);
+
+    final dialogue = controller.value as RenPyDialogue;
+    expect(dialogue.characterId, 's');
+    expect(dialogue.character, 'Sylvie');
+    expect(dialogue.text, 'Hi there!');
+    expect(dialogue.color, '#c8ffc8');
+  });
+
   test('controller emits audio changes from play statements', () async {
     final controller = RenPyFlutterController();
     final audio = <RenPyAudioChange>[];

@@ -16,6 +16,8 @@ class RenPyDialogueView extends StatelessWidget {
       builder: (context, status, _) {
         if (status is RenPyDialogue) {
           final who = status.character;
+          final whoColor =
+              _RenPyDialogueColor.parse(status.color) ?? Colors.white;
           return GestureDetector(
             onTap: controller.continueGame,
             behavior: HitTestBehavior.opaque,
@@ -41,8 +43,9 @@ class RenPyDialogueView extends StatelessWidget {
                       if (who != null) ...[
                         Text(
                           who,
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(color: Colors.white),
+                          style: Theme.of(
+                            context,
+                          ).textTheme.titleMedium?.copyWith(color: whoColor),
                         ),
                         const SizedBox(height: 4),
                       ],
@@ -65,6 +68,23 @@ class RenPyDialogueView extends StatelessWidget {
         return const SizedBox.shrink();
       },
     );
+  }
+}
+
+final class _RenPyDialogueColor {
+  const _RenPyDialogueColor._();
+
+  static Color? parse(String? expression) {
+    if (expression == null) return null;
+
+    final value = expression.trim();
+    final hex = value.startsWith('#') ? value.substring(1) : value;
+    if (!RegExp(r'^[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$').hasMatch(hex)) {
+      return null;
+    }
+
+    final argb = hex.length == 6 ? 'FF$hex' : hex;
+    return Color(int.parse(argb, radix: 16));
   }
 }
 

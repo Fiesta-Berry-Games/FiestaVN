@@ -13,10 +13,17 @@ final class RenPyIdle extends RenPyGameStatus {}
 
 /// A line of dialogue, optionally attributed to a character.
 final class RenPyDialogue extends RenPyGameStatus {
-  RenPyDialogue(this.character, this.text);
+  RenPyDialogue(this.character, this.text, {this.characterId, this.color});
 
+  /// The resolved display name shown to the player.
   final String? character;
   final String text;
+
+  /// The RenPy character variable, such as `s` in `s "Hello"`.
+  final String? characterId;
+
+  /// The raw RenPy color expression for the character, usually `#rrggbb`.
+  final String? color;
 }
 
 /// A choice menu. UI must call [onChoice] with the index the user picked.
@@ -118,7 +125,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
 
     final runner =
         RenPyRunner(result.script)
-          ..onDialogue = _onDialogue
+          ..onDialogueEvent = _onDialogueEvent
           ..onMenu = _onMenu
           ..onImage = _onImage
           ..onAudio = _onAudio
@@ -174,10 +181,15 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     });
   }
 
-  void _onDialogue(String? character, String text) {
-    debugPrint('Dialogue: ${character ?? "Narrator"}: $text');
+  void _onDialogueEvent(RenPyDialogueEvent event) {
+    debugPrint('Dialogue: ${event.displayName ?? "Narrator"}: ${event.text}');
     _ticker?.pause();
-    value = RenPyDialogue(character, text);
+    value = RenPyDialogue(
+      event.displayName,
+      event.text,
+      characterId: event.characterId,
+      color: event.color,
+    );
   }
 
   void _onMenu(

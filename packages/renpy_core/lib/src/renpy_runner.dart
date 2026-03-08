@@ -1,6 +1,7 @@
 import 'package:renpy_parser/renpy_parser.dart';
 
 import 'renpy_audio_event.dart';
+import 'renpy_dialogue_event.dart';
 import 'renpy_transition_event.dart';
 
 class _ExecutionContext {
@@ -29,6 +30,9 @@ enum RenPyRunnerState {
 
 /// Callback for dialogue events
 typedef DialogueCallback = void Function(String? character, String text);
+
+/// Callback for structured dialogue events.
+typedef DialogueEventCallback = void Function(RenPyDialogueEvent event);
 
 /// Callback for menu events
 typedef MenuCallback =
@@ -78,6 +82,7 @@ class RenPyRunner {
 
   /// Callbacks for various events
   DialogueCallback? onDialogue;
+  DialogueEventCallback? onDialogueEvent;
   MenuCallback? onMenu;
   ImageCallback? onImage;
   AudioCallback? onAudio;
@@ -281,15 +286,25 @@ class RenPyRunner {
   void _executeSayStatement(RenPySayStatement stmt) {
     // Resolve character name if it's a defined character.
     String? displayName;
+    String? color;
     if (stmt.character != null && _characters.containsKey(stmt.character)) {
       displayName = _characters[stmt.character]!['name'] as String?;
+      color = _characters[stmt.character]!['color'] as String?;
     } else {
       displayName = stmt.character;
     }
 
+    final event = RenPyDialogueEvent(
+      characterId: stmt.character,
+      displayName: displayName,
+      text: stmt.text ?? '',
+      color: color,
+    );
+    onDialogueEvent?.call(event);
+
     // Display the dialogue.
     if (onDialogue != null) {
-      onDialogue!(displayName, stmt.text ?? '');
+      onDialogue!(event.displayName, event.text);
     }
 
     // Wait for player input.

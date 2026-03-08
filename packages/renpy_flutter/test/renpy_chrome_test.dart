@@ -26,6 +26,27 @@ void main() {
     },
   );
 
+  testWidgets('dialogue view renders character names with RenPy colors', (
+    tester,
+  ) async {
+    final controller = _TestController();
+    addTearDown(controller.dispose);
+
+    controller.value = RenPyDialogue(
+      'Sylvie',
+      'Hi there!',
+      characterId: 's',
+      color: '#c8ffc8',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyDialogueView(controller: controller)),
+    );
+
+    final name = tester.widget<Text>(find.text('Sylvie'));
+    expect(name.style?.color, const Color(0xFFC8FFC8));
+  });
+
   testWidgets('dialogue view renders errors and hides non-dialogue states', (
     tester,
   ) async {
