@@ -160,6 +160,52 @@ label start:
 
     expect(transitions.map((change) => change.name), ['fade', 'dissolve']);
   });
+
+  test(
+    'controller emits inline image transitions after image changes',
+    () async {
+      final controller = RenPyFlutterController();
+      final events = <Object>[];
+      addTearDown(controller.dispose);
+
+      controller.addListener(() {
+        final status = controller.value;
+        if (status is RenPyImageChange || status is RenPyTransitionChange) {
+          events.add(status);
+        }
+      });
+
+      controller.load('''
+label start:
+    scene bg lecturehall with fade
+    show sylvie green normal at left with dissolve
+    "Welcome."
+''');
+
+      await _continueUntil(controller, (status) => status is RenPyDialogue);
+
+      expect(events, [
+        isA<RenPyImageChange>().having(
+          (event) => event.scene,
+          'scene',
+          'bg lecturehall',
+        ),
+        isA<RenPyTransitionChange>().having(
+          (event) => event.name,
+          'name',
+          'fade',
+        ),
+        isA<RenPyImageChange>()
+            .having((event) => event.show, 'show', 'sylvie green normal')
+            .having((event) => event.showAt, 'showAt', 'left'),
+        isA<RenPyTransitionChange>().having(
+          (event) => event.name,
+          'name',
+          'dissolve',
+        ),
+      ]);
+    },
+  );
 }
 
 Future<void> _continueUntil(

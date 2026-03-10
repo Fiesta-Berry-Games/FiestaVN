@@ -391,6 +391,7 @@ class RenPyRunner {
     if (onImage != null) {
       onImage!(null, stmt.imageName, null);
     }
+    _emitInlineTransition(stmt.withExpression);
 
     _position++;
     _executeNext();
@@ -404,6 +405,7 @@ class RenPyRunner {
     if (onImage != null) {
       onImage!(stmt.imageName, null, null);
     }
+    _emitInlineTransition(stmt.withExpression);
 
     _position++;
     _executeNext();
@@ -414,9 +416,15 @@ class RenPyRunner {
     if (onImage != null) {
       onImage!(null, null, stmt.imageName);
     }
+    _emitInlineTransition(stmt.withExpression);
 
     _position++;
     _executeNext();
+  }
+
+  void _emitInlineTransition(String? transition) {
+    if (transition == null || transition.trim().isEmpty) return;
+    onTransition?.call(RenPyTransitionEvent(transition.trim()));
   }
 
   /// Execute a with statement.

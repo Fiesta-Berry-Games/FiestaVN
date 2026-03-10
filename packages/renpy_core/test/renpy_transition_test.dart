@@ -25,4 +25,29 @@ label start:
       const RenPyTransitionEvent('dissolve'),
     ]);
   });
+
+  test('runner emits inline image transitions after image events', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    scene bg lecturehall with fade
+    show sylvie green normal at left with dissolve
+''', 'transition.rpy').script;
+    final runner = RenPyRunner(script);
+    final events = <Object>[];
+
+    runner.onImageEvent = events.add;
+    runner.onTransition = events.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(runner.state, RenPyRunnerState.complete);
+    expect(events, [
+      const RenPyImageEvent.scene('bg lecturehall'),
+      const RenPyTransitionEvent('fade'),
+      const RenPyImageEvent.show('sylvie green normal', at: 'left'),
+      const RenPyTransitionEvent('dissolve'),
+    ]);
+  });
 }
