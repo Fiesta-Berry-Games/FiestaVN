@@ -18,7 +18,6 @@ class RenPyLexer {
     final result = <LogicalLine>[];
 
     int lineNumber = 1;
-    int lineStartPos = 0;
 
     while (pos < content.length) {
       final startPos = pos;
@@ -38,7 +37,6 @@ class RenPyLexer {
       for (int i = startPos; i < pos; i++) {
         if (content[i] == '\n') {
           lineNumber++;
-          lineStartPos = i + 1;
         }
       }
 
@@ -86,7 +84,7 @@ class RenPyLexer {
         continue;
       }
 
-      // ➊ - Indentation **increases**
+      // 1 - Indentation **increases**
       if (indent > stack.last.indent) {
         // Use the already-allocated `block` list that belongs
         // to the parent line instead of inventing a new one.
@@ -102,7 +100,7 @@ class RenPyLexer {
         final parent = stack.last.block.last;
         stack.add(_IndentBlock(indent, parent.block));
       }
-      // ➋ - Indentation **decreases**
+      // 2 - Indentation **decreases**
       else if (indent < stack.last.indent) {
         while (stack.length > 1 && indent < stack.last.indent) {
           stack.removeLast();
@@ -117,7 +115,7 @@ class RenPyLexer {
         }
       }
 
-      // ➌ - Add this line to the current block
+      // 3 - Add this line to the current block
       GroupedLine newLine = GroupedLine(
         filename: line.filename,
         number: line.number,
@@ -133,19 +131,19 @@ class RenPyLexer {
   }
 
   /// Skip blank lines and full-line comments, **but keep the indentation**
-  /// whitespace of every line that actually contains code – that whitespace
-  /// is syntactically significant in Ren’Py.
+  /// whitespace of every line that actually contains code - that whitespace
+  /// is syntactically significant in Ren'Py.
   void _skipWhitespaceAndComments() {
     while (pos < content.length) {
       final char = content[pos];
 
-      // ── ①  Empty physical lines ────────────────────────────────────────────
+      // -- 1  Empty physical lines --------------------------------------------
       if (char == '\n' || char == '\r') {
         pos++; // move to the next physical line
         continue;
       }
 
-      // ── ②  Full-line comments starting in the first column ────────────────
+      // -- 2  Full-line comments starting in the first column ----------------
       if (char == '#') {
         // Skip to the end-of-line (and the trailing LF if present)
         while (pos < content.length && content[pos] != '\n') pos++;
@@ -153,14 +151,14 @@ class RenPyLexer {
         continue;
       }
 
-      // ── ③  Lines that are nothing but whitespace ───────────────────────────
+      // -- 3  Lines that are nothing but whitespace ---------------------------
       if (char == ' ' || char == '\t') {
         var look = pos;
         var onlyWs = true;
         while (look < content.length && content[look] != '\n') {
           final c = content[look];
           if (c != ' ' && c != '\t' && c != '\r') {
-            onlyWs = false; // we’ve hit indentation → keep it
+            onlyWs = false; // we've hit indentation -> keep it
             break;
           }
           look++;
@@ -173,12 +171,12 @@ class RenPyLexer {
           continue;
         }
 
-        // We are at indentation whitespace in front of a real line of code –
+        // We are at indentation whitespace in front of a real line of code -
         // do **not** skip it.
         break;
       }
 
-      // ── ④  Any other character means we’re at real code – stop skipping. ──
+      // -- 4  Any other character means we're at real code - stop skipping. --
       break;
     }
   }

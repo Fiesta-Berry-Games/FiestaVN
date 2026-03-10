@@ -333,6 +333,9 @@ class _RecordingAudioPlayback implements RenPyAudioPlayback {
   }
 
   @override
+  Future<void> stop({required String channel, String? fadeout}) async {}
+
+  @override
   Future<void> dispose() async {}
 }
 

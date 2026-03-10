@@ -59,15 +59,22 @@ final class RenPyImageChange extends RenPyGameStatus {
 /// Emitted when a RenPy audio command is encountered.
 final class RenPyAudioChange extends RenPyGameStatus {
   const RenPyAudioChange.play({required this.channel, required this.asset})
-    : action = RenPyAudioAction.play;
+    : action = RenPyAudioAction.play,
+      fadeout = null;
+
+  const RenPyAudioChange.stop({required this.channel, this.fadeout})
+    : action = RenPyAudioAction.stop,
+      asset = null;
 
   final RenPyAudioAction action;
   final String channel;
-  final String asset;
+  final String? asset;
+  final String? fadeout;
 
   @override
   String toString() {
-    return 'RenPyAudioChange.$action(channel: $channel, asset: $asset)';
+    return 'RenPyAudioChange.$action(channel: $channel, asset: $asset, '
+        'fadeout: $fadeout)';
   }
 }
 
@@ -234,13 +241,18 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
 
   void _onAudio(RenPyAudioEvent event) {
     debugPrint(
-      'Audio command - ${event.action}: ${event.channel} ${event.asset}',
+      'Audio command - ${event.action}: ${event.channel} '
+      '${event.asset ?? ""}',
     );
     switch (event.action) {
       case RenPyAudioAction.play:
-        value = RenPyAudioChange.play(
+        final asset = event.asset;
+        if (asset == null) return;
+        value = RenPyAudioChange.play(channel: event.channel, asset: asset);
+      case RenPyAudioAction.stop:
+        value = RenPyAudioChange.stop(
           channel: event.channel,
-          asset: event.asset,
+          fadeout: event.fadeout,
         );
     }
   }

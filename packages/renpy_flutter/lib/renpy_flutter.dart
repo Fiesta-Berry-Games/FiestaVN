@@ -1,5 +1,7 @@
 // Flutter UI adapters and widgets for RenPy-compatible visual novels.
 
+export 'package:renpy_core/renpy_core.dart' show RenPyAudioAction;
+
 export 'src/renpy_chrome.dart';
 export 'src/renpy_audio_layer.dart';
 export 'src/renpy_flutter_controller.dart';

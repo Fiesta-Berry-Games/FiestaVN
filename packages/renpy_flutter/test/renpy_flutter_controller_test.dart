@@ -137,6 +137,38 @@ label start:
     expect(audio.map((change) => change.asset), ['click.opus', 'click.opus']);
   });
 
+  test('controller emits audio stop changes', () async {
+    final controller = RenPyFlutterController();
+    final audio = <RenPyAudioChange>[];
+    addTearDown(controller.dispose);
+
+    controller.addListener(() {
+      final status = controller.value;
+      if (status is RenPyAudioChange) audio.add(status);
+    });
+
+    controller.load('''
+label start:
+    play music "illurock.opus"
+    stop music fadeout 1.5
+    stop sound
+    "Welcome."
+''');
+
+    await _continueUntil(controller, (status) => status is RenPyDialogue);
+
+    expect(audio, hasLength(3));
+    expect(audio[0].action, RenPyAudioAction.play);
+    expect(audio[0].channel, 'music');
+    expect(audio[0].asset, 'illurock.opus');
+    expect(audio[1].action, RenPyAudioAction.stop);
+    expect(audio[1].channel, 'music');
+    expect(audio[1].fadeout, '1.5');
+    expect(audio[2].action, RenPyAudioAction.stop);
+    expect(audio[2].channel, 'sound');
+    expect(audio[2].fadeout, isNull);
+  });
+
   test('controller emits transition changes from with statements', () async {
     final controller = RenPyFlutterController();
     final transitions = <RenPyTransitionChange>[];

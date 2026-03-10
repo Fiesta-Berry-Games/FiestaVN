@@ -1,11 +1,17 @@
 /// A platform-neutral audio command emitted while running a RenPy script.
 class RenPyAudioEvent {
   const RenPyAudioEvent.play({required this.channel, required this.asset})
-    : action = RenPyAudioAction.play;
+    : action = RenPyAudioAction.play,
+      fadeout = null;
+
+  const RenPyAudioEvent.stop({required this.channel, this.fadeout})
+    : action = RenPyAudioAction.stop,
+      asset = null;
 
   final RenPyAudioAction action;
   final String channel;
-  final String asset;
+  final String? asset;
+  final String? fadeout;
 
   @override
   bool operator ==(Object other) {
@@ -13,16 +19,18 @@ class RenPyAudioEvent {
         other is RenPyAudioEvent &&
             action == other.action &&
             channel == other.channel &&
-            asset == other.asset;
+            asset == other.asset &&
+            fadeout == other.fadeout;
   }
 
   @override
-  int get hashCode => Object.hash(action, channel, asset);
+  int get hashCode => Object.hash(action, channel, asset, fadeout);
 
   @override
   String toString() {
-    return 'RenPyAudioEvent.$action(channel: $channel, asset: $asset)';
+    return 'RenPyAudioEvent.$action(channel: $channel, asset: $asset, '
+        'fadeout: $fadeout)';
   }
 }
 
-enum RenPyAudioAction { play }
+enum RenPyAudioAction { play, stop }

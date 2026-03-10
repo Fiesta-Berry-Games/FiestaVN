@@ -77,7 +77,7 @@ class RenPyParser {
       final code = text.substring(1).trim(); // drop leading $
       final assign = RegExp(r'^([a-zA-Z_]\w*)\s*=\s*(.+)$').firstMatch(code);
 
-      // If it looks like a plain assignment, treat it as a “define”.
+      // If it looks like a plain assignment, treat it as a "define".
       if (assign != null) {
         final name = assign.group(1)!;
         final expr = assign.group(2)!.trim();
@@ -135,6 +135,10 @@ class RenPyParser {
 
     if (text.startsWith('play ')) {
       return _parsePlayStatement(line, warnings);
+    }
+
+    if (text.startsWith('stop ')) {
+      return _parseStopStatement(line, warnings);
     }
 
     if (text.startsWith('hide ')) {
@@ -670,7 +674,7 @@ class RenPyParser {
     return RenPyIfStatement(entries, line.filename, line.number);
   }
 
-  /// Stub for `play sound/music/voice …`.
+  /// Stub for `play sound/music/voice ...`.
   ///
   /// Syntax accepted:
   ///   play sound "file.ogg"
@@ -693,6 +697,29 @@ class RenPyParser {
     return RenPyPlayStatement(
       m.group(1)!, // Channel.
       m.group(2)!.trim(), // Expression.
+      line.filename,
+      line.number,
+    );
+  }
+
+  RenPyStopStatement _parseStopStatement(
+    GroupedLine line,
+    List<String> warnings,
+  ) {
+    final text = line.text.trim();
+    final rx = RegExp(r'^stop\s+(\w+)(?:\s+fadeout\s+(.+))?$');
+    final m = rx.firstMatch(text);
+    if (m == null) {
+      throw RenPyParseError(
+        'Invalid stop-audio syntax',
+        line.filename,
+        line.number,
+        0,
+      );
+    }
+    return RenPyStopStatement(
+      m.group(1)!,
+      m.group(2)?.trim(),
       line.filename,
       line.number,
     );
@@ -739,8 +766,8 @@ class GroupedLine {
 
 /// Represents an init block statement.
 class RenPyInitStatement extends RenPyBlockStatement {
-  final int priority; // "init -1 python:" → priority -1, etc.
-  final bool isPython; // `init python:` or `init -2 python:` …
+  final int priority; // "init -1 python:" -> priority -1, etc.
+  final bool isPython; // `init python:` or `init -2 python:` ...
 
   RenPyInitStatement({
     required this.priority,

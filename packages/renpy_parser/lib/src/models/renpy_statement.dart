@@ -275,13 +275,13 @@ class RenPyImageStatement extends RenPyStatement {
   String toString() => 'Image: $name = $expression';
 }
 
-/// Represents an audio playback statement (e.g.  ‘play sound "foo.ogg"’).
+/// Represents an audio playback statement (e.g.  'play sound "foo.ogg"').
 class RenPyPlayStatement extends RenPyStatement {
-  /// The audio channel (‘sound’, ‘music’, ‘voice’, …).  We only store it,
+  /// The audio channel ('sound', 'music', 'voice', ...).  We only store it,
   /// the runner can decide later what to do with it.
   final String channel;
 
-  /// The expression that follows the channel – usually a quoted file-name or
+  /// The expression that follows the channel - usually a quoted file-name or
   /// something like [my_sound].
   final String expression;
 
@@ -294,4 +294,22 @@ class RenPyPlayStatement extends RenPyStatement {
 
   @override
   String toString() => 'Play $channel: $expression';
+}
+
+/// Represents an audio stop statement (e.g. `stop music fadeout 1.0`).
+class RenPyStopStatement extends RenPyStatement {
+  final String channel;
+  final String? fadeout;
+
+  RenPyStopStatement(
+    this.channel,
+    this.fadeout,
+    String filename,
+    int linenumber,
+  ) : super(filename, linenumber);
+
+  @override
+  String toString() {
+    return fadeout == null ? 'Stop $channel' : 'Stop $channel fadeout $fadeout';
+  }
 }

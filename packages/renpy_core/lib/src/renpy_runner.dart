@@ -269,6 +269,8 @@ class RenPyRunner {
       _executeIfStatement(stmt);
     } else if (stmt is RenPyPlayStatement) {
       _executePlayStatement(stmt);
+    } else if (stmt is RenPyStopStatement) {
+      _executeStopStatement(stmt);
     } else if (stmt is RenPyHideStatement) {
       _executeHideStatement(stmt);
     } else if (stmt is RenPyReturnStatement) {
@@ -494,6 +496,14 @@ class RenPyRunner {
         channel: stmt.channel,
         asset: _evaluateAudioAsset(stmt.expression),
       ),
+    );
+    _position++;
+    _executeNext();
+  }
+
+  void _executeStopStatement(RenPyStopStatement stmt) {
+    onAudio?.call(
+      RenPyAudioEvent.stop(channel: stmt.channel, fadeout: stmt.fadeout),
     );
     _position++;
     _executeNext();

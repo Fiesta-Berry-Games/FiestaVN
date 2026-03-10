@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:audioplayers/audioplayers.dart' as audio;
 import 'package:flutter/widgets.dart';
 import 'package:renpy_core/renpy_core.dart' show RenPyAudioAction;
@@ -56,18 +58,28 @@ class _RenPyAudioLayerState extends State<RenPyAudioLayer> {
 
     switch (status.action) {
       case RenPyAudioAction.play:
+        final asset = status.asset;
+        if (asset == null) return;
         final assetSourcePath = RenPyAudioAssetResolver.assetSourcePath(
           gameRoot: widget.gameRoot,
-          asset: status.asset,
+          asset: asset,
         );
         _playback
             .play(
               channel: status.channel,
-              asset: status.asset,
+              asset: asset,
               assetSourcePath: assetSourcePath,
             )
             .onError((error, stackTrace) {
-              debugPrint('Failed to play RenPy audio ${status.asset}: $error');
+              debugPrint('Failed to play RenPy audio $asset: $error');
+            });
+      case RenPyAudioAction.stop:
+        _playback
+            .stop(channel: status.channel, fadeout: status.fadeout)
+            .onError((error, stackTrace) {
+              debugPrint(
+                'Failed to stop RenPy audio ${status.channel}: $error',
+              );
             });
     }
   }
@@ -119,6 +131,8 @@ abstract interface class RenPyAudioPlayback {
     required String assetSourcePath,
   });
 
+  Future<void> stop({required String channel, String? fadeout});
+
   Future<void> dispose();
 }
 
@@ -140,6 +154,32 @@ class AudioplayersRenPyAudioPlayback implements RenPyAudioPlayback {
   }
 
   @override
+  Future<void> stop({required String channel, String? fadeout}) async {
+    final player = _players.remove(channel);
+    if (player == null) return;
+
+    final fadeoutSeconds = double.tryParse(fadeout ?? '');
+    if (fadeoutSeconds != null && fadeoutSeconds > 0) {
+      await _fadeOut(player, fadeoutSeconds);
+    }
+
+    await player.stop();
+    await player.dispose();
+  }
+
+  Future<void> _fadeOut(audio.AudioPlayer player, double seconds) async {
+    const steps = 10;
+    final stepDuration = Duration(
+      milliseconds: (seconds * Duration.millisecondsPerSecond / steps).round(),
+    );
+
+    for (var step = steps - 1; step >= 0; step -= 1) {
+      await player.setVolume(step / steps);
+      await Future<void>.delayed(stepDuration);
+    }
+  }
+
+  @override
   Future<void> dispose() async {
     final players = _players.values.toList();
     _players.clear();
@@ -157,6 +197,9 @@ class RenPyNoOpAudioPlayback implements RenPyAudioPlayback {
     required String asset,
     required String assetSourcePath,
   }) async {}
+
+  @override
+  Future<void> stop({required String channel, String? fadeout}) async {}
 
   @override
   Future<void> dispose() async {}
