@@ -45,4 +45,17 @@ label start:
       throwsStateError,
     );
   });
+
+  test('normalizes absolute desktop picker paths', () {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('/tmp/the_question/game/script.rpy', '''
+label start:
+    "Desktop."
+'''),
+    ]);
+
+    expect(project.name, 'the_question');
+    expect(project.scriptPath, 'tmp/the_question/game/script.rpy');
+    expect(project.gameRoot, 'tmp/the_question/game');
+  });
 }
