@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart' as audio;
 import 'package:flutter/widgets.dart';
@@ -177,6 +178,46 @@ class AudioplayersRenPyAudioPlayback implements RenPyAudioPlayback {
       await player.setVolume(step / steps);
       await Future<void>.delayed(stepDuration);
     }
+  }
+
+  @override
+  Future<void> dispose() async {
+    final players = _players.values.toList();
+    _players.clear();
+    await Future.wait(players.map((player) => player.dispose()));
+  }
+}
+
+/// Audio backend for externally loaded project files held in memory.
+class RenPyBytesAudioPlayback implements RenPyAudioPlayback {
+  RenPyBytesAudioPlayback(Map<String, Uint8List> assets)
+    : _assets = Map.unmodifiable(assets);
+
+  final Map<String, Uint8List> _assets;
+  final Map<String, audio.AudioPlayer> _players = {};
+
+  @override
+  Future<void> play({
+    required String channel,
+    required String asset,
+    required String assetSourcePath,
+  }) async {
+    final bytes = _assets[assetSourcePath] ?? _assets[asset];
+    if (bytes == null) return;
+
+    final player = _players.putIfAbsent(channel, audio.AudioPlayer.new);
+    await player.setReleaseMode(
+      channel == 'music' ? audio.ReleaseMode.loop : audio.ReleaseMode.release,
+    );
+    await player.play(audio.BytesSource(bytes));
+  }
+
+  @override
+  Future<void> stop({required String channel, String? fadeout}) async {
+    final player = _players.remove(channel);
+    if (player == null) return;
+    await player.stop();
+    await player.dispose();
   }
 
   @override

@@ -2,11 +2,19 @@ import 'package:flutter/material.dart';
 
 import 'renpy_flutter_controller.dart';
 
+typedef RenPyImageProviderFactory =
+    ImageProvider<Object> Function(String assetPath);
+
 /// Renders RenPy scene and show image changes as Flutter asset images.
 class RenPyImageLayer extends StatefulWidget {
-  const RenPyImageLayer({super.key, required this.controller});
+  const RenPyImageLayer({
+    super.key,
+    required this.controller,
+    this.imageProvider,
+  });
 
   final RenPyFlutterController controller;
+  final RenPyImageProviderFactory? imageProvider;
 
   @override
   State<RenPyImageLayer> createState() => _RenPyImageLayerState();
@@ -97,7 +105,10 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        _RenPyVisualFrame(state: current),
+        _RenPyVisualFrame(
+          state: current,
+          imageProvider: widget.imageProvider ?? _defaultImageProvider,
+        ),
         if (previous != null)
           TweenAnimationBuilder<double>(
             key: ValueKey(_transitionGeneration),
@@ -113,7 +124,10 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
             builder: (context, opacity, child) {
               return Opacity(opacity: opacity, child: child);
             },
-            child: _RenPyVisualFrame(state: previous),
+            child: _RenPyVisualFrame(
+              state: previous,
+              imageProvider: widget.imageProvider ?? _defaultImageProvider,
+            ),
           ),
       ],
     );
@@ -125,6 +139,10 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
       sprites: Map.unmodifiable(_sprites),
     );
   }
+}
+
+ImageProvider<Object> _defaultImageProvider(String assetPath) {
+  return AssetImage(assetPath);
 }
 
 class _RenPyVisualState {
@@ -165,9 +183,10 @@ enum _RenPySpritePlacement {
 }
 
 class _RenPyVisualFrame extends StatelessWidget {
-  const _RenPyVisualFrame({required this.state});
+  const _RenPyVisualFrame({required this.state, required this.imageProvider});
 
   final _RenPyVisualState state;
+  final RenPyImageProviderFactory imageProvider;
 
   @override
   Widget build(BuildContext context) {
@@ -177,8 +196,8 @@ class _RenPyVisualFrame extends StatelessWidget {
         if (state.backgroundAsset == null && state.sprites.isEmpty)
           const ColoredBox(color: Colors.black),
         if (state.backgroundAsset != null)
-          Image.asset(
-            state.backgroundAsset!,
+          Image(
+            image: imageProvider(state.backgroundAsset!),
             fit: BoxFit.cover,
             errorBuilder:
                 (context, error, stackTrace) =>
@@ -189,6 +208,7 @@ class _RenPyVisualFrame extends StatelessWidget {
             key: ValueKey(entry.key),
             imagePath: entry.value.imagePath,
             placement: entry.value.placement,
+            imageProvider: imageProvider,
           ),
       ],
     );
@@ -200,10 +220,12 @@ class _RenPyImageSprite extends StatelessWidget {
     super.key,
     required this.imagePath,
     required this.placement,
+    required this.imageProvider,
   });
 
   final String imagePath;
   final _RenPySpritePlacement placement;
+  final RenPyImageProviderFactory imageProvider;
 
   @override
   Widget build(BuildContext context) {
@@ -217,8 +239,8 @@ class _RenPyImageSprite extends StatelessWidget {
                 maxWidth: (constraints.maxWidth * 0.45).clamp(160, 420),
                 maxHeight: constraints.maxHeight * 0.9,
               ),
-              child: Image.asset(
-                imagePath,
+              child: Image(
+                image: imageProvider(imagePath),
                 fit: BoxFit.contain,
                 errorBuilder: (context, error, stackTrace) {
                   return Container(

@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:renpy_flutter/renpy_flutter.dart';
 
+import 'project_picker.dart';
+
 void main() => runApp(const FiestaVNApp());
 
 class FiestaVNApp extends StatelessWidget {
-  const FiestaVNApp({super.key, this.audioPlayback});
+  const FiestaVNApp({super.key, this.audioPlayback, this.projectPicker});
 
   final RenPyAudioPlayback? audioPlayback;
+  final RenPyProjectPicker? projectPicker;
 
   @override
   Widget build(BuildContext context) {
@@ -14,16 +17,20 @@ class FiestaVNApp extends StatelessWidget {
       title: 'RenFly - FiestaVN Demo',
       theme: ThemeData.dark(useMaterial3: true),
       debugShowCheckedModeBanner: false,
-      home: _LauncherScreen(audioPlayback: audioPlayback),
+      home: _LauncherScreen(
+        audioPlayback: audioPlayback,
+        projectPicker: projectPicker ?? createRenPyProjectPicker(),
+      ),
     );
   }
 }
 
 /// Choose which game to play.
 class _LauncherScreen extends StatelessWidget {
-  const _LauncherScreen({this.audioPlayback});
+  const _LauncherScreen({this.audioPlayback, required this.projectPicker});
 
   final RenPyAudioPlayback? audioPlayback;
+  final RenPyProjectPicker projectPicker;
 
   // Convenience helper
   void _startGame(BuildContext ctx, String assetPath) {
@@ -34,6 +41,28 @@ class _LauncherScreen extends StatelessWidget {
                 GameScreen(assetPath: assetPath, audioPlayback: audioPlayback),
       ),
     );
+  }
+
+  Future<void> _openProject(BuildContext context) async {
+    try {
+      final project = await projectPicker.pickProject();
+      if (project == null || !context.mounted) return;
+
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder:
+              (_) => ExternalGameScreen(
+                project: project,
+                audioPlayback: audioPlayback,
+              ),
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to open folder: $error')));
+    }
   }
 
   @override
@@ -63,8 +92,36 @@ class _LauncherScreen extends StatelessWidget {
               ),
               const SizedBox(height: 16),
             ],
+            ElevatedButton.icon(
+              icon: const Icon(Icons.folder_open),
+              label: const Text('Open Folder'),
+              onPressed: () => _openProject(context),
+            ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class ExternalGameScreen extends StatelessWidget {
+  const ExternalGameScreen({
+    super.key,
+    required this.project,
+    this.audioPlayback,
+  });
+
+  final RenPyGameProject project;
+  final RenPyAudioPlayback? audioPlayback;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(project.name)),
+      body: RenPyProjectPlayer(
+        project: project,
+        backgroundColor: Colors.grey.shade900,
+        audioPlayback: audioPlayback,
       ),
     );
   }

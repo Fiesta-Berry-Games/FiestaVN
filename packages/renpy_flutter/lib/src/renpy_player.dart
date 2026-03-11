@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:renpy_core/renpy_core.dart';
 
 import 'renpy_audio_layer.dart';
 import 'renpy_chrome.dart';
@@ -94,6 +95,109 @@ class RenPyAssetPlayer extends StatefulWidget {
 
   @override
   State<RenPyAssetPlayer> createState() => _RenPyAssetPlayerState();
+}
+
+/// Displays an externally loaded RenPy project folder.
+class RenPyProjectPlayer extends StatefulWidget {
+  const RenPyProjectPlayer({
+    super.key,
+    required this.project,
+    this.availableAssets,
+    this.backgroundColor = const Color(0xFF212121),
+    this.showRestartButton = true,
+    this.imageLayerBuilder,
+    this.audioPlayback,
+  });
+
+  final RenPyGameProject project;
+  final Set<String>? availableAssets;
+  final Color backgroundColor;
+  final bool showRestartButton;
+  final RenPyLayerBuilder? imageLayerBuilder;
+  final RenPyAudioPlayback? audioPlayback;
+
+  @override
+  State<RenPyProjectPlayer> createState() => _RenPyProjectPlayerState();
+}
+
+class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
+  late final RenPyFlutterController _controller;
+  RenPyBytesAudioPlayback? _ownedAudioPlayback;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = RenPyFlutterController();
+    _configureOwnedAudio();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadController();
+    });
+  }
+
+  @override
+  void didUpdateWidget(RenPyProjectPlayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.project, widget.project) ||
+        !identical(oldWidget.audioPlayback, widget.audioPlayback)) {
+      _ownedAudioPlayback?.dispose();
+      _configureOwnedAudio();
+      _loadController();
+    }
+  }
+
+  void _configureOwnedAudio() {
+    _ownedAudioPlayback =
+        widget.audioPlayback == null
+            ? RenPyBytesAudioPlayback(widget.project.assetBytes)
+            : null;
+  }
+
+  void _loadController() {
+    try {
+      _controller.load(
+        widget.project.scriptSource,
+        filename: widget.project.scriptPath,
+        gameRoot: widget.project.gameRoot,
+        availableAssets:
+            widget.availableAssets ?? widget.project.availableAssets,
+      );
+    } catch (error) {
+      _controller.value = RenPyError(error.toString());
+    }
+  }
+
+  ImageProvider<Object> _imageProvider(String assetPath) {
+    final bytes = widget.project.readAsset(assetPath);
+    if (bytes == null) return AssetImage(assetPath);
+    return MemoryImage(bytes);
+  }
+
+  @override
+  void dispose() {
+    _ownedAudioPlayback?.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RenPyPlayer(
+      controller: _controller,
+      backgroundColor: widget.backgroundColor,
+      showRestartButton: widget.showRestartButton,
+      onRestart: _loadController,
+      imageLayerBuilder:
+          widget.imageLayerBuilder ??
+          (context, controller) {
+            return RenPyImageLayer(
+              controller: controller,
+              imageProvider: _imageProvider,
+            );
+          },
+      gameRoot: widget.project.gameRoot,
+      audioPlayback: widget.audioPlayback ?? _ownedAudioPlayback,
+    );
+  }
 }
 
 class _RenPyAssetPlayerState extends State<RenPyAssetPlayer> {

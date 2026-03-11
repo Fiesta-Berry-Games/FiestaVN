@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -126,6 +128,53 @@ label start:
         channel: 'music',
         asset: 'illurock.opus',
         assetSourcePath: 'game/illurock.opus',
+      ),
+    ]);
+  });
+
+  testWidgets('project player renders from an opened RenPy project folder', (
+    tester,
+  ) async {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('the_question/game/script.rpy', '''
+label start:
+    play music "illurock.opus"
+    scene bg lecturehall
+    "Opened folder."
+'''),
+      RenPyProjectFile(
+        'the_question/game/illurock.opus',
+        Uint8List.fromList([1, 2, 3]),
+      ),
+      RenPyProjectFile(
+        'the_question/game/images/bg lecturehall.png',
+        _transparentPngBytes(),
+      ),
+    ]);
+    final playback = _RecordingAudioPlayback();
+    addTearDown(playback.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyProjectPlayer(
+          project: project,
+          audioPlayback: playback,
+          availableAssets: project.availableAssets,
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('Opened folder.'));
+
+    expect(find.text('Opened folder.'), findsOneWidget);
+    expect(find.byType(Image), findsOneWidget);
+    final image = tester.widget<Image>(find.byType(Image));
+    expect(image.image, isA<MemoryImage>());
+    expect(playback.calls, [
+      const _AudioCall(
+        channel: 'music',
+        asset: 'illurock.opus',
+        assetSourcePath: 'the_question/game/illurock.opus',
       ),
     ]);
   });
@@ -279,6 +328,13 @@ label start:
 
     expect(find.textContaining('Tab characters'), findsOneWidget);
   });
+}
+
+Uint8List _transparentPngBytes() {
+  return base64Decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ'
+    'AAAADUlEQVR42mP8z8BQDwAFgwJ/lQv3WQAAAABJRU5ErkJggg==',
+  );
 }
 
 Future<void> _pumpUntil(WidgetTester tester, Finder finder) async {
