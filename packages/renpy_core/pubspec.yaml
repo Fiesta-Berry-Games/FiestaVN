@@ -10,6 +10,7 @@ dependencies:
   path: ^1.8.0
   meta: ^1.8.0
   renpy_parser: ^0.0.1
+  archive: ^4.0.9
 
 dev_dependencies:
   test: ^1.21.0

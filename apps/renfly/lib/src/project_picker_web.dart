@@ -30,8 +30,10 @@ final class BrowserRenPyProjectPicker implements RenPyProjectPicker {
 
     final files = <RenPyProjectFile>[];
     for (final file in selectedFiles) {
+      final relativePath = file.relativePath ?? file.name;
+      if (!_isRenPyProjectFile(relativePath)) continue;
       final bytes = await _readFile(file);
-      files.add(RenPyProjectFile(file.relativePath ?? file.name, bytes));
+      files.add(RenPyProjectFile(relativePath, bytes));
     }
 
     return RenPyGameProject.fromFiles(files);
@@ -53,4 +55,9 @@ final class BrowserRenPyProjectPicker implements RenPyProjectPicker {
     if (result is Uint8List) return result;
     throw StateError('Failed to read ${file.name}');
   }
+}
+
+bool _isRenPyProjectFile(String filePath) {
+  final normalized = filePath.replaceAll(r'\', '/');
+  return normalized.contains('/game/') || normalized.startsWith('game/');
 }

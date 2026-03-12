@@ -23,9 +23,15 @@ final class DesktopRenPyProjectPicker implements RenPyProjectPicker {
     final files = <RenPyProjectFile>[];
     await for (final entity in root.list(recursive: true)) {
       if (entity is! File) continue;
+      if (!_isRenPyProjectFile(entity.path)) continue;
       files.add(RenPyProjectFile(entity.path, await entity.readAsBytes()));
     }
 
     return RenPyGameProject.fromFiles(files);
   }
+}
+
+bool _isRenPyProjectFile(String filePath) {
+  final normalized = filePath.replaceAll(r'\', '/');
+  return normalized.contains('/game/') || normalized.startsWith('game/');
 }
