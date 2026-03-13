@@ -106,7 +106,9 @@ final class RenPyAudioAssetResolver {
     required String gameRoot,
     required String asset,
   }) {
-    final normalizedAsset = asset.replaceAll(r'\', '/');
+    final normalizedAsset = asset
+        .replaceAll(r'\', '/')
+        .replaceFirst(RegExp(r'^/+'), '');
     final assetKey =
         normalizedAsset.startsWith('assets/')
             ? normalizedAsset
@@ -190,10 +192,14 @@ class AudioplayersRenPyAudioPlayback implements RenPyAudioPlayback {
 
 /// Audio backend for externally loaded project files held in memory.
 class RenPyBytesAudioPlayback implements RenPyAudioPlayback {
-  RenPyBytesAudioPlayback(Map<String, Uint8List> assets)
-    : _assets = Map.unmodifiable(assets);
+  RenPyBytesAudioPlayback(
+    Map<String, Uint8List> assets, {
+    Uint8List? Function(String assetPath)? readAsset,
+  }) : _assets = Map.unmodifiable(assets),
+       _readAsset = readAsset;
 
   final Map<String, Uint8List> _assets;
+  final Uint8List? Function(String assetPath)? _readAsset;
   final Map<String, audio.AudioPlayer> _players = {};
 
   @override
@@ -202,7 +208,11 @@ class RenPyBytesAudioPlayback implements RenPyAudioPlayback {
     required String asset,
     required String assetSourcePath,
   }) async {
-    final bytes = _assets[assetSourcePath] ?? _assets[asset];
+    final bytes =
+        _assets[assetSourcePath] ??
+        _assets[asset] ??
+        _readAsset?.call(assetSourcePath) ??
+        _readAsset?.call(asset);
     if (bytes == null) return;
 
     final player = _players.putIfAbsent(channel, audio.AudioPlayer.new);

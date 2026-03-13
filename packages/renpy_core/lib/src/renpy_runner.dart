@@ -510,8 +510,13 @@ class RenPyRunner {
   }
 
   String _evaluateAudioAsset(String expression) {
-    final value = _evaluateExpression(expression);
-    return value?.toString() ?? expression.trim();
+    final trimmed = expression.trim();
+    final quoted = RegExp(r'''^["']([^"']+)["']''').firstMatch(trimmed);
+    if (quoted != null) return quoted.group(1)!;
+
+    final value = _evaluateExpression(trimmed);
+    final stringValue = value?.toString() ?? trimmed;
+    return stringValue.split(RegExp(r'\s+')).first;
   }
 
   void _executeReturnStatement(RenPyReturnStatement stmt) {

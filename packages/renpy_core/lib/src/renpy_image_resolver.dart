@@ -90,6 +90,34 @@ class RenPyImageResolver {
       if (availableAssets.contains(candidate)) return candidate;
     }
 
+    final manifestMatch = _resolveFromManifest(clean);
+    if (manifestMatch != null) return manifestMatch;
+
     return candidates.isNotEmpty ? candidates.first : null;
+  }
+
+  String? _resolveFromManifest(String imageName) {
+    final root = assetRoot;
+    if (root == null || availableAssets.isEmpty) return null;
+
+    final wantedNames =
+        {
+          imageName,
+          imageName.replaceAll(' ', '_'),
+        }.map((name) => name.toLowerCase()).toSet();
+
+    final matches =
+        availableAssets.where((asset) {
+            if (!asset.startsWith('$root/')) return false;
+            final filename = asset.split('/').last;
+            final basename = filename.replaceFirst(
+              RegExp(r'\.[^.]+$', caseSensitive: false),
+              '',
+            );
+            return wantedNames.contains(basename.toLowerCase());
+          }).toList()
+          ..sort();
+
+    return matches.isEmpty ? null : matches.first;
   }
 }

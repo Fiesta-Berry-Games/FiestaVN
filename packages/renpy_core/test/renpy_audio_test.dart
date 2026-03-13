@@ -50,4 +50,23 @@ label start:
       const RenPyAudioEvent.stop(channel: 'sound'),
     ]);
   });
+
+  test('runner strips play audio modifiers from filename expressions', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    play music "/music/She End.ogg" fadein 2.0
+''', 'audio.rpy').script;
+    final runner = RenPyRunner(script);
+    final audio = <RenPyAudioEvent>[];
+
+    runner.onAudio = audio.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(audio, [
+      const RenPyAudioEvent.play(channel: 'music', asset: '/music/She End.ogg'),
+    ]);
+  });
 }

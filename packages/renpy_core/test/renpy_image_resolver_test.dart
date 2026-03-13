@@ -56,6 +56,22 @@ init:
       expect(resolver.resolve(null), isNull);
     });
 
+    test('resolves nested RenPy image assets by basename', () {
+      final resolver = RenPyImageResolver(
+        assetRoot: 'game',
+        availableAssets: const {
+          'game/images/bg/fea_l4.jpg',
+          'game/images/characters/enj/1/enj fumana2.png',
+        },
+      );
+
+      expect(resolver.resolve('fea_l4'), 'game/images/bg/fea_l4.jpg');
+      expect(
+        resolver.resolve('enj fumana2'),
+        'game/images/characters/enj/1/enj fumana2.png',
+      );
+    });
+
     test(
       'returns the first conventional candidate when no manifest is known',
       () {

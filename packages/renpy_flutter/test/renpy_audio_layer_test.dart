@@ -57,6 +57,37 @@ void main() {
       const _PlaybackCall.stop(channel: 'music', fadeout: '1.5'),
     ]);
   });
+
+  testWidgets('audio layer normalizes leading-slash RenPy audio paths', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    final playback = _RecordingAudioPlayback();
+    addTearDown(controller.dispose);
+    addTearDown(playback.dispose);
+
+    await tester.pumpWidget(
+      RenPyAudioLayer(
+        controller: controller,
+        gameRoot: 'game',
+        playback: playback,
+      ),
+    );
+
+    controller.value = const RenPyAudioChange.play(
+      channel: 'music',
+      asset: '/music/She End.ogg',
+    );
+    await tester.pump();
+
+    expect(playback.calls, [
+      const _PlaybackCall.play(
+        channel: 'music',
+        asset: '/music/She End.ogg',
+        assetSourcePath: 'game/music/She End.ogg',
+      ),
+    ]);
+  });
 }
 
 class _RecordingAudioPlayback implements RenPyAudioPlayback {

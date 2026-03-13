@@ -148,7 +148,10 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
   void _configureOwnedAudio() {
     _ownedAudioPlayback =
         widget.audioPlayback == null
-            ? RenPyBytesAudioPlayback(widget.project.assetBytes)
+            ? RenPyBytesAudioPlayback(
+              widget.project.assetBytes,
+              readAsset: widget.project.readAsset,
+            )
             : null;
   }
 
