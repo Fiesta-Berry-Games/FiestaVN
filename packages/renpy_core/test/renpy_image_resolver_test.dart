@@ -49,11 +49,39 @@ init:
     test('treats black as a scene clear rather than an asset', () {
       final resolver = RenPyImageResolver(
         assetRoot: 'assets/game',
-        availableAssets: const {'assets/game/images/black.png'},
+        availableAssets: const {
+          'assets/game/images/black.png',
+          'assets/game/images/white.png',
+        },
       );
 
       expect(resolver.resolve('black'), isNull);
+      expect(resolver.resolve('white'), isNull);
       expect(resolver.resolve(null), isNull);
+    });
+
+    test('resolves displayable wrapper aliases to their source assets', () {
+      final script =
+          RenPyParser().parse('''
+init:
+    image fea_l8bw = im.Grayscale("/bg/fea_l8.jpg")
+    image enj defa1bw = im.MatrixColor("/characters/enj/1/enj defa1.png", im.matrix.tint(1.0, 0.75, 0.75))
+''', 'script.rpy').script;
+
+      final resolver = RenPyImageResolver.fromScript(
+        script,
+        assetRoot: 'game',
+        availableAssets: const {
+          'game/images/bg/fea_l8.jpg',
+          'game/images/characters/enj/1/enj defa1.png',
+        },
+      );
+
+      expect(resolver.resolve('fea_l8bw'), 'game/images/bg/fea_l8.jpg');
+      expect(
+        resolver.resolve('enj defa1bw'),
+        'game/images/characters/enj/1/enj defa1.png',
+      );
     });
 
     test('resolves nested RenPy image assets by basename', () {

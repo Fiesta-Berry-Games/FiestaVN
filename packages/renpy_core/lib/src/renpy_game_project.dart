@@ -28,6 +28,9 @@ final class RenPyGameProject {
     required Map<String, Uint8List> assets,
     required Map<String, RenPyRpaArchive> archives,
   }) : _assets = Map.unmodifiable(assets),
+       _assetsByLowerPath = Map.unmodifiable(
+         _caseInsensitiveIndex(assets.keys),
+       ),
        _archives = Map.unmodifiable(archives),
        availableAssets = Set.unmodifiable(
          {
@@ -76,18 +79,23 @@ final class RenPyGameProject {
   final String scriptSource;
   final Set<String> availableAssets;
   final Map<String, Uint8List> _assets;
+  final Map<String, String> _assetsByLowerPath;
   final Map<String, RenPyRpaArchive> _archives;
 
   Map<String, Uint8List> get assetBytes => _assets;
 
   Uint8List? readAsset(String assetPath) {
     final normalized = _normalizePath(assetPath);
-    final loose = _assets[normalized];
+    final loose =
+        _assets[normalized] ??
+        _assets[_assetsByLowerPath[normalized.toLowerCase()]];
     if (loose != null) return loose;
 
     for (final archive in _archives.entries) {
       final root = path.posix.dirname(archive.key);
-      if (!normalized.startsWith('$root/')) continue;
+      if (!normalized.toLowerCase().startsWith('${root.toLowerCase()}/')) {
+        continue;
+      }
       final entryPath = normalized.substring(root.length + 1);
       final archived = archive.value.read(entryPath);
       if (archived != null) return archived;
@@ -158,4 +166,12 @@ String _normalizePath(String value) {
   final withoutQuery = value.replaceAll(r'\', '/').split('?').first.trim();
   final normalized = path.posix.normalize(withoutQuery);
   return normalized.replaceFirst(RegExp(r'^(\./|/)+'), '');
+}
+
+Map<String, String> _caseInsensitiveIndex(Iterable<String> paths) {
+  final index = <String, String>{};
+  for (final path in paths) {
+    index.putIfAbsent(path.toLowerCase(), () => path);
+  }
+  return index;
 }

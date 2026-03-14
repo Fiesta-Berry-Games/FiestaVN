@@ -31,12 +31,12 @@ class RenPyImageResolver {
       (_) => true,
     )) {
       final expression = image.expression.trim();
-      final imageCall = RegExp(
-        r'''Image\s*\(\s*["']([^"']+)["']\s*\)''',
+      final displayableWrapper = RegExp(
+        r'''^(?:Image|im\.[A-Za-z_]\w*)\s*\(\s*["']([^"']+)["']''',
       ).firstMatch(expression);
       final quoted = RegExp(r'''^["']([^"']+)["']$''').firstMatch(expression);
       aliases[image.name] =
-          imageCall?.group(1) ?? quoted?.group(1) ?? expression;
+          displayableWrapper?.group(1) ?? quoted?.group(1) ?? expression;
     }
     return aliases;
   }
@@ -53,9 +53,9 @@ class RenPyImageResolver {
   String? resolve(String? imageName) {
     final root = assetRoot;
     if (imageName == null || root == null) return null;
-    if (imageName == 'black') return null;
 
     final clean = imageName.split('#').first.trim();
+    if (_solidSceneNames.contains(clean)) return null;
     final alias = imageAliases[clean];
     final candidates = <String>[];
 
@@ -121,3 +121,5 @@ class RenPyImageResolver {
     return matches.isEmpty ? null : matches.first;
   }
 }
+
+const _solidSceneNames = {'black', 'white'};

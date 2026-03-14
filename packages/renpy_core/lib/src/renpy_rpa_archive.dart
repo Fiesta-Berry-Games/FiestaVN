@@ -5,7 +5,10 @@ import 'package:archive/archive.dart';
 
 /// Reader for Ren'Py RPA-3 archives.
 final class RenPyRpaArchive {
-  RenPyRpaArchive._(this.entries, this._bytes);
+  RenPyRpaArchive._(this.entries, this._bytes)
+    : _entriesByLowerPath = Map.unmodifiable(
+        _caseInsensitiveIndex(entries.keys),
+      );
 
   factory RenPyRpaArchive(Uint8List bytes) {
     final newline = bytes.indexOf(0x0a);
@@ -33,9 +36,13 @@ final class RenPyRpaArchive {
 
   final Map<String, RenPyRpaEntry> entries;
   final Uint8List _bytes;
+  final Map<String, String> _entriesByLowerPath;
 
   Uint8List? read(String path) {
-    final entry = entries[path];
+    final normalized = _normalizeArchivePath(path);
+    final entry =
+        entries[normalized] ??
+        entries[_entriesByLowerPath[normalized.toLowerCase()]];
     if (entry == null) return null;
     return Uint8List.sublistView(
       _bytes,
@@ -43,6 +50,18 @@ final class RenPyRpaArchive {
       entry.offset + entry.length,
     );
   }
+}
+
+String _normalizeArchivePath(String path) {
+  return path.replaceAll(r'\', '/').replaceFirst(RegExp(r'^/+'), '');
+}
+
+Map<String, String> _caseInsensitiveIndex(Iterable<String> paths) {
+  final index = <String, String>{};
+  for (final path in paths) {
+    index.putIfAbsent(_normalizeArchivePath(path).toLowerCase(), () => path);
+  }
+  return index;
 }
 
 final class RenPyRpaEntry {

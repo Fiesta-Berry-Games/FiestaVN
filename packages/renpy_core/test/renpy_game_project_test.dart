@@ -84,6 +84,30 @@ label start:
     expect(project.availableAssets, contains('confession/game/images/bg.png'));
     expect(project.readAsset('confession/game/images/bg.png'), [1, 2, 3]);
   });
+
+  test('reads loose and archived assets case-insensitively', () {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('confession/game/script.rpy', '''
+label start:
+    "Packed."
+'''),
+      RenPyProjectFile(
+        'confession/game/se/Z1.wav',
+        Uint8List.fromList([1, 2, 3]),
+      ),
+      RenPyProjectFile(
+        'confession/game/archive.rpa',
+        _rpaArchive({
+          'ME/rain_2.WAV': [4, 5, 6],
+          'music/Rose.ogg': [7, 8, 9],
+        }),
+      ),
+    ]);
+
+    expect(project.readAsset('confession/game/SE/Z1.wav'), [1, 2, 3]);
+    expect(project.readAsset('confession/game/ME/rain_2.wav'), [4, 5, 6]);
+    expect(project.readAsset('confession/game/music/rose.ogg'), [7, 8, 9]);
+  });
 }
 
 Uint8List _rpaArchive(Map<String, List<int>> files) {

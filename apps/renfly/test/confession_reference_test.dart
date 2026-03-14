@@ -84,6 +84,52 @@ void main() {
     );
   }, skip: skipReason);
 
+  test('Confession resolves wrapper aliases and case-varied audio', () async {
+    final project = _loadProjectFolder(fixture);
+    final controller = RenPyFlutterController();
+    final images = <RenPyImageChange>[];
+    final audio = <RenPyAudioChange>[];
+    addTearDown(controller.dispose);
+
+    controller.addListener(() {
+      final status = controller.value;
+      if (status is RenPyImageChange) images.add(status);
+      if (status is RenPyAudioChange) audio.add(status);
+    });
+
+    controller.load(
+      project.scriptSource,
+      filename: project.scriptPath,
+      gameRoot: project.gameRoot,
+      availableAssets: project.availableAssets,
+    );
+
+    await _continueUntil(
+      controller,
+      (status) =>
+          images.any((image) => image.scene == 'fea_l8bw') &&
+          images.any((image) => image.scene == 'white') &&
+          audio.any((change) => change.asset == '/SE/Z1.wav') &&
+          audio.any((change) => change.asset == '/ME/rain_2.wav'),
+      maxSteps: 200,
+    );
+
+    final grayscaleBackground = images.firstWhere(
+      (image) => image.scene == 'fea_l8bw',
+    );
+    expect(
+      grayscaleBackground.sceneAsset,
+      endsWith('/game/images/bg/fea_l8.jpg'),
+    );
+    expect(project.readAsset(grayscaleBackground.sceneAsset!), isNotNull);
+
+    final whiteScene = images.firstWhere((image) => image.scene == 'white');
+    expect(whiteScene.sceneAsset, isNull);
+
+    expect(project.readAsset('${project.gameRoot}/SE/Z1.wav'), isNotNull);
+    expect(project.readAsset('${project.gameRoot}/ME/rain_2.wav'), isNotNull);
+  }, skip: skipReason);
+
   testWidgets(
     'Confession project player renders an archived background',
     (tester) async {
@@ -119,9 +165,10 @@ RenPyGameProject _loadProjectFolder(Directory directory) {
 
 Future<void> _continueUntil(
   RenPyFlutterController controller,
-  bool Function(RenPyGameStatus status) predicate,
-) async {
-  for (var i = 0; i < 100; i += 1) {
+  bool Function(RenPyGameStatus status) predicate, {
+  int maxSteps = 100,
+}) async {
+  for (var i = 0; i < maxSteps; i += 1) {
     if (predicate(controller.value)) return;
     if (controller.value is RenPyDialogue) {
       controller.continueGame();
