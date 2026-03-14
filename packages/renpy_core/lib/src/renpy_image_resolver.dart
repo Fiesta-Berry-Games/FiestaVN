@@ -27,23 +27,42 @@ class RenPyImageResolver {
   /// Builds image-name aliases from RenPy `image name = expression` statements.
   static Map<String, String> aliasesFor(RenPyScript script) {
     final aliases = <String, String>{};
-    for (final image in script.findStatements<RenPyImageStatement>(
-      (_) => true,
-    )) {
-      final expression = image.expression.trim();
-      final displayableWrapper = RegExp(
-        r'''^(?:Image|im\.[A-Za-z_]\w*)\s*\(\s*["']([^"']+)["']''',
-      ).firstMatch(expression);
-      final quoted = RegExp(r'''^["']([^"']+)["']$''').firstMatch(expression);
-      aliases[image.name] =
-          displayableWrapper?.group(1) ?? quoted?.group(1) ?? expression;
+    void addImage(RenPyImageStatement image) {
+      aliases[image.name] = aliasForExpression(image.expression);
+    }
+
+    for (final statement in script.statements) {
+      if (statement is RenPyImageStatement) {
+        addImage(statement);
+      } else if (statement is RenPyInitStatement) {
+        for (final image in statement.block.whereType<RenPyImageStatement>()) {
+          addImage(image);
+        }
+      }
     }
     return aliases;
+  }
+
+  static String aliasForExpression(String expression) {
+    final trimmed = expression.trim();
+    final displayableWrapper = RegExp(
+      r'''^(?:Image|im\.[A-Za-z_]\w*)\s*\(\s*["']([^"']+)["']''',
+    ).firstMatch(trimmed);
+    final quoted = RegExp(r'''^["']([^"']+)["']$''').firstMatch(trimmed);
+    return displayableWrapper?.group(1) ?? quoted?.group(1) ?? trimmed;
   }
 
   final String? assetRoot;
   final Set<String> availableAssets;
   final Map<String, String> imageAliases;
+
+  RenPyImageResolver withImageAlias(String name, String expression) {
+    return RenPyImageResolver(
+      assetRoot: assetRoot,
+      availableAssets: availableAssets,
+      imageAliases: {...imageAliases, name: aliasForExpression(expression)},
+    );
+  }
 
   /// Resolves a RenPy scene/show image name to an asset path.
   ///

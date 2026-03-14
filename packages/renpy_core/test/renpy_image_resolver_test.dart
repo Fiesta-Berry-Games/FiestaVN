@@ -84,6 +84,29 @@ init:
       );
     });
 
+    test('registers runtime image aliases explicitly', () {
+      final script =
+          RenPyParser().parse('''
+label start:
+    image flashback bg = im.Grayscale("/bg/flashback.jpg")
+    scene flashback bg
+''', 'script.rpy').script;
+
+      final resolver = RenPyImageResolver.fromScript(
+        script,
+        assetRoot: 'game',
+        availableAssets: const {'game/images/bg/flashback.jpg'},
+      );
+
+      expect(resolver.resolve('flashback bg'), 'game/flashback bg.png');
+
+      final updated = resolver.withImageAlias(
+        'flashback bg',
+        'im.Grayscale("/bg/flashback.jpg")',
+      );
+      expect(updated.resolve('flashback bg'), 'game/images/bg/flashback.jpg');
+    });
+
     test('resolves nested RenPy image assets by basename', () {
       final resolver = RenPyImageResolver(
         assetRoot: 'game',

@@ -34,4 +34,30 @@ label start:
       '-|-|sylvie',
     ]);
   });
+
+  test('runner emits runtime image definition events', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    image flashback bg = im.Grayscale("/bg/flashback.jpg")
+    scene flashback bg
+''', 'image.rpy').script;
+    final runner = RenPyRunner(script);
+    final definitions = <RenPyImageDefinitionEvent>[];
+    final images = <RenPyImageEvent>[];
+
+    runner.onImageDefinition = definitions.add;
+    runner.onImageEvent = images.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(definitions, [
+      const RenPyImageDefinitionEvent(
+        name: 'flashback bg',
+        expression: 'im.Grayscale("/bg/flashback.jpg")',
+      ),
+    ]);
+    expect(images, [const RenPyImageEvent.scene('flashback bg')]);
+  });
 }

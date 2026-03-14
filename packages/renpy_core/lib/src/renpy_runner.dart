@@ -50,6 +50,10 @@ typedef ImageCallback =
 /// Callback for structured image events.
 typedef ImageEventCallback = void Function(RenPyImageEvent event);
 
+/// Callback for image alias definitions.
+typedef ImageDefinitionCallback =
+    void Function(RenPyImageDefinitionEvent event);
+
 /// Callback for audio events.
 typedef AudioCallback = void Function(RenPyAudioEvent event);
 
@@ -92,6 +96,7 @@ class RenPyRunner {
   MenuCallback? onMenu;
   ImageCallback? onImage;
   ImageEventCallback? onImageEvent;
+  ImageDefinitionCallback? onImageDefinition;
   AudioCallback? onAudio;
   TransitionCallback? onTransition;
 
@@ -259,6 +264,8 @@ class RenPyRunner {
       _executeShowStatement(stmt);
     } else if (stmt is RenPySceneStatement) {
       _executeSceneStatement(stmt);
+    } else if (stmt is RenPyImageStatement) {
+      _executeImageStatement(stmt);
     } else if (stmt is RenPyWithStatement) {
       _executeWithStatement(stmt);
     } else if (stmt is RenPyPythonStatement) {
@@ -445,6 +452,15 @@ class RenPyRunner {
       onImage!(null, null, stmt.imageName);
     }
     _emitInlineTransition(stmt.withExpression);
+
+    _position++;
+    _executeNext();
+  }
+
+  void _executeImageStatement(RenPyImageStatement stmt) {
+    onImageDefinition?.call(
+      RenPyImageDefinitionEvent(name: stmt.name, expression: stmt.expression),
+    );
 
     _position++;
     _executeNext();

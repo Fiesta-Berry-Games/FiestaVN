@@ -139,6 +139,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
           ..onDialogueEvent = _onDialogueEvent
           ..onMenu = _onMenu
           ..onImageEvent = _onImageEvent
+          ..onImageDefinition = _onImageDefinition
           ..onAudio = _onAudio
           ..onTransition = _onTransition;
     _runner = runner;
@@ -237,6 +238,14 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       case RenPyImageAction.hide:
         value = RenPyImageChange(hide: event.imageName);
     }
+  }
+
+  void _onImageDefinition(RenPyImageDefinitionEvent event) {
+    debugPrint('Image definition - ${event.name}: ${event.expression}');
+    _imageResolver = _imageResolver.withImageAlias(
+      event.name,
+      event.expression,
+    );
   }
 
   void _onAudio(RenPyAudioEvent event) {

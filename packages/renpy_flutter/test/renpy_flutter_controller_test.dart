@@ -71,6 +71,33 @@ label start:
     expect(images.last.showAsset, 'assets/game/images/sylvie green normal.png');
   });
 
+  test('controller resolves image aliases defined during execution', () async {
+    final controller = RenPyFlutterController();
+    final images = <RenPyImageChange>[];
+    addTearDown(controller.dispose);
+
+    controller.addListener(() {
+      final status = controller.value;
+      if (status is RenPyImageChange) images.add(status);
+    });
+
+    controller.load(
+      '''
+label start:
+    image flashback bg = im.Grayscale("/bg/flashback.jpg")
+    scene flashback bg
+    "Welcome."
+''',
+      gameRoot: 'assets/game',
+      availableAssets: const {'assets/game/images/bg/flashback.jpg'},
+    );
+
+    await _continueUntil(controller, (status) => status is RenPyDialogue);
+
+    expect(images.single.scene, 'flashback bg');
+    expect(images.single.sceneAsset, 'assets/game/images/bg/flashback.jpg');
+  });
+
   test('controller carries character metadata into dialogue states', () async {
     final controller = RenPyFlutterController();
     addTearDown(controller.dispose);
