@@ -1,5 +1,7 @@
 import 'package:renpy_parser/renpy_parser.dart';
 
+import 'renpy_resolved_image.dart';
+
 /// Resolves RenPy image names to conventional asset paths.
 ///
 /// This class is platform-neutral: it works with strings only and lets host
@@ -9,8 +11,13 @@ class RenPyImageResolver {
     this.assetRoot,
     Iterable<String> availableAssets = const {},
     Map<String, String> imageAliases = const {},
+    Map<String, List<RenPyImageOperation>> imageOperations = const {},
   }) : availableAssets = Set.unmodifiable(availableAssets),
-       imageAliases = Map.unmodifiable(imageAliases);
+       imageAliases = Map.unmodifiable(imageAliases),
+       imageOperations = Map<String, List<RenPyImageOperation>>.unmodifiable({
+         for (final entry in imageOperations.entries)
+           entry.key: List<RenPyImageOperation>.unmodifiable(entry.value),
+       });
 
   factory RenPyImageResolver.fromScript(
     RenPyScript script, {
@@ -21,6 +28,7 @@ class RenPyImageResolver {
       assetRoot: assetRoot,
       availableAssets: availableAssets,
       imageAliases: aliasesFor(script),
+      imageOperations: operationsFor(script),
     );
   }
 
@@ -28,7 +36,7 @@ class RenPyImageResolver {
   static Map<String, String> aliasesFor(RenPyScript script) {
     final aliases = <String, String>{};
     void addImage(RenPyImageStatement image) {
-      aliases[image.name] = aliasForExpression(image.expression);
+      aliases[image.name] = parseExpression(image.expression).assetPath;
     }
 
     for (final statement in script.statements) {
@@ -43,24 +51,50 @@ class RenPyImageResolver {
     return aliases;
   }
 
-  static String aliasForExpression(String expression) {
+  static Map<String, List<RenPyImageOperation>> operationsFor(
+    RenPyScript script,
+  ) {
+    final operations = <String, List<RenPyImageOperation>>{};
+    void addImage(RenPyImageStatement image) {
+      operations[image.name] = parseExpression(image.expression).operations;
+    }
+
+    for (final statement in script.statements) {
+      if (statement is RenPyImageStatement) {
+        addImage(statement);
+      } else if (statement is RenPyInitStatement) {
+        for (final image in statement.block.whereType<RenPyImageStatement>()) {
+          addImage(image);
+        }
+      }
+    }
+    return operations;
+  }
+
+  static RenPyResolvedImage parseExpression(String expression) {
     final trimmed = expression.trim();
     final displayableWrapper = RegExp(
       r'''^(?:Image|im\.[A-Za-z_]\w*)\s*\(\s*["']([^"']+)["']''',
     ).firstMatch(trimmed);
     final quoted = RegExp(r'''^["']([^"']+)["']$''').firstMatch(trimmed);
-    return displayableWrapper?.group(1) ?? quoted?.group(1) ?? trimmed;
+    return RenPyResolvedImage(
+      assetPath: displayableWrapper?.group(1) ?? quoted?.group(1) ?? trimmed,
+      operations: _operationsForExpression(trimmed),
+    );
   }
 
   final String? assetRoot;
   final Set<String> availableAssets;
   final Map<String, String> imageAliases;
+  final Map<String, List<RenPyImageOperation>> imageOperations;
 
   RenPyImageResolver withImageAlias(String name, String expression) {
+    final parsed = parseExpression(expression);
     return RenPyImageResolver(
       assetRoot: assetRoot,
       availableAssets: availableAssets,
-      imageAliases: {...imageAliases, name: aliasForExpression(expression)},
+      imageAliases: {...imageAliases, name: parsed.assetPath},
+      imageOperations: {...imageOperations, name: parsed.operations},
     );
   }
 
@@ -70,12 +104,17 @@ class RenPyImageResolver {
   /// no manifest is available, the first conventional candidate is returned so
   /// hosts can still attempt to render useful placeholders or external files.
   String? resolve(String? imageName) {
+    return resolveImage(imageName)?.assetPath;
+  }
+
+  RenPyResolvedImage? resolveImage(String? imageName) {
     final root = assetRoot;
     if (imageName == null || root == null) return null;
 
     final clean = imageName.split('#').first.trim();
     if (_solidSceneNames.contains(clean)) return null;
     final alias = imageAliases[clean];
+    final operations = imageOperations[clean] ?? const <RenPyImageOperation>[];
     final candidates = <String>[];
 
     void addCandidate(String relativePath) {
@@ -106,13 +145,25 @@ class RenPyImageResolver {
     }
 
     for (final candidate in candidates) {
-      if (availableAssets.contains(candidate)) return candidate;
+      if (availableAssets.contains(candidate)) {
+        return RenPyResolvedImage(assetPath: candidate, operations: operations);
+      }
     }
 
     final manifestMatch = _resolveFromManifest(clean);
-    if (manifestMatch != null) return manifestMatch;
+    if (manifestMatch != null) {
+      return RenPyResolvedImage(
+        assetPath: manifestMatch,
+        operations: operations,
+      );
+    }
 
-    return candidates.isNotEmpty ? candidates.first : null;
+    return candidates.isNotEmpty
+        ? RenPyResolvedImage(
+          assetPath: candidates.first,
+          operations: operations,
+        )
+        : null;
   }
 
   String? _resolveFromManifest(String imageName) {
@@ -142,3 +193,38 @@ class RenPyImageResolver {
 }
 
 const _solidSceneNames = {'black', 'white'};
+
+List<RenPyImageOperation> _operationsForExpression(String expression) {
+  if (expression.startsWith('im.Grayscale(')) {
+    return const [RenPyImageOperation.grayscale()];
+  }
+  if (expression.startsWith('im.Sepia(')) {
+    return const [RenPyImageOperation.sepia()];
+  }
+  if (expression.startsWith('im.Flip(') &&
+      expression.contains('horizontal=True')) {
+    return const [RenPyImageOperation.flipHorizontal()];
+  }
+  if (expression.startsWith('im.MatrixColor(')) {
+    final tint = RegExp(r'im\.matrix\.tint\(([^)]+)\)').firstMatch(expression);
+    if (tint == null) return const [];
+
+    final values =
+        tint
+            .group(1)!
+            .split(',')
+            .map((value) => double.tryParse(value.trim()))
+            .whereType<double>()
+            .toList();
+    if (values.length < 3) return const [];
+
+    return [
+      RenPyImageOperation.matrixColor(
+        tintRed: values[0],
+        tintGreen: values[1],
+        tintBlue: values[2],
+      ),
+    ];
+  }
+  return const [];
+}

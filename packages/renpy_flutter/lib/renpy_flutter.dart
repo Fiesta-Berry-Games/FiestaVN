@@ -2,6 +2,8 @@
 
 export 'package:renpy_core/renpy_core.dart' show RenPyAudioAction;
 export 'package:renpy_core/renpy_core.dart'
+    show RenPyImageOperation, RenPyImageOperationType, RenPyResolvedImage;
+export 'package:renpy_core/renpy_core.dart'
     show RenPyGameProject, RenPyProjectFile;
 
 export 'src/renpy_chrome.dart';

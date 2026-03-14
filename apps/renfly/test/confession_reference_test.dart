@@ -135,6 +135,9 @@ void main() {
       grayscaleBackground.sceneAsset,
       endsWith('/game/images/bg/fea_l8.jpg'),
     );
+    expect(grayscaleBackground.sceneImage?.operations, const [
+      RenPyImageOperation.grayscale(),
+    ]);
     expect(project.readAsset(grayscaleBackground.sceneAsset!), isNotNull);
 
     final whiteScene = images.firstWhere((image) => image.scene == 'white');

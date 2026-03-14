@@ -45,6 +45,8 @@ final class RenPyImageChange extends RenPyGameStatus {
     this.showAt,
     this.sceneAsset,
     this.showAsset,
+    this.sceneImage,
+    this.showImage,
   });
 
   final String? scene;
@@ -54,6 +56,8 @@ final class RenPyImageChange extends RenPyGameStatus {
   final String? showAt;
   final String? sceneAsset;
   final String? showAsset;
+  final RenPyResolvedImage? sceneImage;
+  final RenPyResolvedImage? showImage;
 }
 
 /// Emitted when a RenPy audio command is encountered.
@@ -224,16 +228,20 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     );
     switch (event.action) {
       case RenPyImageAction.scene:
+        final image = _imageResolver.resolveImage(event.imageName);
         value = RenPyImageChange(
           scene: event.imageName,
           sceneAt: event.at,
-          sceneAsset: _imageResolver.resolve(event.imageName),
+          sceneAsset: image?.assetPath,
+          sceneImage: image,
         );
       case RenPyImageAction.show:
+        final image = _imageResolver.resolveImage(event.imageName);
         value = RenPyImageChange(
           show: event.imageName,
           showAt: event.at,
-          showAsset: _imageResolver.resolve(event.imageName),
+          showAsset: image?.assetPath,
+          showImage: image,
         );
       case RenPyImageAction.hide:
         value = RenPyImageChange(hide: event.imageName);

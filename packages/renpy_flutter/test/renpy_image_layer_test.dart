@@ -166,6 +166,41 @@ void main() {
     expect(_spriteAlignment(tester, 'sylvie'), Alignment.bottomLeft);
     expect(_assetNames(tester), ['assets/game/images/sylvie green smile.png']);
   });
+
+  testWidgets('image layer applies displayable operations', (tester) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(
+      scene: 'flashback bg',
+      sceneImage: const RenPyResolvedImage(
+        assetPath: 'assets/game/images/bg/flashback.jpg',
+        operations: [RenPyImageOperation.grayscale()],
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(ColorFiltered), findsOneWidget);
+
+    controller.value = RenPyImageChange(
+      show: 'sha flipped',
+      showImage: const RenPyResolvedImage(
+        assetPath: 'assets/game/images/sha.png',
+        operations: [RenPyImageOperation.flipHorizontal()],
+      ),
+    );
+    await tester.pump();
+
+    final transforms = tester.widgetList<Transform>(find.byType(Transform));
+    expect(
+      transforms.any((transform) => transform.transform.storage[0] == -1),
+      isTrue,
+    );
+  });
 }
 
 List<String> _assetNames(WidgetTester tester) {

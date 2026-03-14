@@ -84,6 +84,49 @@ init:
       );
     });
 
+    test('preserves displayable operation intent for image aliases', () {
+      final script =
+          RenPyParser().parse('''
+init:
+    image fea_l8bw = im.Grayscale("/bg/fea_l8.jpg")
+    image beach_s = im.Sepia("/bg/beach.jpg")
+    image sha flipped = im.Flip("/characters/sha.png", horizontal=True)
+    image red bg = im.MatrixColor("/bg/mlib.jpg", im.matrix.tint(1.0, 0.5, 0.25))
+''', 'script.rpy').script;
+
+      final resolver = RenPyImageResolver.fromScript(
+        script,
+        assetRoot: 'game',
+        availableAssets: const {
+          'game/images/bg/fea_l8.jpg',
+          'game/images/bg/beach.jpg',
+          'game/images/characters/sha.png',
+          'game/images/bg/mlib.jpg',
+        },
+      );
+
+      expect(
+        resolver.resolveImage('fea_l8bw'),
+        const RenPyResolvedImage(
+          assetPath: 'game/images/bg/fea_l8.jpg',
+          operations: [RenPyImageOperation.grayscale()],
+        ),
+      );
+      expect(resolver.resolveImage('beach_s')?.operations, const [
+        RenPyImageOperation.sepia(),
+      ]);
+      expect(resolver.resolveImage('sha flipped')?.operations, const [
+        RenPyImageOperation.flipHorizontal(),
+      ]);
+      expect(resolver.resolveImage('red bg')?.operations, const [
+        RenPyImageOperation.matrixColor(
+          tintRed: 1,
+          tintGreen: 0.5,
+          tintBlue: 0.25,
+        ),
+      ]);
+    });
+
     test('registers runtime image aliases explicitly', () {
       final script =
           RenPyParser().parse('''

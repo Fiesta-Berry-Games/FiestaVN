@@ -96,6 +96,13 @@ label start:
 
     expect(images.single.scene, 'flashback bg');
     expect(images.single.sceneAsset, 'assets/game/images/bg/flashback.jpg');
+    expect(
+      images.single.sceneImage,
+      const RenPyResolvedImage(
+        assetPath: 'assets/game/images/bg/flashback.jpg',
+        operations: [RenPyImageOperation.grayscale()],
+      ),
+    );
   });
 
   test('controller carries character metadata into dialogue states', () async {
