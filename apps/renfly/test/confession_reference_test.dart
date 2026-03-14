@@ -89,12 +89,14 @@ void main() {
     final controller = RenPyFlutterController();
     final images = <RenPyImageChange>[];
     final audio = <RenPyAudioChange>[];
+    final dialogue = <RenPyDialogue>[];
     addTearDown(controller.dispose);
 
     controller.addListener(() {
       final status = controller.value;
       if (status is RenPyImageChange) images.add(status);
       if (status is RenPyAudioChange) audio.add(status);
+      if (status is RenPyDialogue) dialogue.add(status);
     });
 
     controller.load(
@@ -128,6 +130,15 @@ void main() {
 
     expect(project.readAsset('${project.gameRoot}/SE/Z1.wav'), isNotNull);
     expect(project.readAsset('${project.gameRoot}/ME/rain_2.wav'), isNotNull);
+    expect(dialogue.map((line) => line.character), isNot(contains('extend')));
+    expect(
+      dialogue.map((line) => line.text),
+      contains(
+        contains(
+          'library. Her eyes were drawn to a large shelf, laden with bottles.',
+        ),
+      ),
+    );
   }, skip: skipReason);
 
   testWidgets(

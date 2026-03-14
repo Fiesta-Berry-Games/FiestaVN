@@ -34,4 +34,44 @@ label start:
     ]);
     expect(legacy, ['Sylvie:Hi there!', 'Narrator:Narration.']);
   });
+
+  test('runner extends the previous dialogue event for extend statements', () {
+    final script =
+        RenPyParser().parse('''
+define e = Character(_("Erika"), color="#99ccff")
+
+label start:
+    "First."
+    extend " Second."
+    e "Named."
+    extend " Again."
+''', 'dialogue.rpy').script;
+    final runner = RenPyRunner(script);
+    final events = <RenPyDialogueEvent>[];
+
+    runner.onDialogueEvent = events.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+    runner.continueExecution();
+    runner.continueExecution();
+    runner.continueExecution();
+
+    expect(events, [
+      const RenPyDialogueEvent(text: 'First.'),
+      const RenPyDialogueEvent(text: 'First. Second.'),
+      const RenPyDialogueEvent(
+        characterId: 'e',
+        displayName: 'Erika',
+        text: 'Named.',
+        color: '#99ccff',
+      ),
+      const RenPyDialogueEvent(
+        characterId: 'e',
+        displayName: 'Erika',
+        text: 'Named. Again.',
+        color: '#99ccff',
+      ),
+    ]);
+  });
 }

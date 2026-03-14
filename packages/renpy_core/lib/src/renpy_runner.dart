@@ -84,6 +84,8 @@ class RenPyRunner {
   /// Character definitions
   final Map<String, Map<String, dynamic>> _characters = {};
 
+  RenPyDialogueEvent? _lastDialogueEvent;
+
   /// Callbacks for various events
   DialogueCallback? onDialogue;
   DialogueEventCallback? onDialogueEvent;
@@ -291,6 +293,28 @@ class RenPyRunner {
 
   /// Execute a say statement (dialogue).
   void _executeSayStatement(RenPySayStatement stmt) {
+    final isExtend = stmt.character == 'extend';
+    final previous = _lastDialogueEvent;
+    final event =
+        isExtend && previous != null
+            ? RenPyDialogueEvent(
+              characterId: previous.characterId,
+              displayName: previous.displayName,
+              text: '${previous.text}${stmt.text ?? ''}',
+              color: previous.color,
+            )
+            : isExtend
+            ? RenPyDialogueEvent(text: stmt.text ?? '')
+            : _dialogueEventForSayStatement(stmt);
+
+    _emitDialogueEvent(event);
+
+    // Wait for player input.
+    _state = RenPyRunnerState.waitingForInput;
+    _position++;
+  }
+
+  RenPyDialogueEvent _dialogueEventForSayStatement(RenPySayStatement stmt) {
     // Resolve character name if it's a defined character.
     String? displayName;
     String? color;
@@ -301,22 +325,22 @@ class RenPyRunner {
       displayName = stmt.character;
     }
 
-    final event = RenPyDialogueEvent(
+    return RenPyDialogueEvent(
       characterId: stmt.character,
       displayName: displayName,
       text: stmt.text ?? '',
       color: color,
     );
+  }
+
+  void _emitDialogueEvent(RenPyDialogueEvent event) {
+    _lastDialogueEvent = event;
     onDialogueEvent?.call(event);
 
     // Display the dialogue.
     if (onDialogue != null) {
       onDialogue!(event.displayName, event.text);
     }
-
-    // Wait for player input.
-    _state = RenPyRunnerState.waitingForInput;
-    _position++;
   }
 
   /// Execute a label statement.
