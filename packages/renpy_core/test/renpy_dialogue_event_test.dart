@@ -74,4 +74,27 @@ label start:
       ),
     ]);
   });
+
+  test('runner clears previous dialogue context for nvl clear', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    "Before."
+    nvl clear
+    extend "After."
+''', 'dialogue.rpy').script;
+    final runner = RenPyRunner(script);
+    final events = <RenPyDialogueEvent>[];
+
+    runner.onDialogueEvent = events.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+    runner.continueExecution();
+
+    expect(events, [
+      const RenPyDialogueEvent(text: 'Before.'),
+      const RenPyDialogueEvent(text: 'After.'),
+    ]);
+  });
 }

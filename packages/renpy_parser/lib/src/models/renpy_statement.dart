@@ -248,6 +248,19 @@ class RenPyReturnStatement extends RenPyStatement {
   String toString() => 'Return${expression != null ? ": $expression" : ""}';
 }
 
+enum RenPyNvlAction { clear }
+
+/// Represents an NVL-mode control statement, such as `nvl clear`.
+class RenPyNvlStatement extends RenPyStatement {
+  final RenPyNvlAction action;
+
+  RenPyNvlStatement(this.action, String filename, int linenumber)
+    : super(filename, linenumber);
+
+  @override
+  String toString() => 'NVL: $action';
+}
+
 /// Represents a generic statement that we couldn't parse more specifically.
 class RenPyGenericStatement extends RenPyStatement {
   final String text;

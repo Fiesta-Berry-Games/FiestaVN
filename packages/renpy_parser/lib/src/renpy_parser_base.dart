@@ -149,6 +149,10 @@ class RenPyParser {
       return _parseWithStatement(line, warnings);
     }
 
+    if (text.startsWith('nvl ')) {
+      return _parseNvlStatement(line, warnings);
+    }
+
     // Parse python statement.
     if (text.startsWith('python') || text.startsWith('\$')) {
       return _parsePythonStatement(line, warnings);
@@ -211,6 +215,27 @@ class RenPyParser {
       match.group(2)!.trim(), // right-hand expression
       line.filename,
       line.number,
+    );
+  }
+
+  RenPyNvlStatement _parseNvlStatement(
+    GroupedLine line,
+    List<String> warnings,
+  ) {
+    final text = line.text.trim();
+    if (text == 'nvl clear') {
+      return RenPyNvlStatement(
+        RenPyNvlAction.clear,
+        line.filename,
+        line.number,
+      );
+    }
+
+    throw RenPyParseError(
+      'Invalid NVL statement syntax',
+      line.filename,
+      line.number,
+      0,
     );
   }
 

@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:renpy_core/renpy_core.dart'
+    show RenPyGenericStatement, RenPyNvlStatement, RenPyParser;
 import 'package:renpy_flutter/renpy_flutter.dart';
 
 void main() {
@@ -21,6 +23,16 @@ void main() {
     expect(
       project.availableAssets,
       contains(endsWith('/game/images/bg/closedring.jpg')),
+    );
+
+    final script =
+        RenPyParser().parse(project.scriptSource, project.scriptPath).script;
+    expect(script.findStatements<RenPyNvlStatement>((_) => true), isNotEmpty);
+    expect(
+      script.findStatements<RenPyGenericStatement>(
+        (statement) => statement.text == 'nvl clear',
+      ),
+      isEmpty,
     );
   }, skip: skipReason);
 

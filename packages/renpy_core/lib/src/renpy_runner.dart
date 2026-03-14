@@ -279,6 +279,8 @@ class RenPyRunner {
       _executeReturnStatement(stmt);
     } else if (stmt is RenPyCallStatement) {
       _executeCallStatement(stmt);
+    } else if (stmt is RenPyNvlStatement) {
+      _executeNvlStatement(stmt);
     } else if (stmt is RenPyPassStatement) {
       // Do nothing
       _position++;
@@ -566,6 +568,16 @@ class RenPyRunner {
     _currentLabel = label.name;
     _currentBlock = label.block;
     _position = 0;
+    _executeNext();
+  }
+
+  void _executeNvlStatement(RenPyNvlStatement stmt) {
+    switch (stmt.action) {
+      case RenPyNvlAction.clear:
+        _lastDialogueEvent = null;
+    }
+
+    _position++;
     _executeNext();
   }
 
