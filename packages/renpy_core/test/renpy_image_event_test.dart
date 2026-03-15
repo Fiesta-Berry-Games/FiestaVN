@@ -24,8 +24,26 @@ label start:
 
     expect(runner.state, RenPyRunnerState.complete);
     expect(events, [
-      const RenPyImageEvent.scene('bg lecturehall', at: 'center'),
-      const RenPyImageEvent.show('sylvie green normal', at: 'left'),
+      const RenPyImageEvent.scene(
+        'bg lecturehall',
+        at: 'center',
+        placement: RenPyImagePlacement.position(
+          xpos: 0.5,
+          xanchor: 0.5,
+          ypos: 1,
+          yanchor: 1,
+        ),
+      ),
+      const RenPyImageEvent.show(
+        'sylvie green normal',
+        at: 'left',
+        placement: RenPyImagePlacement.position(
+          xpos: 0,
+          xanchor: 0,
+          ypos: 1,
+          yanchor: 1,
+        ),
+      ),
       const RenPyImageEvent.hide('sylvie'),
     ]);
     expect(legacy, [
@@ -33,6 +51,40 @@ label start:
       '-|sylvie green normal|-',
       '-|-|sylvie',
     ]);
+  });
+
+  test('runner emits structured image placement intent', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    show eri defa2 at Position(xpos = 0.2)
+    show enj fumana2 at Position(xpos = 0.8, yalign = 1.0)
+    show beatrice at truecenter
+    show eri defa2bw at Position(xpos = 0.25) behind enj
+''', 'image.rpy').script;
+    final runner = RenPyRunner(script);
+    final events = <RenPyImageEvent>[];
+
+    runner.onImageEvent = events.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(events[0].placement, const RenPyImagePlacement.position(xpos: 0.2));
+    expect(
+      events[1].placement,
+      const RenPyImagePlacement.position(xpos: 0.8, yalign: 1.0),
+    );
+    expect(
+      events[2].placement,
+      const RenPyImagePlacement.position(
+        xpos: 0.5,
+        xanchor: 0.5,
+        ypos: 0.5,
+        yanchor: 0.5,
+      ),
+    );
+    expect(events[3].placement, const RenPyImagePlacement.position(xpos: 0.25));
   });
 
   test('runner emits runtime image definition events', () {

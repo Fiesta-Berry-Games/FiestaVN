@@ -3,6 +3,7 @@ import 'package:renpy_parser/renpy_parser.dart';
 import 'renpy_audio_event.dart';
 import 'renpy_dialogue_event.dart';
 import 'renpy_image_event.dart';
+import 'renpy_image_placement.dart';
 import 'renpy_transition_event.dart';
 import 'renpy_transition_resolver.dart';
 
@@ -428,7 +429,11 @@ class RenPyRunner {
   /// Execute a show statement.
   void _executeShowStatement(RenPyShowStatement stmt) {
     onImageEvent?.call(
-      RenPyImageEvent.show(stmt.imageName, at: stmt.atExpression),
+      RenPyImageEvent.show(
+        stmt.imageName,
+        at: stmt.atExpression,
+        placement: RenPyImagePlacement.parse(stmt.atExpression),
+      ),
     );
     if (onImage != null) {
       onImage!(null, stmt.imageName, null);
@@ -442,7 +447,11 @@ class RenPyRunner {
   /// Execute a scene statement.
   void _executeSceneStatement(RenPySceneStatement stmt) {
     onImageEvent?.call(
-      RenPyImageEvent.scene(stmt.imageName, at: stmt.atExpression),
+      RenPyImageEvent.scene(
+        stmt.imageName,
+        at: stmt.atExpression,
+        placement: RenPyImagePlacement.parse(stmt.atExpression),
+      ),
     );
     if (onImage != null) {
       onImage!(stmt.imageName, null, null);

@@ -63,7 +63,16 @@ label start:
           inTime: 0.5,
         ),
       ),
-      const RenPyImageEvent.show('sylvie green normal', at: 'left'),
+      const RenPyImageEvent.show(
+        'sylvie green normal',
+        at: 'left',
+        placement: RenPyImagePlacement.position(
+          xpos: 0,
+          xanchor: 0,
+          ypos: 1,
+          yanchor: 1,
+        ),
+      ),
       const RenPyTransitionEvent(
         'dissolve',
         intent: RenPyTransitionIntent.dissolve(duration: 0.5),

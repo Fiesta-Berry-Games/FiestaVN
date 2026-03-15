@@ -51,7 +51,7 @@ label start:
       '''
 label start:
     scene bg lecturehall at center
-    show sylvie green normal at right
+    show sylvie green normal at Position(xpos = 0.8)
     "Welcome."
 ''',
       gameRoot: 'assets/game',
@@ -65,9 +65,22 @@ label start:
 
     expect(images.first.scene, 'bg lecturehall');
     expect(images.first.sceneAt, 'center');
+    expect(
+      images.first.scenePlacement,
+      const RenPyImagePlacement.position(
+        xpos: 0.5,
+        xanchor: 0.5,
+        ypos: 1,
+        yanchor: 1,
+      ),
+    );
     expect(images.first.sceneAsset, 'assets/game/images/bg lecturehall.png');
     expect(images.last.show, 'sylvie green normal');
-    expect(images.last.showAt, 'right');
+    expect(images.last.showAt, 'Position(xpos = 0.8)');
+    expect(
+      images.last.showPlacement,
+      const RenPyImagePlacement.position(xpos: 0.8),
+    );
     expect(images.last.showAsset, 'assets/game/images/sylvie green normal.png');
   });
 

@@ -2,7 +2,11 @@
 
 export 'package:renpy_core/renpy_core.dart' show RenPyAudioAction;
 export 'package:renpy_core/renpy_core.dart'
-    show RenPyImageOperation, RenPyImageOperationType, RenPyResolvedImage;
+    show
+        RenPyImageOperation,
+        RenPyImageOperationType,
+        RenPyImagePlacement,
+        RenPyResolvedImage;
 export 'package:renpy_core/renpy_core.dart'
     show RenPyTransitionFidelity, RenPyTransitionIntent, RenPyTransitionType;
 export 'package:renpy_core/renpy_core.dart'

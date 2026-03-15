@@ -87,6 +87,11 @@ void main() {
     expect(firstBackground.sceneAsset, endsWith('/game/images/bg/fea_l4.jpg'));
     expect(project.readAsset(firstBackground.sceneAsset!), isNotNull);
 
+    final erika = images.firstWhere((image) => image.show == 'eri defa2');
+    final ange = images.firstWhere((image) => image.show == 'enj fumana2');
+    expect(erika.showPlacement, const RenPyImagePlacement.position(xpos: 0.2));
+    expect(ange.showPlacement, const RenPyImagePlacement.position(xpos: 0.8));
+
     final firstMusic = audio.firstWhere(
       (change) => change.asset == '/music/She End.ogg',
     );
@@ -141,6 +146,14 @@ void main() {
       RenPyImageOperation.grayscale(),
     ]);
     expect(project.readAsset(grayscaleBackground.sceneAsset!), isNotNull);
+
+    final grayscaleErika = images.firstWhere(
+      (image) => image.show == 'eri defa2bw',
+    );
+    expect(
+      grayscaleErika.showPlacement,
+      const RenPyImagePlacement.position(xpos: 0.25),
+    );
 
     final whiteScene = images.firstWhere((image) => image.scene == 'white');
     expect(whiteScene.sceneAsset, isNull);

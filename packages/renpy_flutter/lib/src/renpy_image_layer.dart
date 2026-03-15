@@ -3,6 +3,7 @@ import 'package:renpy_core/renpy_core.dart'
     show
         RenPyImageOperation,
         RenPyImageOperationType,
+        RenPyImagePlacement,
         RenPyResolvedImage,
         RenPyTransitionIntent,
         RenPyTransitionType;
@@ -31,7 +32,7 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
   static const _transitionDuration = Duration(milliseconds: 300);
 
   final _sprites = <String, _RenPySpriteState>{};
-  final _positions = <String, _RenPySpritePlacement>{};
+  final _positions = <String, RenPyImagePlacement>{};
   _RenPyRenderedImage? _backgroundImage;
   _RenPyVisualState? _previousVisualState;
   RenPyTransitionIntent? _activeTransitionIntent;
@@ -91,9 +92,10 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
         final name = parts.first;
 
         final placement =
-            _RenPySpritePlacement.fromExpression(status.showAt) ??
+            status.showPlacement ??
+            RenPyImagePlacement.parse(status.showAt) ??
             _positions[name] ??
-            _RenPySpritePlacement.center;
+            _defaultSpritePlacement;
         _positions[name] = placement;
 
         final image = _RenPyRenderedImage.fromStatus(
@@ -213,28 +215,15 @@ class _RenPySpriteState {
   const _RenPySpriteState({required this.image, required this.placement});
 
   final _RenPyRenderedImage image;
-  final _RenPySpritePlacement placement;
+  final RenPyImagePlacement placement;
 }
 
-enum _RenPySpritePlacement {
-  left(Alignment.bottomLeft),
-  center(Alignment.bottomCenter),
-  right(Alignment.bottomRight);
-
-  const _RenPySpritePlacement(this.alignment);
-
-  final Alignment alignment;
-
-  static _RenPySpritePlacement? fromExpression(String? expression) {
-    final value = expression?.trim().toLowerCase();
-    return switch (value) {
-      'left' => _RenPySpritePlacement.left,
-      'right' => _RenPySpritePlacement.right,
-      'center' || 'truecenter' => _RenPySpritePlacement.center,
-      _ => null,
-    };
-  }
-}
+const _defaultSpritePlacement = RenPyImagePlacement.position(
+  xpos: 0.5,
+  xanchor: 0.5,
+  ypos: 1,
+  yanchor: 1,
+);
 
 class _RenPyVisualFrame extends StatelessWidget {
   const _RenPyVisualFrame({required this.state, required this.imageProvider});
@@ -279,60 +268,64 @@ class _RenPyImageSprite extends StatelessWidget {
   });
 
   final _RenPyRenderedImage image;
-  final _RenPySpritePlacement placement;
+  final RenPyImagePlacement placement;
   final RenPyImageProviderFactory imageProvider;
 
   @override
   Widget build(BuildContext context) {
+    final resolved = _ResolvedSpritePlacement.from(placement);
     return Positioned.fill(
       child: Align(
-        alignment: placement.alignment,
+        alignment: resolved.alignment,
         child: LayoutBuilder(
           builder: (context, constraints) {
-            return ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: (constraints.maxWidth * 0.45).clamp(160, 420),
-                maxHeight: constraints.maxHeight * 0.9,
-              ),
-              child: _RenPyRenderedImageWidget(
-                image: image,
-                fit: BoxFit.contain,
-                imageProvider: imageProvider,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade600,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.image_not_supported,
-                          size: 48,
-                          color: Colors.grey.shade300,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Image not found',
-                          style: TextStyle(
+            return FractionalTranslation(
+              translation: resolved.anchorTranslation,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: (constraints.maxWidth * 0.45).clamp(160, 420),
+                  maxHeight: constraints.maxHeight * 0.9,
+                ),
+                child: _RenPyRenderedImageWidget(
+                  image: image,
+                  fit: BoxFit.contain,
+                  imageProvider: imageProvider,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade600,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.image_not_supported,
+                            size: 48,
                             color: Colors.grey.shade300,
-                            fontSize: 12,
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          image.assetPath.split('/').last,
-                          style: TextStyle(
-                            color: Colors.grey.shade400,
-                            fontSize: 10,
+                          const SizedBox(height: 8),
+                          Text(
+                            'Image not found',
+                            style: TextStyle(
+                              color: Colors.grey.shade300,
+                              fontSize: 12,
+                            ),
                           ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
-                  );
-                },
+                          const SizedBox(height: 4),
+                          Text(
+                            image.assetPath.split('/').last,
+                            style: TextStyle(
+                              color: Colors.grey.shade400,
+                              fontSize: 10,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
               ),
             );
           },
@@ -340,6 +333,28 @@ class _RenPyImageSprite extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ResolvedSpritePlacement {
+  const _ResolvedSpritePlacement({
+    required this.alignment,
+    required this.anchorTranslation,
+  });
+
+  factory _ResolvedSpritePlacement.from(RenPyImagePlacement placement) {
+    final xpos = placement.xalign ?? placement.xpos ?? 0.5;
+    final ypos = placement.yalign ?? placement.ypos ?? 1.0;
+    final xanchor = placement.xalign ?? placement.xanchor ?? 0.5;
+    final yanchor = placement.yalign ?? placement.yanchor ?? 1.0;
+
+    return _ResolvedSpritePlacement(
+      alignment: Alignment((xpos * 2) - 1, (ypos * 2) - 1),
+      anchorTranslation: Offset(0.5 - xanchor, 0.5 - yanchor),
+    );
+  }
+
+  final Alignment alignment;
+  final Offset anchorTranslation;
 }
 
 class _RenPyRenderedImageWidget extends StatelessWidget {

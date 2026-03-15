@@ -212,6 +212,27 @@ void main() {
     expect(_spriteAlignment(tester, 'eileen'), Alignment.bottomRight);
   });
 
+  testWidgets('image layer honors fractional Position placement', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(
+      show: 'eri defa2',
+      showAt: 'Position(xpos = 0.2)',
+      showPlacement: const RenPyImagePlacement.position(xpos: 0.2),
+      showAsset: 'assets/game/images/eri defa2.png',
+    );
+    await tester.pump();
+
+    expect(_spriteAlignment(tester, 'eri'), const Alignment(-0.6, 1));
+  });
+
   testWidgets('image layer preserves placement across sprite swaps', (
     tester,
   ) async {
