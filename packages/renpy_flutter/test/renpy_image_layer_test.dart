@@ -97,6 +97,78 @@ void main() {
     expect(_assetNames(tester), ['assets/game/images/bg uni.jpg']);
   });
 
+  testWidgets('image layer uses transition intent duration', (tester) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(
+      scene: 'bg lecturehall',
+      sceneAsset: 'assets/game/images/bg lecturehall.jpg',
+    );
+    await tester.pump();
+    controller.value = RenPyImageChange(
+      scene: 'bg uni',
+      sceneAsset: 'assets/game/images/bg uni.jpg',
+    );
+    await tester.pump();
+    controller.value = const RenPyTransitionChange(
+      'openfade',
+      intent: RenPyTransitionIntent.fade(
+        outTime: 1.5,
+        holdTime: 2.0,
+        inTime: 2.0,
+        color: '#fff',
+      ),
+    );
+    await tester.pump();
+
+    final transition = tester.widget<TweenAnimationBuilder<double>>(
+      find.byType(TweenAnimationBuilder<double>),
+    );
+    expect(transition.duration, const Duration(milliseconds: 5500));
+  });
+
+  testWidgets('image layer approximates right-mask image dissolves as wipes', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(
+      scene: 'bg lecturehall',
+      sceneAsset: 'assets/game/images/bg lecturehall.jpg',
+    );
+    await tester.pump();
+    controller.value = RenPyImageChange(
+      scene: 'bg hallway',
+      sceneAsset: 'assets/game/images/bg hallway.jpg',
+    );
+    await tester.pump();
+    controller.value = const RenPyTransitionChange(
+      'quickgradientwiperight',
+      intent: RenPyTransitionIntent.imageDissolve(
+        maskAsset: 'right.png',
+        duration: 1.5,
+        ramplen: 16,
+      ),
+    );
+    await tester.pump();
+
+    final transition = tester.widget<TweenAnimationBuilder<double>>(
+      find.byType(TweenAnimationBuilder<double>),
+    );
+    expect(transition.duration, const Duration(milliseconds: 1500));
+    expect(find.byType(ClipPath), findsOneWidget);
+  });
+
   testWidgets('image layer defaults sprites to bottom center', (tester) async {
     final controller = RenPyFlutterController();
     addTearDown(controller.dispose);

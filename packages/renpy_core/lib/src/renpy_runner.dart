@@ -4,6 +4,7 @@ import 'renpy_audio_event.dart';
 import 'renpy_dialogue_event.dart';
 import 'renpy_image_event.dart';
 import 'renpy_transition_event.dart';
+import 'renpy_transition_resolver.dart';
 
 class _ExecutionContext {
   final List<RenPyStatement> block;
@@ -89,6 +90,7 @@ class RenPyRunner {
   final Map<String, Map<String, dynamic>> _characters = {};
 
   RenPyDialogueEvent? _lastDialogueEvent;
+  late RenPyTransitionResolver _transitionResolver;
 
   /// Callbacks for various events
   DialogueCallback? onDialogue;
@@ -107,6 +109,7 @@ class RenPyRunner {
   RenPyRunner(this.script) {
     // Initialize with the default block of statements
     _currentBlock = script.statements;
+    _transitionResolver = RenPyTransitionResolver.fromScript(script);
 
     // Process define statements to set up characters and variables
     _processDefines();
@@ -162,6 +165,10 @@ class RenPyRunner {
         expression.contains('Character (')) {
       _parseCharacter(name, expression);
     } else {
+      _transitionResolver = _transitionResolver.withDefinition(
+        name,
+        expression,
+      );
       _variables[name] = _evaluateExpression(expression);
     }
   }
@@ -468,15 +475,21 @@ class RenPyRunner {
 
   void _emitInlineTransition(String? transition) {
     if (transition == null || transition.trim().isEmpty) return;
-    onTransition?.call(RenPyTransitionEvent(transition.trim()));
+    _emitTransition(transition);
   }
 
   /// Execute a with statement.
   void _executeWithStatement(RenPyWithStatement stmt) {
-    onTransition?.call(RenPyTransitionEvent(stmt.transition));
+    _emitTransition(stmt.transition);
 
     _position++;
     _executeNext();
+  }
+
+  void _emitTransition(String transition) {
+    final name = transition.trim();
+    final intent = _transitionResolver.resolve(name);
+    onTransition?.call(RenPyTransitionEvent(name, intent: intent));
   }
 
   /// Execute a Python statement.

@@ -225,6 +225,55 @@ label start:
     await _continueUntil(controller, (status) => status is RenPyDialogue);
 
     expect(transitions.map((change) => change.name), ['fade', 'dissolve']);
+    expect(
+      transitions.first.intent,
+      const RenPyTransitionIntent.fade(outTime: 0.5, holdTime: 0, inTime: 0.5),
+    );
+  });
+
+  test('controller carries parsed custom transition intent', () async {
+    final controller = RenPyFlutterController();
+    final transitions = <RenPyTransitionChange>[];
+    addTearDown(controller.dispose);
+
+    controller.addListener(() {
+      final status = controller.value;
+      if (status is RenPyTransitionChange) transitions.add(status);
+    });
+
+    controller.load('''
+define openfade = Fade(1.5, 2.0, 2.0, color="#fff")
+define quickgradientwiperight = ImageDissolve("right.png", 1.5, ramplen = 16)
+
+label start:
+    scene black with openfade
+    scene bg hallway with quickgradientwiperight
+    "Welcome."
+''');
+
+    await _continueUntil(controller, (status) => status is RenPyDialogue);
+
+    expect(transitions.map((change) => change.name), [
+      'openfade',
+      'quickgradientwiperight',
+    ]);
+    expect(
+      transitions.first.intent,
+      const RenPyTransitionIntent.fade(
+        outTime: 1.5,
+        holdTime: 2.0,
+        inTime: 2.0,
+        color: '#fff',
+      ),
+    );
+    expect(
+      transitions.last.intent,
+      const RenPyTransitionIntent.imageDissolve(
+        maskAsset: 'right.png',
+        duration: 1.5,
+        ramplen: 16,
+      ),
+    );
   });
 
   test(

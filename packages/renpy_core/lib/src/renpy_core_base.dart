@@ -9,5 +9,7 @@ export 'renpy_resolved_image.dart';
 export 'renpy_rpa_archive.dart';
 export 'renpy_styled_text.dart';
 export 'renpy_transition_event.dart';
+export 'renpy_transition_intent.dart';
+export 'renpy_transition_resolver.dart';
 export 'renpy_runner.dart';
 export 'package:renpy_parser/renpy_parser.dart';

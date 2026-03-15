@@ -102,6 +102,7 @@ void main() {
     final images = <RenPyImageChange>[];
     final audio = <RenPyAudioChange>[];
     final dialogue = <RenPyDialogue>[];
+    final transitions = <RenPyTransitionChange>[];
     addTearDown(controller.dispose);
 
     controller.addListener(() {
@@ -109,6 +110,7 @@ void main() {
       if (status is RenPyImageChange) images.add(status);
       if (status is RenPyAudioChange) audio.add(status);
       if (status is RenPyDialogue) dialogue.add(status);
+      if (status is RenPyTransitionChange) transitions.add(status);
     });
 
     controller.load(
@@ -145,6 +147,52 @@ void main() {
 
     expect(project.readAsset('${project.gameRoot}/SE/Z1.wav'), isNotNull);
     expect(project.readAsset('${project.gameRoot}/ME/rain_2.wav'), isNotNull);
+    expect(
+      transitions
+          .firstWhere((transition) => transition.name == 'openfade')
+          .intent,
+      const RenPyTransitionIntent.fade(
+        outTime: 1.5,
+        holdTime: 2.0,
+        inTime: 2.0,
+        color: '#fff',
+      ),
+    );
+    expect(
+      transitions
+          .firstWhere(
+            (transition) => transition.name == 'quickgradientwiperight',
+          )
+          .intent,
+      const RenPyTransitionIntent.imageDissolve(
+        maskAsset: 'right.png',
+        duration: 1.5,
+        ramplen: 16,
+      ),
+    );
+    final circleFade =
+        transitions
+            .firstWhere(
+              (transition) => transition.name == 'quickgradientcirclefade',
+            )
+            .intent;
+    expect(
+      circleFade,
+      const RenPyTransitionIntent.imageDissolve(
+        maskAsset: 'circle.png',
+        duration: 0.5,
+        ramplen: 16,
+        reverse: true,
+      ),
+    );
+    expect(circleFade?.fidelity, RenPyTransitionFidelity.approximated);
+    final punch =
+        transitions
+            .firstWhere((transition) => transition.name == 'vpunch')
+            .intent;
+    expect(punch?.type, RenPyTransitionType.unsupported);
+    expect(punch?.fidelity, RenPyTransitionFidelity.unsupported);
+    expect(punch?.expression, startsWith('Move('));
     expect(dialogue.map((line) => line.character), isNot(contains('extend')));
     expect(
       dialogue.map((line) => line.text),

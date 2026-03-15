@@ -21,8 +21,18 @@ label start:
 
     expect(runner.state, RenPyRunnerState.complete);
     expect(transitions, [
-      const RenPyTransitionEvent('fade'),
-      const RenPyTransitionEvent('dissolve'),
+      const RenPyTransitionEvent(
+        'fade',
+        intent: RenPyTransitionIntent.fade(
+          outTime: 0.5,
+          holdTime: 0,
+          inTime: 0.5,
+        ),
+      ),
+      const RenPyTransitionEvent(
+        'dissolve',
+        intent: RenPyTransitionIntent.dissolve(duration: 0.5),
+      ),
     ]);
   });
 
@@ -45,9 +55,64 @@ label start:
     expect(runner.state, RenPyRunnerState.complete);
     expect(events, [
       const RenPyImageEvent.scene('bg lecturehall'),
-      const RenPyTransitionEvent('fade'),
+      const RenPyTransitionEvent(
+        'fade',
+        intent: RenPyTransitionIntent.fade(
+          outTime: 0.5,
+          holdTime: 0,
+          inTime: 0.5,
+        ),
+      ),
       const RenPyImageEvent.show('sylvie green normal', at: 'left'),
-      const RenPyTransitionEvent('dissolve'),
+      const RenPyTransitionEvent(
+        'dissolve',
+        intent: RenPyTransitionIntent.dissolve(duration: 0.5),
+      ),
     ]);
+  });
+
+  test('runner emits transition intent from RenPy definitions', () {
+    final script =
+        RenPyParser().parse('''
+define openfade = Fade(1.5, 2.0, 2.0, color="#fff")
+define longerdissolve = Dissolve(2.5)
+define quickgradientwiperight = ImageDissolve("right.png", 1.5, ramplen = 16)
+
+label start:
+    scene black with openfade
+    scene bg library with longerdissolve
+    scene bg hallway with quickgradientwiperight
+''', 'transition.rpy').script;
+    final runner = RenPyRunner(script);
+    final transitions = <RenPyTransitionEvent>[];
+
+    runner.onTransition = transitions.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(runner.state, RenPyRunnerState.complete);
+    expect(transitions, hasLength(3));
+    expect(
+      transitions[0].intent,
+      const RenPyTransitionIntent.fade(
+        outTime: 1.5,
+        holdTime: 2.0,
+        inTime: 2.0,
+        color: '#fff',
+      ),
+    );
+    expect(
+      transitions[1].intent,
+      const RenPyTransitionIntent.dissolve(duration: 2.5),
+    );
+    expect(
+      transitions[2].intent,
+      const RenPyTransitionIntent.imageDissolve(
+        maskAsset: 'right.png',
+        duration: 1.5,
+        ramplen: 16,
+      ),
+    );
   });
 }

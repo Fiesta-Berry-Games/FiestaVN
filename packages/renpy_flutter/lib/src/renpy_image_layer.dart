@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:renpy_core/renpy_core.dart'
-    show RenPyImageOperation, RenPyImageOperationType, RenPyResolvedImage;
+    show
+        RenPyImageOperation,
+        RenPyImageOperationType,
+        RenPyResolvedImage,
+        RenPyTransitionIntent,
+        RenPyTransitionType;
 
 import 'renpy_flutter_controller.dart';
 
@@ -29,6 +34,7 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
   final _positions = <String, _RenPySpritePlacement>{};
   _RenPyRenderedImage? _backgroundImage;
   _RenPyVisualState? _previousVisualState;
+  RenPyTransitionIntent? _activeTransitionIntent;
   bool _transitionActive = false;
   int _transitionGeneration = 0;
 
@@ -43,8 +49,10 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
 
     if (status is RenPyTransitionChange) {
       if (_previousVisualState == null) return;
+      if (status.intent?.type == RenPyTransitionType.none) return;
 
       setState(() {
+        _activeTransitionIntent = status.intent;
         _transitionActive = true;
         _transitionGeneration++;
       });
@@ -109,6 +117,7 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
   Widget build(BuildContext context) {
     final previous = _transitionActive ? _previousVisualState : null;
     final current = _currentVisualState();
+    final transitionIntent = _activeTransitionIntent;
 
     return Stack(
       fit: StackFit.expand,
@@ -121,16 +130,21 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
           TweenAnimationBuilder<double>(
             key: ValueKey(_transitionGeneration),
             tween: Tween(begin: 1, end: 0),
-            duration: _transitionDuration,
+            duration: _durationFor(transitionIntent),
             onEnd: () {
               if (!mounted) return;
               setState(() {
                 _transitionActive = false;
                 _previousVisualState = null;
+                _activeTransitionIntent = null;
               });
             },
             builder: (context, opacity, child) {
-              return Opacity(opacity: opacity, child: child);
+              return _RenPyTransitionOverlay(
+                remaining: opacity,
+                intent: transitionIntent,
+                child: child!,
+              );
             },
             child: _RenPyVisualFrame(
               state: previous,
@@ -146,6 +160,12 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
       backgroundImage: _backgroundImage,
       sprites: Map.unmodifiable(_sprites),
     );
+  }
+
+  Duration _durationFor(RenPyTransitionIntent? intent) {
+    final seconds = intent?.totalDuration ?? 0;
+    if (seconds <= 0) return _transitionDuration;
+    return Duration(milliseconds: (seconds * 1000).round());
   }
 }
 
@@ -370,6 +390,178 @@ class _RenPyRenderedImageWidget extends StatelessWidget {
       ),
     };
   }
+}
+
+class _RenPyTransitionOverlay extends StatelessWidget {
+  const _RenPyTransitionOverlay({
+    required this.remaining,
+    required this.intent,
+    required this.child,
+  });
+
+  final double remaining;
+  final RenPyTransitionIntent? intent;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final intent = this.intent;
+    if (intent?.type == RenPyTransitionType.fade) {
+      return _RenPyFadeOverlay(
+        remaining: remaining,
+        intent: intent!,
+        child: child,
+      );
+    }
+
+    final direction = _wipeDirectionFor(intent);
+    if (direction != null) {
+      return ClipPath(
+        clipper: _RenPyWipeClipper(
+          progress: 1 - remaining,
+          direction: direction,
+        ),
+        child: child,
+      );
+    }
+
+    return Opacity(opacity: remaining, child: child);
+  }
+}
+
+class _RenPyFadeOverlay extends StatelessWidget {
+  const _RenPyFadeOverlay({
+    required this.remaining,
+    required this.intent,
+    required this.child,
+  });
+
+  final double remaining;
+  final RenPyTransitionIntent intent;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = (1 - remaining).clamp(0.0, 1.0);
+    final outFraction = _fraction(intent.outTime, intent.totalDuration);
+    final holdFraction = _fraction(intent.holdTime, intent.totalDuration);
+    final inStart = outFraction + holdFraction;
+
+    final colorOpacity =
+        progress < outFraction
+            ? _ratio(progress, outFraction)
+            : progress < inStart
+            ? 1.0
+            : (1 - _ratio(progress - inStart, 1 - inStart)).clamp(0.0, 1.0);
+    final previousOpacity =
+        progress < outFraction ? 1.0 : (1 - colorOpacity).clamp(0.0, 1.0);
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (previousOpacity > 0)
+          Opacity(opacity: previousOpacity, child: child),
+        if (colorOpacity > 0)
+          ColoredBox(
+            color: _colorForFade(intent).withValues(alpha: colorOpacity),
+          ),
+      ],
+    );
+  }
+}
+
+enum _RenPyWipeDirection { right, left, up, down }
+
+_RenPyWipeDirection? _wipeDirectionFor(RenPyTransitionIntent? intent) {
+  if (intent == null) return null;
+  if (intent.type == RenPyTransitionType.cropMove) {
+    return switch (intent.mode) {
+      'wiperight' || 'slideright' || 'pushright' => _RenPyWipeDirection.right,
+      'wipeleft' || 'slideleft' || 'pushleft' => _RenPyWipeDirection.left,
+      'wipeup' || 'slideup' || 'pushup' => _RenPyWipeDirection.up,
+      'wipedown' || 'slidedown' || 'pushdown' => _RenPyWipeDirection.down,
+      _ => null,
+    };
+  }
+
+  if (intent.type == RenPyTransitionType.imageDissolve) {
+    return switch (intent.maskAsset?.split('/').last.toLowerCase()) {
+      'right.png' => _RenPyWipeDirection.right,
+      'left.png' => _RenPyWipeDirection.left,
+      'up.png' || 'upright.png' => _RenPyWipeDirection.up,
+      'down.png' => _RenPyWipeDirection.down,
+      _ => null,
+    };
+  }
+
+  return null;
+}
+
+class _RenPyWipeClipper extends CustomClipper<Path> {
+  const _RenPyWipeClipper({required this.progress, required this.direction});
+
+  final double progress;
+  final _RenPyWipeDirection direction;
+
+  @override
+  Path getClip(Size size) {
+    final value = progress.clamp(0.0, 1.0);
+    final rect = switch (direction) {
+      _RenPyWipeDirection.right => Rect.fromLTRB(
+        size.width * value,
+        0,
+        size.width,
+        size.height,
+      ),
+      _RenPyWipeDirection.left => Rect.fromLTRB(
+        0,
+        0,
+        size.width * (1 - value),
+        size.height,
+      ),
+      _RenPyWipeDirection.up => Rect.fromLTRB(
+        0,
+        0,
+        size.width,
+        size.height * (1 - value),
+      ),
+      _RenPyWipeDirection.down => Rect.fromLTRB(
+        0,
+        size.height * value,
+        size.width,
+        size.height,
+      ),
+    };
+
+    return Path()..addRect(rect);
+  }
+
+  @override
+  bool shouldReclip(covariant _RenPyWipeClipper oldClipper) {
+    return progress != oldClipper.progress || direction != oldClipper.direction;
+  }
+}
+
+double _fraction(double? value, double total) {
+  if (value == null || total <= 0) return 0;
+  return (value / total).clamp(0.0, 1.0);
+}
+
+double _ratio(double value, double total) {
+  if (total <= 0) return 1;
+  return (value / total).clamp(0.0, 1.0);
+}
+
+Color _colorForFade(RenPyTransitionIntent intent) {
+  final raw = intent.color;
+  if (raw == null || raw.isEmpty) return Colors.black;
+  final hex = raw.replaceFirst('#', '');
+  final expanded =
+      hex.length == 3 ? hex.split('').map((char) => '$char$char').join() : hex;
+  if (expanded.length != 6) return Colors.black;
+  final value = int.tryParse(expanded, radix: 16);
+  if (value == null) return Colors.black;
+  return Color(0xFF000000 | value);
 }
 
 const _grayscaleMatrix = <double>[
