@@ -260,6 +260,35 @@ void main() {
     expect(_assetNames(tester), ['assets/game/images/sylvie green smile.png']);
   });
 
+  testWidgets('image layer inserts shown sprites behind target tags', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(
+      show: 'enj defa1',
+      showAsset: 'assets/game/images/enj.png',
+    );
+    await tester.pump();
+
+    controller.value = RenPyImageChange(
+      show: 'eri defa2bw',
+      showBehind: 'enj',
+      showAsset: 'assets/game/images/eri.png',
+    );
+    await tester.pump();
+
+    expect(_assetNames(tester), [
+      'assets/game/images/eri.png',
+      'assets/game/images/enj.png',
+    ]);
+  });
+
   testWidgets('image layer applies displayable operations', (tester) async {
     final controller = RenPyFlutterController();
     addTearDown(controller.dispose);

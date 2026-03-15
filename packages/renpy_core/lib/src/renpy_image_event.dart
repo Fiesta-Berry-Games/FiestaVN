@@ -33,15 +33,21 @@ class RenPyImageDefinitionEvent {
 /// A platform-neutral image command emitted while running a RenPy script.
 class RenPyImageEvent {
   const RenPyImageEvent.scene(this.imageName, {this.at, this.placement})
-    : action = RenPyImageAction.scene;
+    : action = RenPyImageAction.scene,
+      behind = null;
 
-  const RenPyImageEvent.show(this.imageName, {this.at, this.placement})
-    : action = RenPyImageAction.show;
+  const RenPyImageEvent.show(
+    this.imageName, {
+    this.at,
+    this.placement,
+    this.behind,
+  }) : action = RenPyImageAction.show;
 
   const RenPyImageEvent.hide(this.imageName)
     : action = RenPyImageAction.hide,
       at = null,
-      placement = null;
+      placement = null,
+      behind = null;
 
   final RenPyImageAction action;
   final String? imageName;
@@ -52,6 +58,9 @@ class RenPyImageEvent {
   /// Parsed placement intent for common RenPy `at` expressions.
   final RenPyImagePlacement? placement;
 
+  /// The image tag this show statement should render behind, if specified.
+  final String? behind;
+
   @override
   bool operator ==(Object other) {
     return identical(this, other) ||
@@ -59,15 +68,17 @@ class RenPyImageEvent {
             action == other.action &&
             imageName == other.imageName &&
             at == other.at &&
-            placement == other.placement;
+            placement == other.placement &&
+            behind == other.behind;
   }
 
   @override
-  int get hashCode => Object.hash(action, imageName, at, placement);
+  int get hashCode => Object.hash(action, imageName, at, placement, behind);
 
   @override
   String toString() {
     return 'RenPyImageEvent.$action('
-        'imageName: $imageName, at: $at, placement: $placement)';
+        'imageName: $imageName, at: $at, placement: $placement, '
+        'behind: $behind)';
   }
 }

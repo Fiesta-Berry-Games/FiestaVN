@@ -106,6 +106,7 @@ class RenPyCallStatement extends RenPyStatement {
 class RenPyShowStatement extends RenPyStatement {
   final String imageName;
   final String? atExpression;
+  final String? behindExpression;
   final String? withExpression;
 
   RenPyShowStatement(
@@ -113,8 +114,9 @@ class RenPyShowStatement extends RenPyStatement {
     this.atExpression,
     this.withExpression,
     String filename,
-    int linenumber,
-  ) : super(filename, linenumber);
+    int linenumber, {
+    this.behindExpression,
+  }) : super(filename, linenumber);
 
   @override
   String toString() => 'Show: $imageName';

@@ -51,7 +51,7 @@ label start:
       '''
 label start:
     scene bg lecturehall at center
-    show sylvie green normal at Position(xpos = 0.8)
+    show sylvie green normal at Position(xpos = 0.8) behind eileen
     "Welcome."
 ''',
       gameRoot: 'assets/game',
@@ -81,6 +81,7 @@ label start:
       images.last.showPlacement,
       const RenPyImagePlacement.position(xpos: 0.8),
     );
+    expect(images.last.showBehind, 'eileen');
     expect(images.last.showAsset, 'assets/game/images/sylvie green normal.png');
   });
 

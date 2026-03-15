@@ -104,9 +104,39 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
         );
         if (image == null) return;
 
-        _sprites[name] = _RenPySpriteState(image: image, placement: placement);
+        _putSprite(
+          name,
+          _RenPySpriteState(image: image, placement: placement),
+          behind: status.showBehind,
+        );
       }
     });
+  }
+
+  void _putSprite(String name, _RenPySpriteState sprite, {String? behind}) {
+    _sprites.remove(name);
+
+    final behindValue = behind?.trim();
+    final target =
+        behindValue == null || behindValue.isEmpty
+            ? null
+            : behindValue.split(RegExp(r'\s+')).first;
+    if (target == null || target.isEmpty || !_sprites.containsKey(target)) {
+      _sprites[name] = sprite;
+      return;
+    }
+
+    final ordered = <String, _RenPySpriteState>{};
+    for (final entry in _sprites.entries) {
+      if (entry.key == target) {
+        ordered[name] = sprite;
+      }
+      ordered[entry.key] = entry.value;
+    }
+
+    _sprites
+      ..clear()
+      ..addAll(ordered);
   }
 
   @override

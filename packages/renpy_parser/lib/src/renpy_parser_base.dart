@@ -478,7 +478,7 @@ class RenPyParser {
   ) {
     final text = line.text.trim();
     final showRegex = RegExp(
-      r'^show\s+(.+?)(?:\s+at\s+(.+?))?(?:\s+with\s+(.+?))?$',
+      r'^show\s+(.+?)(?:\s+at\s+(.+?))?(?:\s+behind\s+(.+?))?(?:\s+with\s+(.+?))?$',
     );
     final match = showRegex.firstMatch(text);
 
@@ -493,7 +493,8 @@ class RenPyParser {
 
     final imageName = match.group(1)!;
     final atExpression = match.group(2);
-    final withExpression = match.group(3);
+    final behindExpression = match.group(3);
+    final withExpression = match.group(4);
 
     return RenPyShowStatement(
       imageName,
@@ -501,6 +502,7 @@ class RenPyParser {
       withExpression,
       line.filename,
       line.number,
+      behindExpression: behindExpression,
     );
   }
 

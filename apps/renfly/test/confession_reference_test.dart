@@ -154,6 +154,7 @@ void main() {
       grayscaleErika.showPlacement,
       const RenPyImagePlacement.position(xpos: 0.25),
     );
+    expect(grayscaleErika.showBehind, 'enj');
 
     final whiteScene = images.firstWhere((image) => image.scene == 'white');
     expect(whiteScene.sceneAsset, isNull);

@@ -433,6 +433,7 @@ class RenPyRunner {
         stmt.imageName,
         at: stmt.atExpression,
         placement: RenPyImagePlacement.parse(stmt.atExpression),
+        behind: stmt.behindExpression,
       ),
     );
     if (onImage != null) {

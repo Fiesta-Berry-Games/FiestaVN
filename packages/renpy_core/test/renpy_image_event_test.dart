@@ -85,6 +85,8 @@ label start:
       ),
     );
     expect(events[3].placement, const RenPyImagePlacement.position(xpos: 0.25));
+    expect(events[3].at, 'Position(xpos = 0.25)');
+    expect(events[3].behind, 'enj');
   });
 
   test('runner emits runtime image definition events', () {
