@@ -258,7 +258,7 @@ Future<void> _continueUntil(
 }) async {
   for (var i = 0; i < maxSteps; i += 1) {
     if (predicate(controller.value)) return;
-    if (controller.value is RenPyDialogue) {
+    if (controller.value is RenPyDialogue || controller.value is RenPyPause) {
       controller.continueGame();
     }
     await Future<void>.delayed(const Duration(milliseconds: 1));
@@ -271,6 +271,9 @@ Future<void> _pumpUntilText(WidgetTester tester, String text) async {
   for (var i = 0; i < 50; i += 1) {
     await tester.pump(const Duration(milliseconds: 50));
     if (find.textContaining(text).evaluate().isNotEmpty) return;
+    if (find.byType(RenPyPauseView).evaluate().isNotEmpty) {
+      await tester.tap(find.byType(RenPyPauseView));
+    }
   }
 
   fail('Timed out waiting for text containing "$text".');

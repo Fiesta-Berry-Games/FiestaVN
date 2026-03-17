@@ -245,6 +245,32 @@ label start:
     );
   });
 
+  test('controller emits RenPy pause changes', () async {
+    final controller = RenPyFlutterController();
+    final pauses = <RenPyPause>[];
+    addTearDown(controller.dispose);
+
+    controller.addListener(() {
+      final status = controller.value;
+      if (status is RenPyPause) pauses.add(status);
+    });
+
+    controller.load('''
+label start:
+    \$ renpy.pause(1.25)
+    "Welcome."
+''');
+
+    await _continueUntil(controller, (status) => status is RenPyPause);
+
+    expect(pauses.single.duration, 1.25);
+
+    controller.continueGame();
+    await _continueUntil(controller, (status) => status is RenPyDialogue);
+
+    expect((controller.value as RenPyDialogue).text, 'Welcome.');
+  });
+
   test('controller carries parsed custom transition intent', () async {
     final controller = RenPyFlutterController();
     final transitions = <RenPyTransitionChange>[];

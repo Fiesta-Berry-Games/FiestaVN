@@ -71,6 +71,29 @@ class RenPyDialogueView extends StatelessWidget {
   }
 }
 
+/// Transparent tap target used while RenPy is waiting at a pause interaction.
+class RenPyPauseView extends StatelessWidget {
+  const RenPyPauseView({super.key, required this.controller});
+
+  final RenPyFlutterController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<RenPyGameStatus>(
+      valueListenable: controller,
+      builder: (context, status, _) {
+        if (status is! RenPyPause) return const SizedBox.shrink();
+
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: controller.continueGame,
+          child: const SizedBox.expand(),
+        );
+      },
+    );
+  }
+}
+
 final class _RenPyDialogueColor {
   const _RenPyDialogueColor._();
 

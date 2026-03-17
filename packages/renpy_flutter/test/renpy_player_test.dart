@@ -132,6 +132,36 @@ label start:
     ]);
   });
 
+  testWidgets('asset player resumes automatically after timed RenPy pauses', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    \$ renpy.pause(0.1)
+    "After pause."
+''',
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+        ),
+      ),
+    );
+
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('After pause.'), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 100));
+    await _pumpUntil(tester, find.text('After pause.'));
+
+    expect(find.text('After pause.'), findsOneWidget);
+  });
+
   testWidgets('project player renders from an opened RenPy project folder', (
     tester,
   ) async {

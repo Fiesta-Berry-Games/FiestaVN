@@ -35,6 +35,14 @@ final class RenPyMenu extends RenPyGameStatus {
   final String? caption;
 }
 
+/// A RenPy pause that waits for player input or a future timed resume.
+final class RenPyPause extends RenPyGameStatus {
+  const RenPyPause({this.duration});
+
+  /// Optional pause duration in seconds.
+  final double? duration;
+}
+
 /// Emitted when a `scene`, `show`, or `hide` image command is encountered.
 final class RenPyImageChange extends RenPyGameStatus {
   RenPyImageChange({
@@ -117,6 +125,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
 
   RenPyRunner? _runner;
   StreamSubscription? _ticker;
+  Timer? _pauseTimer;
   RenPyImageResolver _imageResolver = RenPyImageResolver();
 
   /// Loads a `.rpy` script and immediately jumps to `start` when present.
@@ -130,6 +139,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   }) {
     debugPrint('Loading RenPy script...');
     _ticker?.cancel();
+    _pauseTimer?.cancel();
     _runner = null;
     value = RenPyIdle();
 
@@ -152,7 +162,8 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
           ..onImageEvent = _onImageEvent
           ..onImageDefinition = _onImageDefinition
           ..onAudio = _onAudio
-          ..onTransition = _onTransition;
+          ..onTransition = _onTransition
+          ..onPause = _onPause;
     _runner = runner;
 
     if (result.script.findLabel('start') != null) {
@@ -173,6 +184,8 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     if (runner == null) return;
     if (runner.state == RenPyRunnerState.waitingForInput) {
       debugPrint('Continuing game execution...');
+      _pauseTimer?.cancel();
+      _pauseTimer = null;
       runner.continueExecution();
       _ticker?.resume();
     }
@@ -227,6 +240,19 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       onChoice(i);
       _ticker?.resume();
     }, caption: caption);
+  }
+
+  void _onPause(RenPyPauseEvent event) {
+    debugPrint('Pause: ${event.duration ?? "input"}');
+    _ticker?.pause();
+    value = RenPyPause(duration: event.duration);
+
+    final duration = event.duration;
+    if (duration == null) return;
+    _pauseTimer?.cancel();
+    _pauseTimer = Timer(Duration(milliseconds: (duration * 1000).round()), () {
+      continueGame();
+    });
   }
 
   void _onImageEvent(RenPyImageEvent event) {
@@ -292,6 +318,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   @override
   void dispose() {
     _ticker?.cancel();
+    _pauseTimer?.cancel();
     super.dispose();
   }
 }

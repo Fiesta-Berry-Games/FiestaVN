@@ -49,6 +49,7 @@ class RenPyPlayer extends StatelessWidget {
           gameRoot: gameRoot,
           playback: audioPlayback,
         ),
+        RenPyPauseView(controller: controller),
         RenPyDialogueView(controller: controller),
         RenPyMenuSelector(controller: controller),
         if (showRestartButton && onRestart != null)

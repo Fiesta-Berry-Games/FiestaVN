@@ -4,6 +4,7 @@ import 'renpy_audio_event.dart';
 import 'renpy_dialogue_event.dart';
 import 'renpy_image_event.dart';
 import 'renpy_image_placement.dart';
+import 'renpy_pause_event.dart';
 import 'renpy_transition_event.dart';
 import 'renpy_transition_resolver.dart';
 
@@ -62,6 +63,9 @@ typedef AudioCallback = void Function(RenPyAudioEvent event);
 /// Callback for visual transition events.
 typedef TransitionCallback = void Function(RenPyTransitionEvent event);
 
+/// Callback for RenPy pause events.
+typedef PauseCallback = void Function(RenPyPauseEvent event);
+
 /// A runner for executing RenPy scripts
 class RenPyRunner {
   /// The parsed script
@@ -102,6 +106,7 @@ class RenPyRunner {
   ImageDefinitionCallback? onImageDefinition;
   AudioCallback? onAudio;
   TransitionCallback? onTransition;
+  PauseCallback? onPause;
 
   /// Error message if an error occurred
   String? _errorMessage;
@@ -504,6 +509,14 @@ class RenPyRunner {
 
   /// Execute a Python statement.
   void _executePythonStatement(RenPyPythonStatement stmt) {
+    final pause = _renpyPauseEvent(stmt.code);
+    if (pause != null) {
+      onPause?.call(pause);
+      _state = RenPyRunnerState.waitingForInput;
+      _position++;
+      return;
+    }
+
     // TODO: Execute Python code.
     // For now, we'll just print it and continue.
     print(
@@ -512,6 +525,16 @@ class RenPyRunner {
 
     _position++;
     _executeNext();
+  }
+
+  RenPyPauseEvent? _renpyPauseEvent(String code) {
+    final match = RegExp(
+      r'^renpy\.pause\s*\(\s*([0-9]+(?:\.[0-9]+)?|\.[0-9]+)?\s*\)$',
+    ).firstMatch(code.trim());
+    if (match == null) return null;
+
+    final duration = double.tryParse(match.group(1) ?? '');
+    return RenPyPauseEvent(duration: duration);
   }
 
   /// Execute a define statement.

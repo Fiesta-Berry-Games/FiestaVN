@@ -65,6 +65,24 @@ void main() {
     expect(find.text('Error: broken script'), findsOneWidget);
   });
 
+  testWidgets('pause view advances untimed RenPy pauses on tap', (
+    tester,
+  ) async {
+    var continued = false;
+    final controller = _TestController(onContinue: () => continued = true);
+    addTearDown(controller.dispose);
+
+    controller.value = const RenPyPause();
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyPauseView(controller: controller)),
+    );
+
+    await tester.tap(find.byType(RenPyPauseView));
+
+    expect(continued, isTrue);
+  });
+
   testWidgets('menu selector renders captions and forwards choices', (
     tester,
   ) async {
