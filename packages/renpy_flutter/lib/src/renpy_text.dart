@@ -55,9 +55,28 @@ class RenPyTextSpanParser {
     return TextSpan(
       text: run.text,
       style: TextStyle(
+        color: _parseColor(run.color),
         fontWeight: run.bold ? FontWeight.bold : null,
         fontStyle: run.italic ? FontStyle.italic : null,
       ),
     );
+  }
+
+  static Color? _parseColor(String? expression) {
+    if (expression == null) return null;
+
+    final value = expression.trim();
+    final hex = value.startsWith('#') ? value.substring(1) : value;
+    if (!RegExp(r'^[0-9a-fA-F]{3}$').hasMatch(hex) &&
+        !RegExp(r'^[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$').hasMatch(hex)) {
+      return null;
+    }
+
+    final expanded =
+        hex.length == 3
+            ? hex.split('').map((char) => '$char$char').join()
+            : hex;
+    final argb = expanded.length == 6 ? 'FF$expanded' : expanded;
+    return Color(int.parse(argb, radix: 16));
   }
 }

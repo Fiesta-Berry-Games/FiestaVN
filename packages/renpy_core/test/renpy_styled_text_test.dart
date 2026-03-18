@@ -24,6 +24,19 @@ void main() {
       ]);
     });
 
+    test('parses color style runs', () {
+      final styled = RenPyStyledText.parse(
+        'This is {color=#ff0000}red{/color}.',
+      );
+
+      expect(styled.plainText, 'This is red.');
+      expect(styled.runs, [
+        const RenPyTextRun('This is '),
+        const RenPyTextRun('red', color: '#ff0000'),
+        const RenPyTextRun('.'),
+      ]);
+    });
+
     test('omits RenPy control tags from plain text', () {
       final styled = RenPyStyledText.parse('Huh?{p=0.3}{nw}');
 

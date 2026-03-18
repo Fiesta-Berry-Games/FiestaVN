@@ -36,6 +36,23 @@ void main() {
     );
   });
 
+  testWidgets('RenPyText renders color tags as styled text', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: RenPyText('{color=#FFF}White{/color}')),
+      ),
+    );
+
+    expect(find.text('White'), findsOneWidget);
+
+    final text = tester.widget<Text>(find.byType(Text).first);
+    final spans = (text.textSpan! as TextSpan).children!.cast<TextSpan>();
+    expect(
+      spans.singleWhere((span) => span.text == 'White').style?.color,
+      Colors.white,
+    );
+  });
+
   testWidgets('RenPyText omits control tags from displayed text', (
     tester,
   ) async {

@@ -235,6 +235,11 @@ void main() {
       );
 
       await _pumpUntilText(tester, 'Please note.');
+      expect(find.textContaining('{i}'), findsNothing);
+      expect(find.textContaining('{/i}'), findsNothing);
+      expect(find.textContaining('{w}'), findsNothing);
+      _expectItalicSpan(tester, 'Confession of the Golden Witch');
+
       await tester.tap(find.textContaining('Please note.'));
       await _pumpUntilImages(tester);
 
@@ -288,4 +293,16 @@ Future<void> _pumpUntilImages(WidgetTester tester) async {
   }
 
   fail('Timed out waiting for archived images.');
+}
+
+void _expectItalicSpan(WidgetTester tester, String text) {
+  final renderedText = tester.widget<Text>(
+    find.descendant(of: find.byType(RenPyText), matching: find.byType(Text)),
+  );
+  final rootSpan = renderedText.textSpan! as TextSpan;
+  final spans = rootSpan.children!.cast<TextSpan>();
+  expect(
+    spans.singleWhere((span) => span.text == text).style?.fontStyle,
+    FontStyle.italic,
+  );
 }
