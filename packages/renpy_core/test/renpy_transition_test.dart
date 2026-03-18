@@ -124,4 +124,35 @@ label start:
       ),
     );
   });
+
+  test('runner emits approximated punch transition intent', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    with vpunch
+    with hpunch
+''', 'transition.rpy').script;
+    final runner = RenPyRunner(script);
+    final transitions = <RenPyTransitionEvent>[];
+
+    runner.onTransition = transitions.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(runner.state, RenPyRunnerState.complete);
+    expect(transitions, [
+      const RenPyTransitionEvent(
+        'vpunch',
+        intent: RenPyTransitionIntent.punch(mode: 'vertical', duration: 0.275),
+      ),
+      const RenPyTransitionEvent(
+        'hpunch',
+        intent: RenPyTransitionIntent.punch(
+          mode: 'horizontal',
+          duration: 0.275,
+        ),
+      ),
+    ]);
+  });
 }

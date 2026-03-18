@@ -169,6 +169,44 @@ void main() {
     expect(find.byType(ClipPath), findsOneWidget);
   });
 
+  testWidgets('image layer approximates punch transitions as shakes', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(
+      scene: 'bg lecturehall',
+      sceneAsset: 'assets/game/images/bg lecturehall.jpg',
+    );
+    await tester.pump();
+    controller.value = RenPyImageChange(
+      show: 'sylvie green normal',
+      showAsset: 'assets/game/images/sylvie green normal.png',
+    );
+    await tester.pump();
+    controller.value = const RenPyTransitionChange(
+      'vpunch',
+      intent: RenPyTransitionIntent.punch(mode: 'vertical', duration: 0.275),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 40));
+
+    final transforms = tester.widgetList<Transform>(find.byType(Transform));
+    expect(
+      transforms.any((transform) => transform.transform.storage[13] != 0),
+      isTrue,
+    );
+    expect(_assetNames(tester), [
+      'assets/game/images/bg lecturehall.jpg',
+      'assets/game/images/sylvie green normal.png',
+    ]);
+  });
+
   testWidgets('image layer defaults sprites to bottom center', (tester) async {
     final controller = RenPyFlutterController();
     addTearDown(controller.dispose);

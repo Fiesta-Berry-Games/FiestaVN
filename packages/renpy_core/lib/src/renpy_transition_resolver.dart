@@ -129,14 +129,8 @@ const _builtInTransitions = {
   'wipeleft': RenPyTransitionIntent.cropMove(duration: 1.0, mode: 'wipeleft'),
   'wipeup': RenPyTransitionIntent.cropMove(duration: 1.0, mode: 'wipeup'),
   'wipedown': RenPyTransitionIntent.cropMove(duration: 1.0, mode: 'wipedown'),
-  'vpunch': RenPyTransitionIntent.unsupported(
-    expression:
-        'Move((0, 10), (0, -10), .10, bounce=True, repeat=True, delay=.275)',
-  ),
-  'hpunch': RenPyTransitionIntent.unsupported(
-    expression:
-        'Move((15, 0), (-15, 0), .10, bounce=True, repeat=True, delay=.275)',
-  ),
+  'vpunch': RenPyTransitionIntent.punch(mode: 'vertical', duration: 0.275),
+  'hpunch': RenPyTransitionIntent.punch(mode: 'horizontal', duration: 0.275),
 };
 
 double? _parseDouble(String? value) {

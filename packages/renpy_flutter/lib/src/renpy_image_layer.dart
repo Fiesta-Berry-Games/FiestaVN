@@ -150,27 +150,40 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
     final previous = _transitionActive ? _previousVisualState : null;
     final current = _currentVisualState();
     final transitionIntent = _activeTransitionIntent;
+    final currentFrame = _RenPyVisualFrame(
+      state: current,
+      imageProvider: widget.imageProvider ?? _defaultImageProvider,
+    );
+    final isPunch =
+        _transitionActive &&
+        transitionIntent?.type == RenPyTransitionType.punch;
 
     return Stack(
       fit: StackFit.expand,
       children: [
-        _RenPyVisualFrame(
-          state: current,
-          imageProvider: widget.imageProvider ?? _defaultImageProvider,
-        ),
-        if (previous != null)
+        if (isPunch)
           TweenAnimationBuilder<double>(
             key: ValueKey(_transitionGeneration),
             tween: Tween(begin: 1, end: 0),
             duration: _durationFor(transitionIntent),
-            onEnd: () {
-              if (!mounted) return;
-              setState(() {
-                _transitionActive = false;
-                _previousVisualState = null;
-                _activeTransitionIntent = null;
-              });
+            onEnd: _clearTransition,
+            builder: (context, remaining, child) {
+              return _RenPyTransitionOverlay(
+                remaining: remaining,
+                intent: transitionIntent,
+                child: child!,
+              );
             },
+            child: currentFrame,
+          )
+        else
+          currentFrame,
+        if (previous != null && !isPunch)
+          TweenAnimationBuilder<double>(
+            key: ValueKey(_transitionGeneration),
+            tween: Tween(begin: 1, end: 0),
+            duration: _durationFor(transitionIntent),
+            onEnd: _clearTransition,
             builder: (context, opacity, child) {
               return _RenPyTransitionOverlay(
                 remaining: opacity,
@@ -185,6 +198,15 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
           ),
       ],
     );
+  }
+
+  void _clearTransition() {
+    if (!mounted) return;
+    setState(() {
+      _transitionActive = false;
+      _previousVisualState = null;
+      _activeTransitionIntent = null;
+    });
   }
 
   _RenPyVisualState _currentVisualState() {
@@ -451,6 +473,14 @@ class _RenPyTransitionOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final intent = this.intent;
+    if (intent?.type == RenPyTransitionType.punch) {
+      return _RenPyPunchOverlay(
+        remaining: remaining,
+        intent: intent!,
+        child: child,
+      );
+    }
+
     if (intent?.type == RenPyTransitionType.fade) {
       return _RenPyFadeOverlay(
         remaining: remaining,
@@ -471,6 +501,31 @@ class _RenPyTransitionOverlay extends StatelessWidget {
     }
 
     return Opacity(opacity: remaining, child: child);
+  }
+}
+
+class _RenPyPunchOverlay extends StatelessWidget {
+  const _RenPyPunchOverlay({
+    required this.remaining,
+    required this.intent,
+    required this.child,
+  });
+
+  final double remaining;
+  final RenPyTransitionIntent intent;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = (1 - remaining).clamp(0.0, 1.0);
+    final wave = _triangleWave(progress * 6);
+    final amplitude = 12.0 * remaining;
+    final offset =
+        intent.mode == 'horizontal'
+            ? Offset(wave * amplitude, 0)
+            : Offset(0, wave * amplitude);
+
+    return Transform.translate(offset: offset, child: child);
   }
 }
 
@@ -595,6 +650,11 @@ double _fraction(double? value, double total) {
 double _ratio(double value, double total) {
   if (total <= 0) return 1;
   return (value / total).clamp(0.0, 1.0);
+}
+
+double _triangleWave(double value) {
+  final phase = value % 1;
+  return phase < 0.5 ? -1 + (phase * 4) : 3 - (phase * 4);
 }
 
 Color _colorForFade(RenPyTransitionIntent intent) {

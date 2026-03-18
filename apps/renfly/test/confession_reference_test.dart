@@ -204,9 +204,11 @@ void main() {
         transitions
             .firstWhere((transition) => transition.name == 'vpunch')
             .intent;
-    expect(punch?.type, RenPyTransitionType.unsupported);
-    expect(punch?.fidelity, RenPyTransitionFidelity.unsupported);
-    expect(punch?.expression, startsWith('Move('));
+    expect(
+      punch,
+      const RenPyTransitionIntent.punch(mode: 'vertical', duration: 0.275),
+    );
+    expect(punch?.fidelity, RenPyTransitionFidelity.approximated);
     expect(dialogue.map((line) => line.character), isNot(contains('extend')));
     expect(
       dialogue.map((line) => line.text),

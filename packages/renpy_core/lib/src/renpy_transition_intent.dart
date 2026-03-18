@@ -5,6 +5,7 @@ enum RenPyTransitionType {
   dissolve,
   imageDissolve,
   cropMove,
+  punch,
   unsupported,
 }
 
@@ -72,6 +73,20 @@ class RenPyTransitionIntent {
     required String this.mode,
     required double this.duration,
   }) : type = RenPyTransitionType.cropMove,
+       fidelity = RenPyTransitionFidelity.approximated,
+       outTime = null,
+       holdTime = null,
+       inTime = null,
+       color = null,
+       maskAsset = null,
+       ramplen = null,
+       reverse = false,
+       expression = null;
+
+  const RenPyTransitionIntent.punch({
+    required String this.mode,
+    required double this.duration,
+  }) : type = RenPyTransitionType.punch,
        fidelity = RenPyTransitionFidelity.approximated,
        outTime = null,
        holdTime = null,
@@ -167,6 +182,8 @@ class RenPyTransitionIntent {
             'duration: $duration, ramplen: $ramplen, reverse: $reverse)',
       RenPyTransitionType.cropMove =>
         'RenPyTransitionIntent.cropMove(mode: $mode, duration: $duration)',
+      RenPyTransitionType.punch =>
+        'RenPyTransitionIntent.punch(mode: $mode, duration: $duration)',
       RenPyTransitionType.unsupported =>
         'RenPyTransitionIntent.unsupported(expression: $expression)',
     };
