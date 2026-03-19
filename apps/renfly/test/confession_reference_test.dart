@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:renpy_core/renpy_core.dart'
-    show RenPyGenericStatement, RenPyNvlStatement, RenPyParser;
+    show RenPyGenericStatement, RenPyNvlStatement, RenPyParser, RenPyStyledText;
 import 'package:renpy_flutter/renpy_flutter.dart';
 
 void main() {
@@ -218,6 +218,56 @@ void main() {
         ),
       ),
     );
+  }, skip: skipReason);
+
+  test('Confession emits the title card show text displayable', () async {
+    final project = _loadProjectFolder(fixture);
+    final controller = RenPyFlutterController();
+    final images = <RenPyImageChange>[];
+    addTearDown(controller.dispose);
+
+    controller.addListener(() {
+      final status = controller.value;
+      if (status is RenPyImageChange) images.add(status);
+    });
+
+    controller.load(
+      project.scriptSource,
+      filename: project.scriptPath,
+      gameRoot: project.gameRoot,
+      availableAssets: project.availableAssets,
+    );
+
+    await _continueUntil(
+      controller,
+      (status) => images.any(
+        (image) =>
+            image.show == 'text' &&
+            (image.showText?.contains('Confession of the Golden Witch') ??
+                false),
+      ),
+      maxSteps: 500,
+    );
+
+    final title = images.firstWhere(
+      (image) =>
+          image.show == 'text' &&
+          (image.showText?.contains('Confession of the Golden Witch') ?? false),
+    );
+    expect(
+      RenPyStyledText.parse(title.showText!).plainText,
+      'Confession of the Golden Witch',
+    );
+    expect(
+      title.showPlacement,
+      const RenPyImagePlacement.position(
+        xpos: 0.5,
+        xanchor: 0.5,
+        ypos: 0.5,
+        yanchor: 0.5,
+      ),
+    );
+    expect(title.showAsset, isNull);
   }, skip: skipReason);
 
   testWidgets(

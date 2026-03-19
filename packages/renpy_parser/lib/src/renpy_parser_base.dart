@@ -477,6 +477,9 @@ class RenPyParser {
     List<String> warnings,
   ) {
     final text = line.text.trim();
+    final textDisplayable = _tryParseShowTextStatement(line);
+    if (textDisplayable != null) return textDisplayable;
+
     final showRegex = RegExp(
       r'^show\s+(.+?)(?:\s+at\s+(.+?))?(?:\s+behind\s+(.+?))?(?:\s+with\s+(.+?))?$',
     );
@@ -504,6 +507,77 @@ class RenPyParser {
       line.number,
       behindExpression: behindExpression,
     );
+  }
+
+  RenPyShowStatement? _tryParseShowTextStatement(GroupedLine line) {
+    final text = line.text.trim();
+    const prefix = 'show text ';
+    if (!text.startsWith(prefix)) return null;
+
+    final rest = text.substring(prefix.length).trimLeft();
+    if (rest.isEmpty || (rest[0] != '"' && rest[0] != "'")) return null;
+
+    final quoted = _parseQuotedPrefix(rest);
+    if (quoted == null) {
+      throw RenPyParseError(
+        'Invalid show text syntax',
+        line.filename,
+        line.number,
+        0,
+      );
+    }
+
+    final suffix = quoted.remainder.trim();
+    final suffixMatch = RegExp(
+      r'^(?:at\s+(.+?)(?=\s+behind\s+|\s+with\s+|$))?(?:\s*behind\s+(.+?)(?=\s+with\s+|$))?(?:\s*with\s+(.+?))?$',
+    ).firstMatch(suffix);
+    if (suffixMatch == null) {
+      throw RenPyParseError(
+        'Invalid show text syntax',
+        line.filename,
+        line.number,
+        0,
+      );
+    }
+
+    return RenPyShowStatement(
+      'text',
+      suffixMatch.group(1)?.trim(),
+      suffixMatch.group(3)?.trim(),
+      line.filename,
+      line.number,
+      behindExpression: suffixMatch.group(2)?.trim(),
+      displayableText: _unescapeString(quoted.value),
+    );
+  }
+
+  _QuotedPrefix? _parseQuotedPrefix(String text) {
+    final quote = text[0];
+    final buffer = StringBuffer();
+    var escaped = false;
+
+    for (var i = 1; i < text.length; i += 1) {
+      final character = text[i];
+      if (escaped) {
+        buffer.write('\\');
+        buffer.write(character);
+        escaped = false;
+        continue;
+      }
+
+      if (character == r'\') {
+        escaped = true;
+        continue;
+      }
+
+      if (character == quote) {
+        return _QuotedPrefix(buffer.toString(), text.substring(i + 1));
+      }
+
+      buffer.write(character);
+    }
+
+    return null;
   }
 
   RenPySceneStatement _parseSceneStatement(
@@ -789,6 +863,13 @@ class GroupedLine {
     required this.text,
     required this.block,
   });
+}
+
+class _QuotedPrefix {
+  const _QuotedPrefix(this.value, this.remainder);
+
+  final String value;
+  final String remainder;
 }
 
 /// Represents an init block statement.

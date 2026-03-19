@@ -22,4 +22,27 @@ label start:
     expect(shows[1].behindExpression, 'eri');
     expect(shows[1].withExpression, 'dissolve');
   });
+
+  test(
+    'show text statements carry displayable text separately from placement',
+    () {
+      final script =
+          RenPyParser().parse('''
+label start:
+    show text "{size=96}{color=#FFF}Confession{/color}{/size}" at truecenter behind logo with longdissolve
+''', 'show_text.rpy').script;
+
+      final show =
+          script.findStatements<RenPyShowStatement>((_) => true).single;
+
+      expect(show.imageName, 'text');
+      expect(
+        show.displayableText,
+        '{size=96}{color=#FFF}Confession{/color}{/size}',
+      );
+      expect(show.atExpression, 'truecenter');
+      expect(show.behindExpression, 'logo');
+      expect(show.withExpression, 'longdissolve');
+    },
+  );
 }

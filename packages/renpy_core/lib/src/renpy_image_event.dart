@@ -34,20 +34,23 @@ class RenPyImageDefinitionEvent {
 class RenPyImageEvent {
   const RenPyImageEvent.scene(this.imageName, {this.at, this.placement})
     : action = RenPyImageAction.scene,
-      behind = null;
+      behind = null,
+      displayableText = null;
 
   const RenPyImageEvent.show(
     this.imageName, {
     this.at,
     this.placement,
     this.behind,
+    this.displayableText,
   }) : action = RenPyImageAction.show;
 
   const RenPyImageEvent.hide(this.imageName)
     : action = RenPyImageAction.hide,
       at = null,
       placement = null,
-      behind = null;
+      behind = null,
+      displayableText = null;
 
   final RenPyImageAction action;
   final String? imageName;
@@ -61,6 +64,9 @@ class RenPyImageEvent {
   /// The image tag this show statement should render behind, if specified.
   final String? behind;
 
+  /// Inline displayable text from `show text "..."`.
+  final String? displayableText;
+
   @override
   bool operator ==(Object other) {
     return identical(this, other) ||
@@ -69,16 +75,18 @@ class RenPyImageEvent {
             imageName == other.imageName &&
             at == other.at &&
             placement == other.placement &&
-            behind == other.behind;
+            behind == other.behind &&
+            displayableText == other.displayableText;
   }
 
   @override
-  int get hashCode => Object.hash(action, imageName, at, placement, behind);
+  int get hashCode =>
+      Object.hash(action, imageName, at, placement, behind, displayableText);
 
   @override
   String toString() {
     return 'RenPyImageEvent.$action('
         'imageName: $imageName, at: $at, placement: $placement, '
-        'behind: $behind)';
+        'behind: $behind, displayableText: $displayableText)';
   }
 }

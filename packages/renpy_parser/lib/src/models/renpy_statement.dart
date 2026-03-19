@@ -108,6 +108,7 @@ class RenPyShowStatement extends RenPyStatement {
   final String? atExpression;
   final String? behindExpression;
   final String? withExpression;
+  final String? displayableText;
 
   RenPyShowStatement(
     this.imageName,
@@ -116,6 +117,7 @@ class RenPyShowStatement extends RenPyStatement {
     String filename,
     int linenumber, {
     this.behindExpression,
+    this.displayableText,
   }) : super(filename, linenumber);
 
   @override

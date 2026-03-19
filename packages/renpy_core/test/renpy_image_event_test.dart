@@ -89,6 +89,33 @@ label start:
     expect(events[3].behind, 'enj');
   });
 
+  test('runner emits show text displayables as structured image events', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    show text "{color=#FFF}Confession{/color}" at truecenter with dissolve
+''', 'image.rpy').script;
+    final runner = RenPyRunner(script);
+    final events = <RenPyImageEvent>[];
+
+    runner.onImageEvent = events.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(events.single.imageName, 'text');
+    expect(events.single.displayableText, '{color=#FFF}Confession{/color}');
+    expect(
+      events.single.placement,
+      const RenPyImagePlacement.position(
+        xpos: 0.5,
+        xanchor: 0.5,
+        ypos: 0.5,
+        yanchor: 0.5,
+      ),
+    );
+  });
+
   test('runner emits runtime image definition events', () {
     final script =
         RenPyParser().parse('''

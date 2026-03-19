@@ -85,6 +85,41 @@ label start:
     expect(images.last.showAsset, 'assets/game/images/sylvie green normal.png');
   });
 
+  test(
+    'controller carries show text displayables without image assets',
+    () async {
+      final controller = RenPyFlutterController();
+      final images = <RenPyImageChange>[];
+      addTearDown(controller.dispose);
+
+      controller.addListener(() {
+        final status = controller.value;
+        if (status is RenPyImageChange) images.add(status);
+      });
+
+      controller.load('''
+label start:
+    show text "{color=#FFF}Confession{/color}" at truecenter
+    "Welcome."
+''');
+
+      await _continueUntil(controller, (status) => status is RenPyDialogue);
+
+      expect(images.single.show, 'text');
+      expect(images.single.showText, '{color=#FFF}Confession{/color}');
+      expect(images.single.showAsset, isNull);
+      expect(
+        images.single.showPlacement,
+        const RenPyImagePlacement.position(
+          xpos: 0.5,
+          xanchor: 0.5,
+          ypos: 0.5,
+          yanchor: 0.5,
+        ),
+      );
+    },
+  );
+
   test('controller resolves image aliases defined during execution', () async {
     final controller = RenPyFlutterController();
     final images = <RenPyImageChange>[];

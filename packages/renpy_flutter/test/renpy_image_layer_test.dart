@@ -361,6 +361,46 @@ void main() {
       isTrue,
     );
   });
+
+  testWidgets('image layer renders show text displayables at placement', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(
+      show: 'text',
+      showText: '{color=#FFF}Confession{/color}',
+      showPlacement: const RenPyImagePlacement.position(
+        xpos: 0.5,
+        xanchor: 0.5,
+        ypos: 0.5,
+        yanchor: 0.5,
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(Image), findsNothing);
+    expect(find.byType(RenPyText), findsOneWidget);
+    expect(
+      tester.widget<RenPyText>(find.byType(RenPyText)).text,
+      contains('Confession'),
+    );
+    expect(_spriteAlignment(tester, 'text'), Alignment.center);
+
+    final renderedText = tester.widget<Text>(
+      find.descendant(of: find.byType(RenPyText), matching: find.byType(Text)),
+    );
+    final rootSpan = renderedText.textSpan! as TextSpan;
+    final confession = rootSpan.children!.cast<TextSpan>().singleWhere(
+      (span) => span.text == 'Confession',
+    );
+    expect(confession.style?.color, Colors.white);
+  });
 }
 
 List<String> _assetNames(WidgetTester tester) {
