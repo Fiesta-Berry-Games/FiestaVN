@@ -53,6 +53,23 @@ void main() {
     );
   });
 
+  test('RenPyTextSpanParser maps size font and outline styles', () {
+    final span = RenPyTextSpanParser.parse(
+      '{size=96}{font=UglyQua.ttf}{outlinecolor=#000000}Title{/outlinecolor}{/font}{/size}',
+    );
+
+    final title = span.children!.cast<TextSpan>().singleWhere(
+      (child) => child.text == 'Title',
+    );
+
+    expect(title.style?.fontSize, 96);
+    expect(title.style?.fontFamily, 'UglyQua.ttf');
+    expect(
+      title.style?.shadows?.map((shadow) => shadow.color),
+      contains(Colors.black),
+    );
+  });
+
   testWidgets('RenPyText omits control tags from displayed text', (
     tester,
   ) async {

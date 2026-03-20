@@ -52,14 +52,34 @@ class RenPyTextSpanParser {
   }
 
   static TextSpan _span(RenPyTextRun run) {
+    final outlineColor = _parseColor(run.outlineColor);
     return TextSpan(
       text: run.text,
       style: TextStyle(
         color: _parseColor(run.color),
+        fontSize: run.size,
+        fontFamily: run.font,
         fontWeight: run.bold ? FontWeight.bold : null,
         fontStyle: run.italic ? FontStyle.italic : null,
+        shadows: outlineColor == null ? null : _outlineShadows(outlineColor),
       ),
     );
+  }
+
+  static List<Shadow> _outlineShadows(Color color) {
+    return [
+      for (final offset in const [
+        Offset(-1, -1),
+        Offset(0, -1),
+        Offset(1, -1),
+        Offset(-1, 0),
+        Offset(1, 0),
+        Offset(-1, 1),
+        Offset(0, 1),
+        Offset(1, 1),
+      ])
+        Shadow(offset: offset, color: color),
+    ];
   }
 
   static Color? _parseColor(String? expression) {

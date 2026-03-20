@@ -37,6 +37,22 @@ void main() {
       ]);
     });
 
+    test('parses displayable text size font and outline style runs', () {
+      final styled = RenPyStyledText.parse(
+        '{size=96}{font=UglyQua.ttf}{outlinecolor=#000000}Title{/outlinecolor}{/font}{/size}',
+      );
+
+      expect(styled.plainText, 'Title');
+      expect(styled.runs, [
+        const RenPyTextRun(
+          'Title',
+          size: 96,
+          font: 'UglyQua.ttf',
+          outlineColor: '#000000',
+        ),
+      ]);
+    });
+
     test('omits RenPy control tags from plain text', () {
       final styled = RenPyStyledText.parse('Huh?{p=0.3}{nw}');
 

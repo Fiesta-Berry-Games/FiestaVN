@@ -16,6 +16,9 @@ class RenPyStyledText {
     var bold = false;
     var italic = false;
     String? color;
+    double? size;
+    String? font;
+    String? outlineColor;
     var index = 0;
 
     for (final match in _tagPattern.allMatches(text)) {
@@ -26,6 +29,9 @@ class RenPyStyledText {
           bold: bold,
           italic: italic,
           color: color,
+          size: size,
+          font: font,
+          outlineColor: outlineColor,
         );
       }
 
@@ -46,8 +52,20 @@ class RenPyStyledText {
         case '{/color}':
           color = null;
           break;
+        case '{/size}':
+          size = null;
+          break;
+        case '{/font}':
+          font = null;
+          break;
+        case '{/outlinecolor}':
+          outlineColor = null;
+          break;
         default:
           color = _parseColorTag(tag) ?? color;
+          size = _parseSizeTag(tag) ?? size;
+          font = _parseFontTag(tag) ?? font;
+          outlineColor = _parseOutlineColorTag(tag) ?? outlineColor;
       }
 
       index = match.end;
@@ -60,6 +78,9 @@ class RenPyStyledText {
         bold: bold,
         italic: italic,
         color: color,
+        size: size,
+        font: font,
+        outlineColor: outlineColor,
       );
     }
 
@@ -80,12 +101,23 @@ class RenPyStyledText {
     required bool bold,
     required bool italic,
     required String? color,
+    required double? size,
+    required String? font,
+    required String? outlineColor,
   }) {
     if (text.isEmpty) {
       return;
     }
 
-    final run = RenPyTextRun(text, bold: bold, italic: italic, color: color);
+    final run = RenPyTextRun(
+      text,
+      bold: bold,
+      italic: italic,
+      color: color,
+      size: size,
+      font: font,
+      outlineColor: outlineColor,
+    );
     if (runs.isNotEmpty && runs.last._hasSameStyle(run)) {
       runs[runs.length - 1] = runs.last._merge(run);
     } else {
@@ -99,6 +131,21 @@ String? _parseColorTag(String tag) {
   return match?.group(1);
 }
 
+double? _parseSizeTag(String tag) {
+  final match = RegExp(r'^\{size=([^}]+)\}$').firstMatch(tag);
+  return double.tryParse(match?.group(1) ?? '');
+}
+
+String? _parseFontTag(String tag) {
+  final match = RegExp(r'^\{font=([^}]+)\}$').firstMatch(tag);
+  return match?.group(1);
+}
+
+String? _parseOutlineColorTag(String tag) {
+  final match = RegExp(r'^\{outlinecolor=([^}]+)\}$').firstMatch(tag);
+  return match?.group(1);
+}
+
 /// A visible segment of RenPy dialogue text with active inline styles.
 class RenPyTextRun {
   const RenPyTextRun(
@@ -106,15 +153,26 @@ class RenPyTextRun {
     this.bold = false,
     this.italic = false,
     this.color,
+    this.size,
+    this.font,
+    this.outlineColor,
   });
 
   final String text;
   final bool bold;
   final bool italic;
   final String? color;
+  final double? size;
+  final String? font;
+  final String? outlineColor;
 
   bool _hasSameStyle(RenPyTextRun other) {
-    return bold == other.bold && italic == other.italic && color == other.color;
+    return bold == other.bold &&
+        italic == other.italic &&
+        color == other.color &&
+        size == other.size &&
+        font == other.font &&
+        outlineColor == other.outlineColor;
   }
 
   RenPyTextRun _merge(RenPyTextRun other) {
@@ -124,6 +182,9 @@ class RenPyTextRun {
       bold: bold,
       italic: italic,
       color: color,
+      size: size,
+      font: font,
+      outlineColor: outlineColor,
     );
   }
 
@@ -134,11 +195,15 @@ class RenPyTextRun {
             text == other.text &&
             bold == other.bold &&
             italic == other.italic &&
-            color == other.color;
+            color == other.color &&
+            size == other.size &&
+            font == other.font &&
+            outlineColor == other.outlineColor;
   }
 
   @override
-  int get hashCode => Object.hash(text, bold, italic, color);
+  int get hashCode =>
+      Object.hash(text, bold, italic, color, size, font, outlineColor);
 
   @override
   String toString() {
@@ -146,6 +211,9 @@ class RenPyTextRun {
       if (bold) 'bold: true',
       if (italic) 'italic: true',
       if (color != null) 'color: $color',
+      if (size != null) 'size: $size',
+      if (font != null) 'font: $font',
+      if (outlineColor != null) 'outlineColor: $outlineColor',
     ].join(', ');
     return styles.isEmpty
         ? "RenPyTextRun('$text')"
