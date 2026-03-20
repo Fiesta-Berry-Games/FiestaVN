@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -207,6 +208,48 @@ label start:
         assetSourcePath: 'the_question/game/illurock.opus',
       ),
     ]);
+  });
+
+  testWidgets('project player registers project fonts before loading script', (
+    tester,
+  ) async {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('confession/game/script.rpy', '''
+label start:
+    show text "{font=UglyQua.ttf}Title{/font}" at truecenter
+    "After font."
+'''),
+      RenPyProjectFile(
+        'confession/game/UglyQua.ttf',
+        Uint8List.fromList([1, 2, 3]),
+      ),
+    ]);
+    final registrarGate = Completer<void>();
+    final registrar = _RecordingFontRegistrar(
+      beforeFirstRegistrationCompletes: () => registrarGate.future,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyProjectPlayer(
+          project: project,
+          fontRegistrar: registrar.register,
+        ),
+      ),
+    );
+
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(registrar.calls.first.family, 'UglyQua.ttf');
+    expect(registrar.calls.first.bytes, [1, 2, 3]);
+    expect(find.text('Title'), findsNothing);
+    expect(find.text('After font.'), findsNothing);
+
+    registrarGate.complete();
+    await _pumpUntil(tester, find.text('Title'));
+
+    expect(find.text('After font.'), findsOneWidget);
+    expect(registrar.calls.map((call) => call.family), contains('UglyQua.ttf'));
   });
 
   testWidgets('asset player exposes loading and load failure builders', (
@@ -423,6 +466,27 @@ class _RecordingAudioPlayback implements RenPyAudioPlayback {
 
   @override
   Future<void> dispose() async {}
+}
+
+class _RecordingFontRegistrar {
+  _RecordingFontRegistrar({this.beforeFirstRegistrationCompletes});
+
+  final Future<void> Function()? beforeFirstRegistrationCompletes;
+  final List<_FontCall> calls = [];
+
+  Future<void> register(String family, Uint8List bytes) async {
+    calls.add(_FontCall(family: family, bytes: List<int>.from(bytes)));
+    if (calls.length == 1) {
+      await beforeFirstRegistrationCompletes?.call();
+    }
+  }
+}
+
+class _FontCall {
+  const _FontCall({required this.family, required this.bytes});
+
+  final String family;
+  final List<int> bytes;
 }
 
 class _AudioCall {

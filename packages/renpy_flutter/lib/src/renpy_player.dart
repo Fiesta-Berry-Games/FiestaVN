@@ -12,6 +12,8 @@ typedef RenPyLayerBuilder =
 typedef RenPyLoadingBuilder = Widget Function(BuildContext context);
 typedef RenPyLoadErrorBuilder =
     Widget Function(BuildContext context, Object error, StackTrace stackTrace);
+typedef RenPyProjectFontRegistrar =
+    Future<void> Function(String family, Uint8List bytes);
 
 /// A reusable visual novel surface for an already-managed controller.
 class RenPyPlayer extends StatelessWidget {
@@ -108,6 +110,7 @@ class RenPyProjectPlayer extends StatefulWidget {
     this.showRestartButton = true,
     this.imageLayerBuilder,
     this.audioPlayback,
+    this.fontRegistrar,
   });
 
   final RenPyGameProject project;
@@ -116,6 +119,7 @@ class RenPyProjectPlayer extends StatefulWidget {
   final bool showRestartButton;
   final RenPyLayerBuilder? imageLayerBuilder;
   final RenPyAudioPlayback? audioPlayback;
+  final RenPyProjectFontRegistrar? fontRegistrar;
 
   @override
   State<RenPyProjectPlayer> createState() => _RenPyProjectPlayerState();
@@ -124,6 +128,7 @@ class RenPyProjectPlayer extends StatefulWidget {
 class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
   late final RenPyFlutterController _controller;
   RenPyBytesAudioPlayback? _ownedAudioPlayback;
+  int _bootstrapGeneration = 0;
 
   @override
   void initState() {
@@ -131,7 +136,7 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
     _controller = RenPyFlutterController();
     _configureOwnedAudio();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _loadController();
+      if (mounted) _bootstrapProject();
     });
   }
 
@@ -139,10 +144,11 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
   void didUpdateWidget(RenPyProjectPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.project, widget.project) ||
-        !identical(oldWidget.audioPlayback, widget.audioPlayback)) {
+        !identical(oldWidget.audioPlayback, widget.audioPlayback) ||
+        !identical(oldWidget.fontRegistrar, widget.fontRegistrar)) {
       _ownedAudioPlayback?.dispose();
       _configureOwnedAudio();
-      _loadController();
+      _bootstrapProject();
     }
   }
 
@@ -154,6 +160,26 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
               readAsset: widget.project.readAsset,
             )
             : null;
+  }
+
+  Future<void> _bootstrapProject() async {
+    final generation = ++_bootstrapGeneration;
+    await _registerProjectFonts();
+    if (!mounted || generation != _bootstrapGeneration) return;
+    _loadController();
+  }
+
+  Future<void> _registerProjectFonts() async {
+    final registrar = widget.fontRegistrar ?? _registerFlutterFont;
+    for (final entry in widget.project.fontAssets.entries) {
+      final bytes = widget.project.readAsset(entry.value);
+      if (bytes == null) continue;
+      try {
+        await registrar(entry.key, bytes);
+      } catch (error) {
+        debugPrint('Could not register RenPy font ${entry.key}: $error');
+      }
+    }
   }
 
   void _loadController() {
@@ -202,6 +228,12 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
       audioPlayback: widget.audioPlayback ?? _ownedAudioPlayback,
     );
   }
+}
+
+Future<void> _registerFlutterFont(String family, Uint8List bytes) async {
+  final loader = FontLoader(family)
+    ..addFont(Future<ByteData>.value(ByteData.sublistView(bytes)));
+  await loader.load();
 }
 
 class _RenPyAssetPlayerState extends State<RenPyAssetPlayer> {

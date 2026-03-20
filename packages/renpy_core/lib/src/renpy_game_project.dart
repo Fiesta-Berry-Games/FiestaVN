@@ -27,11 +27,13 @@ final class RenPyGameProject {
     required this.scriptSource,
     required Map<String, Uint8List> assets,
     required Map<String, RenPyRpaArchive> archives,
+    required Map<String, String> fontAssets,
   }) : _assets = Map.unmodifiable(assets),
        _assetsByLowerPath = Map.unmodifiable(
          _caseInsensitiveIndex(assets.keys),
        ),
        _archives = Map.unmodifiable(archives),
+       fontAssets = Map.unmodifiable(fontAssets),
        availableAssets = Set.unmodifiable(
          {
            ...assets.keys.where((asset) => asset != scriptPath),
@@ -70,6 +72,11 @@ final class RenPyGameProject {
       scriptSource: utf8.decode(scriptBytes),
       assets: byPath,
       archives: archives,
+      fontAssets: _fontAssets(
+        byPath.keys,
+        archives,
+        gameRoot == '.' ? '' : gameRoot,
+      ),
     );
   }
 
@@ -78,6 +85,7 @@ final class RenPyGameProject {
   final String gameRoot;
   final String scriptSource;
   final Set<String> availableAssets;
+  final Map<String, String> fontAssets;
   final Map<String, Uint8List> _assets;
   final Map<String, String> _assetsByLowerPath;
   final Map<String, RenPyRpaArchive> _archives;
@@ -160,12 +168,49 @@ final class RenPyGameProject {
       }
     }
   }
+
+  static Map<String, String> _fontAssets(
+    Iterable<String> loosePaths,
+    Map<String, RenPyRpaArchive> archives,
+    String gameRoot,
+  ) {
+    final fonts = <String, String>{};
+
+    void addFont(String assetPath) {
+      if (!_isFontAsset(assetPath)) return;
+      fonts.putIfAbsent(path.posix.basename(assetPath), () => assetPath);
+      if (gameRoot.isNotEmpty &&
+          assetPath.toLowerCase().startsWith('${gameRoot.toLowerCase()}/')) {
+        final relativePath = assetPath.substring(gameRoot.length + 1);
+        fonts.putIfAbsent(relativePath, () => assetPath);
+      }
+      fonts.putIfAbsent(assetPath, () => assetPath);
+    }
+
+    for (final assetPath in loosePaths) {
+      addFont(assetPath);
+    }
+
+    for (final archiveFile in archives.entries) {
+      final archiveRoot = path.posix.dirname(archiveFile.key);
+      for (final entryPath in archiveFile.value.entries.keys) {
+        addFont(path.posix.join(archiveRoot, entryPath));
+      }
+    }
+
+    return fonts;
+  }
 }
 
 String _normalizePath(String value) {
   final withoutQuery = value.replaceAll(r'\', '/').split('?').first.trim();
   final normalized = path.posix.normalize(withoutQuery);
   return normalized.replaceFirst(RegExp(r'^(\./|/)+'), '');
+}
+
+bool _isFontAsset(String assetPath) {
+  final lower = assetPath.toLowerCase();
+  return lower.endsWith('.ttf') || lower.endsWith('.otf');
 }
 
 Map<String, String> _caseInsensitiveIndex(Iterable<String> paths) {

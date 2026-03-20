@@ -71,6 +71,7 @@ label start:
 '''),
           'options.rpy': utf8.encode('define config.name = "Packed Game"'),
           'images/bg.png': [1, 2, 3],
+          'fonts/Packed.ttf': [4, 5, 6],
         }),
       ),
     ]);
@@ -83,6 +84,14 @@ label start:
     expect(project.readAsset('confession/game/options.rpy'), isNotNull);
     expect(project.availableAssets, contains('confession/game/images/bg.png'));
     expect(project.readAsset('confession/game/images/bg.png'), [1, 2, 3]);
+    expect(
+      project.fontAssets['fonts/Packed.ttf'],
+      'confession/game/fonts/Packed.ttf',
+    );
+    expect(
+      project.fontAssets['Packed.ttf'],
+      'confession/game/fonts/Packed.ttf',
+    );
   });
 
   test('reads loose and archived assets case-insensitively', () {
@@ -107,6 +116,30 @@ label start:
     expect(project.readAsset('confession/game/SE/Z1.wav'), [1, 2, 3]);
     expect(project.readAsset('confession/game/ME/rain_2.wav'), [4, 5, 6]);
     expect(project.readAsset('confession/game/music/rose.ogg'), [7, 8, 9]);
+  });
+
+  test('discovers project font assets with RenPy font tag aliases', () {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('confession/game/script.rpy', '''
+label start:
+    show text "{font=UglyQua.ttf}Title{/font}"
+'''),
+      RenPyProjectFile(
+        'confession/game/UglyQua.ttf',
+        Uint8List.fromList([1, 2, 3]),
+      ),
+      RenPyProjectFile(
+        'confession/game/fonts/Title.otf',
+        Uint8List.fromList([4, 5, 6]),
+      ),
+    ]);
+
+    expect(project.fontAssets['UglyQua.ttf'], 'confession/game/UglyQua.ttf');
+    expect(
+      project.fontAssets['fonts/Title.otf'],
+      'confession/game/fonts/Title.otf',
+    );
+    expect(project.fontAssets['Title.otf'], 'confession/game/fonts/Title.otf');
   });
 }
 
