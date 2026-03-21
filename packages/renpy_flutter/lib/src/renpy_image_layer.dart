@@ -34,6 +34,7 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
 
   final _sprites = <String, _RenPySpriteState>{};
   final _positions = <String, RenPyImagePlacement>{};
+  Color _backgroundColor = Colors.black;
   _RenPyRenderedImage? _backgroundImage;
   _RenPyVisualState? _previousVisualState;
   RenPyTransitionIntent? _activeTransitionIntent;
@@ -70,13 +71,17 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
       if (status.scene != null) {
         _sprites.clear();
         _positions.clear();
+        final solidColor =
+            _colorForResolvedSolid(status.sceneImage) ??
+            _solidColorForScene(status.scene!);
+        _backgroundColor = solidColor ?? Colors.black;
         _backgroundImage =
-            status.scene == 'black'
-                ? null
-                : _RenPyRenderedImage.fromStatus(
+            solidColor == null
+                ? _RenPyRenderedImage.fromStatus(
                   status.sceneImage,
                   status.sceneAsset,
-                );
+                )
+                : null;
       }
 
       if (status.hide != null) {
@@ -221,6 +226,7 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
 
   _RenPyVisualState _currentVisualState() {
     return _RenPyVisualState(
+      backgroundColor: _backgroundColor,
       backgroundImage: _backgroundImage,
       sprites: Map.unmodifiable(_sprites),
     );
@@ -239,12 +245,32 @@ ImageProvider<Object> _defaultImageProvider(String assetPath) {
 
 class _RenPyVisualState {
   const _RenPyVisualState({
+    required this.backgroundColor,
     required this.backgroundImage,
     required this.sprites,
   });
 
+  final Color backgroundColor;
   final _RenPyRenderedImage? backgroundImage;
   final Map<String, _RenPySpriteState> sprites;
+}
+
+Color? _solidColorForScene(String scene) {
+  switch (scene.trim().toLowerCase()) {
+    case 'black':
+      return Colors.black;
+    case 'white':
+      return Colors.white;
+    case 'red':
+      return Colors.red;
+  }
+  return null;
+}
+
+Color? _colorForResolvedSolid(RenPyResolvedImage? image) {
+  final color = image?.solidColor;
+  if (color == null) return null;
+  return Color.fromARGB(color.alpha, color.red, color.green, color.blue);
 }
 
 class _RenPyRenderedImage {
@@ -253,9 +279,12 @@ class _RenPyRenderedImage {
     this.operations = const [],
   });
 
-  factory _RenPyRenderedImage.fromResolved(RenPyResolvedImage image) {
+  static _RenPyRenderedImage? fromResolved(RenPyResolvedImage image) {
+    final assetPath = image.assetPath;
+    if (assetPath == null) return null;
+
     return _RenPyRenderedImage(
-      assetPath: image.assetPath,
+      assetPath: assetPath,
       operations: image.operations,
     );
   }
@@ -303,8 +332,10 @@ class _RenPyVisualFrame extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        if (state.backgroundImage == null && state.sprites.isEmpty)
-          const ColoredBox(color: Colors.black),
+        ColoredBox(
+          key: const ValueKey('renpy-stage-color'),
+          color: state.backgroundColor,
+        ),
         if (state.backgroundImage != null)
           _RenPyRenderedImageWidget(
             image: state.backgroundImage!,

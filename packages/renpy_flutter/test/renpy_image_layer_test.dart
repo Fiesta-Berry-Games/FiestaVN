@@ -60,6 +60,47 @@ void main() {
     expect(find.byType(Image), findsNothing);
   });
 
+  testWidgets('image layer renders RenPy solid color scenes', (tester) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(scene: 'white');
+    await tester.pump();
+
+    expect(_stageColor(tester), Colors.white);
+
+    controller.value = RenPyImageChange(scene: 'red');
+    await tester.pump();
+
+    expect(_stageColor(tester), Colors.red);
+  });
+
+  testWidgets('image layer renders resolved Solid displayable scenes', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(
+      scene: 'custom solid',
+      sceneImage: const RenPyResolvedImage.solid(
+        RenPyColorValue(64, 128, 192, 255),
+      ),
+    );
+    await tester.pump();
+
+    expect(_stageColor(tester), const Color(0xFF4080C0));
+    expect(find.byType(Image), findsNothing);
+  });
+
   testWidgets('image layer crossfades previous and current visual states', (
     tester,
   ) async {
@@ -420,4 +461,10 @@ Alignment _spriteAlignment(WidgetTester tester, String tag) {
           )
           .alignment
       as Alignment;
+}
+
+Color _stageColor(WidgetTester tester) {
+  return tester
+      .widget<ColoredBox>(find.byKey(const ValueKey('renpy-stage-color')))
+      .color;
 }

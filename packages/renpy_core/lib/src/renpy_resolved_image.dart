@@ -63,11 +63,15 @@ class RenPyImageOperation {
 /// A resolved RenPy image source and any display operations requested for it.
 class RenPyResolvedImage {
   const RenPyResolvedImage({
-    required this.assetPath,
+    required String this.assetPath,
     this.operations = const [],
-  });
+  }) : solidColor = null;
 
-  final String assetPath;
+  const RenPyResolvedImage.solid(this.solidColor, {this.operations = const []})
+    : assetPath = null;
+
+  final String? assetPath;
+  final RenPyColorValue? solidColor;
   final List<RenPyImageOperation> operations;
 
   @override
@@ -75,16 +79,49 @@ class RenPyResolvedImage {
     return identical(this, other) ||
         other is RenPyResolvedImage &&
             assetPath == other.assetPath &&
+            solidColor == other.solidColor &&
             _listEquals(operations, other.operations);
   }
 
   @override
-  int get hashCode => Object.hash(assetPath, Object.hashAll(operations));
+  int get hashCode {
+    return Object.hash(assetPath, solidColor, Object.hashAll(operations));
+  }
 
   @override
   String toString() {
     return 'RenPyResolvedImage(assetPath: $assetPath, '
+        'solidColor: $solidColor, '
         'operations: $operations)';
+  }
+}
+
+/// Platform-neutral RGBA color used by RenPy solid displayables.
+class RenPyColorValue {
+  const RenPyColorValue(this.red, this.green, this.blue, this.alpha);
+
+  final int red;
+  final int green;
+  final int blue;
+  final int alpha;
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        other is RenPyColorValue &&
+            red == other.red &&
+            green == other.green &&
+            blue == other.blue &&
+            alpha == other.alpha;
+  }
+
+  @override
+  int get hashCode => Object.hash(red, green, blue, alpha);
+
+  @override
+  String toString() {
+    return 'RenPyColorValue(red: $red, green: $green, '
+        'blue: $blue, alpha: $alpha)';
   }
 }
 

@@ -3,7 +3,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:renpy_core/renpy_core.dart'
-    show RenPyGenericStatement, RenPyNvlStatement, RenPyParser, RenPyStyledText;
+    show
+        RenPyColorValue,
+        RenPyGenericStatement,
+        RenPyNvlStatement,
+        RenPyParser,
+        RenPyStyledText;
 import 'package:renpy_flutter/renpy_flutter.dart';
 
 void main() {
@@ -158,6 +163,10 @@ void main() {
 
     final whiteScene = images.firstWhere((image) => image.scene == 'white');
     expect(whiteScene.sceneAsset, isNull);
+    expect(
+      whiteScene.sceneImage?.solidColor,
+      const RenPyColorValue(255, 255, 255, 255),
+    );
 
     expect(project.readAsset('${project.gameRoot}/SE/Z1.wav'), isNotNull);
     expect(project.readAsset('${project.gameRoot}/ME/rain_2.wav'), isNotNull);
@@ -253,6 +262,12 @@ void main() {
       (image) =>
           image.show == 'text' &&
           (image.showText?.contains('Confession of the Golden Witch') ?? false),
+    );
+    final redScene = images.firstWhere((image) => image.scene == 'red');
+    expect(redScene.sceneAsset, isNull);
+    expect(
+      redScene.sceneImage?.solidColor,
+      const RenPyColorValue(255, 0, 0, 255),
     );
     expect(
       RenPyStyledText.parse(title.showText!).plainText,

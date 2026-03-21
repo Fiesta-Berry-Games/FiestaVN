@@ -154,6 +154,33 @@ label start:
     );
   });
 
+  test('controller carries Solid displayable scenes as colors', () async {
+    final controller = RenPyFlutterController();
+    final images = <RenPyImageChange>[];
+    addTearDown(controller.dispose);
+
+    controller.addListener(() {
+      final status = controller.value;
+      if (status is RenPyImageChange) images.add(status);
+    });
+
+    controller.load('''
+label start:
+    image red = Solid((255, 0, 0, 255))
+    scene red
+    "Welcome."
+''');
+
+    await _continueUntil(controller, (status) => status is RenPyDialogue);
+
+    expect(images.single.scene, 'red');
+    expect(images.single.sceneAsset, isNull);
+    expect(
+      images.single.sceneImage,
+      const RenPyResolvedImage.solid(RenPyColorValue(255, 0, 0, 255)),
+    );
+  });
+
   test('controller carries character metadata into dialogue states', () async {
     final controller = RenPyFlutterController();
     addTearDown(controller.dispose);

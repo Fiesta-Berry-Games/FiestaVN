@@ -6,6 +6,7 @@ export 'package:renpy_core/renpy_core.dart'
         RenPyImageOperation,
         RenPyImageOperationType,
         RenPyImagePlacement,
+        RenPyColorValue,
         RenPyResolvedImage;
 export 'package:renpy_core/renpy_core.dart'
     show RenPyTransitionFidelity, RenPyTransitionIntent, RenPyTransitionType;

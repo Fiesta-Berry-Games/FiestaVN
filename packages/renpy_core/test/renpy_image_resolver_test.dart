@@ -60,6 +60,44 @@ init:
       expect(resolver.resolve(null), isNull);
     });
 
+    test('resolves built-in solid scene names before asset candidates', () {
+      final resolver = RenPyImageResolver(
+        assetRoot: 'assets/game',
+        availableAssets: const {'assets/game/images/red.png'},
+      );
+
+      expect(
+        resolver.resolveImage('red'),
+        const RenPyResolvedImage.solid(RenPyColorValue(255, 0, 0, 255)),
+      );
+      expect(resolver.resolve('red'), isNull);
+    });
+
+    test('resolves Solid displayable aliases as platform-neutral colors', () {
+      final script =
+          RenPyParser().parse('''
+init:
+    image white = Solid("#fff")
+    image red = Solid((255, 0, 0, 255))
+''', 'script.rpy').script;
+
+      final resolver = RenPyImageResolver.fromScript(
+        script,
+        assetRoot: 'assets/game',
+      );
+
+      expect(
+        resolver.resolveImage('white'),
+        const RenPyResolvedImage.solid(RenPyColorValue(255, 255, 255, 255)),
+      );
+      expect(
+        resolver.resolveImage('red'),
+        const RenPyResolvedImage.solid(RenPyColorValue(255, 0, 0, 255)),
+      );
+      expect(resolver.resolve('white'), isNull);
+      expect(resolver.resolve('red'), isNull);
+    });
+
     test('resolves displayable wrapper aliases to their source assets', () {
       final script =
           RenPyParser().parse('''
