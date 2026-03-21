@@ -252,6 +252,45 @@ label start:
     expect(registrar.calls.map((call) => call.family), contains('UglyQua.ttf'));
   });
 
+  testWidgets('player replaces and hides tagged text displayables', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    show text "First" as title at truecenter
+    \$ renpy.pause()
+    show text "Second" as title
+    \$ renpy.pause()
+    hide title with dissolve
+    "Done."
+''',
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('First'));
+    expect(find.text('Second'), findsNothing);
+
+    await tester.tap(find.byType(RenPyPauseView));
+    await _pumpUntil(tester, find.text('Second'));
+    expect(find.text('First'), findsNothing);
+
+    await tester.tap(find.byType(RenPyPauseView));
+    await _pumpUntil(tester, find.text('Done.'));
+    await tester.pump(const Duration(milliseconds: 700));
+
+    expect(find.text('Second'), findsNothing);
+  });
+
   testWidgets('asset player exposes loading and load failure builders', (
     tester,
   ) async {

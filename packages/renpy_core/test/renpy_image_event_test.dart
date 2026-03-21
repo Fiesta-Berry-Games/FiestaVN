@@ -116,6 +116,40 @@ label start:
     );
   });
 
+  test('runner uses explicit show text tags for hideable displayables', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    show text "Chapter One" as title at truecenter
+    hide title with dissolve
+''', 'image.rpy').script;
+    final runner = RenPyRunner(script);
+    final events = <RenPyImageEvent>[];
+    final transitions = <RenPyTransitionEvent>[];
+
+    runner.onImageEvent = events.add;
+    runner.onTransition = transitions.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(events, [
+      const RenPyImageEvent.show(
+        'title',
+        at: 'truecenter',
+        placement: RenPyImagePlacement.position(
+          xpos: 0.5,
+          xanchor: 0.5,
+          ypos: 0.5,
+          yanchor: 0.5,
+        ),
+        displayableText: 'Chapter One',
+      ),
+      const RenPyImageEvent.hide('title'),
+    ]);
+    expect(transitions.single.name, 'dissolve');
+  });
+
   test('runner emits runtime image definition events', () {
     final script =
         RenPyParser().parse('''

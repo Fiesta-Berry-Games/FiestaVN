@@ -45,4 +45,19 @@ label start:
       expect(show.withExpression, 'longdissolve');
     },
   );
+
+  test('show text statements honor explicit displayable tags', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    show text "Chapter One" as title at truecenter with dissolve
+''', 'show_text_as.rpy').script;
+
+    final show = script.findStatements<RenPyShowStatement>((_) => true).single;
+
+    expect(show.imageName, 'title');
+    expect(show.displayableText, 'Chapter One');
+    expect(show.atExpression, 'truecenter');
+    expect(show.withExpression, 'dissolve');
+  });
 }

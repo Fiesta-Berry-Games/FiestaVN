@@ -529,7 +529,7 @@ class RenPyParser {
 
     final suffix = quoted.remainder.trim();
     final suffixMatch = RegExp(
-      r'^(?:at\s+(.+?)(?=\s+behind\s+|\s+with\s+|$))?(?:\s*behind\s+(.+?)(?=\s+with\s+|$))?(?:\s*with\s+(.+?))?$',
+      r'^(?:as\s+(\S+))?(?:\s*at\s+(.+?)(?=\s+behind\s+|\s+with\s+|$))?(?:\s*behind\s+(.+?)(?=\s+with\s+|$))?(?:\s*with\s+(.+?))?$',
     ).firstMatch(suffix);
     if (suffixMatch == null) {
       throw RenPyParseError(
@@ -541,12 +541,12 @@ class RenPyParser {
     }
 
     return RenPyShowStatement(
-      'text',
-      suffixMatch.group(1)?.trim(),
-      suffixMatch.group(3)?.trim(),
+      suffixMatch.group(1)?.trim() ?? 'text',
+      suffixMatch.group(2)?.trim(),
+      suffixMatch.group(4)?.trim(),
       line.filename,
       line.number,
-      behindExpression: suffixMatch.group(2)?.trim(),
+      behindExpression: suffixMatch.group(3)?.trim(),
       displayableText: _unescapeString(quoted.value),
     );
   }
