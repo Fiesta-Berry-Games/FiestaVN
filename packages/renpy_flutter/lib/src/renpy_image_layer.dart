@@ -262,7 +262,7 @@ Color? _solidColorForScene(String scene) {
     case 'white':
       return Colors.white;
     case 'red':
-      return Colors.red;
+      return const Color(0xFFFF0000);
   }
   return null;
 }

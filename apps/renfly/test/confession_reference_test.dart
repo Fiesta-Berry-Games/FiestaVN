@@ -313,6 +313,31 @@ void main() {
     },
     skip: skipReason != null,
   );
+
+  testWidgets(
+    'Confession project player renders the red title card',
+    (tester) async {
+      final project = _loadProjectFolder(fixture);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: RenPyProjectPlayer(
+            project: project,
+            audioPlayback: const RenPyNoOpAudioPlayback(),
+          ),
+        ),
+      );
+
+      await _pumpUntilTitleCard(tester);
+
+      expect(_stageColors(tester), contains(const Color(0xFFFF0000)));
+      expect(
+        find.textContaining('Confession of the Golden Witch'),
+        findsWidgets,
+      );
+    },
+    skip: skipReason != null,
+  );
 }
 
 RenPyGameProject _loadProjectFolder(Directory directory) {
@@ -360,6 +385,22 @@ Future<void> _pumpUntilImages(WidgetTester tester) async {
   fail('Timed out waiting for archived images.');
 }
 
+Future<void> _pumpUntilTitleCard(WidgetTester tester) async {
+  for (var i = 0; i < 700; i += 1) {
+    await tester.pump(const Duration(milliseconds: 50));
+    final titleVisible =
+        find.textContaining('Confession of the Golden Witch').evaluate().length;
+    if (titleVisible >= 1 &&
+        _stageColors(tester).contains(const Color(0xFFFF0000))) {
+      return;
+    }
+
+    await tester.tapAt(tester.getCenter(find.byType(RenPyProjectPlayer)));
+  }
+
+  fail('Timed out waiting for the red title card.');
+}
+
 void _expectItalicSpan(WidgetTester tester, String text) {
   final renderedText = tester.widget<Text>(
     find.descendant(of: find.byType(RenPyText), matching: find.byType(Text)),
@@ -370,4 +411,10 @@ void _expectItalicSpan(WidgetTester tester, String text) {
     spans.singleWhere((span) => span.text == text).style?.fontStyle,
     FontStyle.italic,
   );
+}
+
+List<Color> _stageColors(WidgetTester tester) {
+  final stage = find.byKey(const ValueKey('renpy-stage-color'));
+  if (stage.evaluate().isEmpty) return const [];
+  return tester.widgetList<ColoredBox>(stage).map((box) => box.color).toList();
 }

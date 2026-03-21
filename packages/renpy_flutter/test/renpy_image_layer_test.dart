@@ -76,7 +76,7 @@ void main() {
     controller.value = RenPyImageChange(scene: 'red');
     await tester.pump();
 
-    expect(_stageColor(tester), Colors.red);
+    expect(_stageColor(tester), const Color(0xFFFF0000));
   });
 
   testWidgets('image layer renders resolved Solid displayable scenes', (
