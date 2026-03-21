@@ -97,4 +97,75 @@ label start:
       const RenPyDialogueEvent(text: 'After.'),
     ]);
   });
+
+  test('runner falls through from one top-level label to the next', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    "First."
+
+label next:
+    "Second."
+''', 'dialogue.rpy').script;
+    final runner = RenPyRunner(script);
+    final dialogue = <String>[];
+
+    runner.onDialogue = (character, text) => dialogue.add(text);
+
+    runner.jumpToLabel('start');
+    runner.run();
+    runner.continueExecution();
+
+    expect(dialogue, ['First.', 'Second.']);
+    expect(runner.state, RenPyRunnerState.waitingForInput);
+  });
+
+  test('jump from a called label preserves the call return point', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    call setup
+    "After call."
+
+label setup:
+    jump target
+
+label target:
+    return
+''', 'dialogue.rpy').script;
+    final runner = RenPyRunner(script);
+    final dialogue = <String>[];
+
+    runner.onDialogue = (character, text) => dialogue.add(text);
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(dialogue, ['After call.']);
+    expect(runner.state, RenPyRunnerState.waitingForInput);
+  });
+
+  test('return inside a nested block returns to the caller', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    call setup
+    "After call."
+
+label setup:
+    if True:
+        return
+    "Skipped."
+''', 'dialogue.rpy').script;
+    final runner = RenPyRunner(script);
+    final dialogue = <String>[];
+
+    runner.onDialogue = (character, text) => dialogue.add(text);
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(dialogue, ['After call.']);
+    expect(runner.state, RenPyRunnerState.waitingForInput);
+  });
 }

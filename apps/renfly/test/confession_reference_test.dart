@@ -285,6 +285,47 @@ void main() {
     expect(title.showAsset, isNull);
   }, skip: skipReason);
 
+  test('Confession continues from the title card into chapter one', () async {
+    final project = _loadProjectFolder(fixture);
+    final controller = RenPyFlutterController();
+    final images = <RenPyImageChange>[];
+    addTearDown(controller.dispose);
+
+    controller.addListener(() {
+      final status = controller.value;
+      if (status is RenPyImageChange) images.add(status);
+    });
+
+    controller.load(
+      project.scriptSource,
+      filename: project.scriptPath,
+      gameRoot: project.gameRoot,
+      availableAssets: project.availableAssets,
+    );
+
+    await _continueUntil(
+      controller,
+      (status) => images.any(
+        (image) =>
+            image.show == 'text' &&
+            (image.showText?.contains('Confession of the Golden Witch') ??
+                false),
+      ),
+      maxSteps: 500,
+    );
+
+    await _continueUntil(
+      controller,
+      (status) =>
+          status is RenPyDialogue &&
+          status.text.contains('bottled letter never reaches'),
+      maxSteps: 20,
+    );
+
+    final dialogue = controller.value as RenPyDialogue;
+    expect(dialogue.text, contains('punishment I deserve'));
+  }, skip: skipReason);
+
   testWidgets(
     'Confession project player renders an archived background',
     (tester) async {

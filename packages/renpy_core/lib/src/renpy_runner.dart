@@ -8,10 +8,22 @@ import 'renpy_pause_event.dart';
 import 'renpy_transition_event.dart';
 import 'renpy_transition_resolver.dart';
 
+enum _ExecutionContextKind { block, labelFallthrough, call }
+
 class _ExecutionContext {
+  _ExecutionContext(this.block, this.position, this.kind);
+
   final List<RenPyStatement> block;
   final int position; // where we should resume afterwards
-  _ExecutionContext(this.block, this.position);
+  final _ExecutionContextKind kind;
+}
+
+class _LabelContext {
+  const _LabelContext(this.label, this.parentBlock, this.index);
+
+  final RenPyLabelStatement label;
+  final List<RenPyStatement> parentBlock;
+  final int index;
 }
 
 /// Execution state of a RenPy script
@@ -71,7 +83,7 @@ class RenPyRunner {
   /// The parsed script
   final RenPyScript script;
 
-  /// Stack for returning from nested blocks (menus, if/else, etc.)
+  /// Stack for nested blocks, label fallthrough, and call return addresses.
   final List<_ExecutionContext> _stack = [];
 
   /// The current state of the runner
@@ -368,6 +380,13 @@ class RenPyRunner {
   /// Execute a label statement.
   void _executeLabelStatement(RenPyLabelStatement stmt) {
     _currentLabel = stmt.name;
+    _stack.add(
+      _ExecutionContext(
+        _currentBlock,
+        _position + 1,
+        _ExecutionContextKind.labelFallthrough,
+      ),
+    );
     _currentBlock = stmt.block;
     _position = 0;
     _executeNext();
@@ -375,16 +394,13 @@ class RenPyRunner {
 
   /// Execute a jump statement.
   void _executeJumpStatement(RenPyJumpStatement stmt) {
-    // Find the label
-    final label = script.findLabel(stmt.target);
-    if (label == null) {
+    final context = _findLabelContext(stmt.target);
+    if (context == null) {
       throw Exception('Label not found: ${stmt.target}');
     }
 
-    // Jump to the label.
-    _currentLabel = label.name;
-    _currentBlock = label.block;
-    _position = 0;
+    _discardNonCallContexts();
+    _prepareLabelContext(context);
     _executeNext();
   }
 
@@ -416,7 +432,13 @@ class RenPyRunner {
   /// Execute a menu choice.
   void _executeMenuChoice(MenuChoice choice) {
     // Resume after this statement when the branch ends.
-    _stack.add(_ExecutionContext(_currentBlock, _position + 1));
+    _stack.add(
+      _ExecutionContext(
+        _currentBlock,
+        _position + 1,
+        _ExecutionContextKind.block,
+      ),
+    );
 
     if (choice.block.isEmpty) {
       // Nothing inside -> behave like "pass".
@@ -568,7 +590,13 @@ class RenPyRunner {
     }
 
     if (entry != null) {
-      _stack.add(_ExecutionContext(_currentBlock, _position + 1));
+      _stack.add(
+        _ExecutionContext(
+          _currentBlock,
+          _position + 1,
+          _ExecutionContextKind.block,
+        ),
+      );
       _currentBlock = entry.block;
       _position = 0;
       _executeNext();
@@ -609,27 +637,35 @@ class RenPyRunner {
   }
 
   void _executeReturnStatement(RenPyReturnStatement stmt) {
-    if (_stack.isEmpty) {
-      _state = RenPyRunnerState.complete;
-      return;
+    while (_stack.isNotEmpty) {
+      final ctx = _stack.removeLast();
+      if (ctx.kind == _ExecutionContextKind.call) {
+        _currentBlock = ctx.block;
+        _position = ctx.position;
+        _state = RenPyRunnerState.running;
+        _executeNext();
+        return;
+      }
     }
 
-    final ctx = _stack.removeLast();
-    _currentBlock = ctx.block;
-    _position = ctx.position;
-    _state = RenPyRunnerState.running;
-    _executeNext();
+    _state = RenPyRunnerState.complete;
   }
 
   void _executeCallStatement(RenPyCallStatement stmt) {
-    final label = script.findLabel(stmt.target);
-    if (label == null) {
+    final context = _findLabelContext(stmt.target);
+    if (context == null) {
       throw Exception('Label not found: ${stmt.target}');
     }
 
-    _stack.add(_ExecutionContext(_currentBlock, _position + 1));
-    _currentLabel = label.name;
-    _currentBlock = label.block;
+    _stack.add(
+      _ExecutionContext(
+        _currentBlock,
+        _position + 1,
+        _ExecutionContextKind.call,
+      ),
+    );
+    _currentLabel = context.label.name;
+    _currentBlock = context.label.block;
     _position = 0;
     _executeNext();
   }
@@ -654,19 +690,62 @@ class RenPyRunner {
 
   /// Jump to a specific label.
   void jumpToLabel(String label) {
-    final labelStmt = script.findLabel(label);
-    if (labelStmt == null) {
+    final context = _findLabelContext(label);
+    if (context == null) {
       throw Exception('Label not found: $label');
     }
 
-    _currentLabel = labelStmt.name;
-    _currentBlock = labelStmt.block;
-    _position = 0;
+    _stack.clear();
+    _prepareLabelContext(context);
     _state = RenPyRunnerState.ready;
+  }
+
+  _LabelContext? _findLabelContext(String name) {
+    _LabelContext? search(List<RenPyStatement> block) {
+      for (var index = 0; index < block.length; index += 1) {
+        final statement = block[index];
+        if (statement is RenPyLabelStatement && statement.name == name) {
+          return _LabelContext(statement, block, index);
+        }
+
+        if (statement is RenPyBlockStatement) {
+          final nested = search(statement.block);
+          if (nested != null) return nested;
+        }
+      }
+      return null;
+    }
+
+    return search(script.statements);
+  }
+
+  void _prepareLabelContext(_LabelContext context) {
+    _currentLabel = context.label.name;
+    _currentBlock = context.label.block;
+    _position = 0;
+
+    final nextPosition = context.index + 1;
+    if (nextPosition < context.parentBlock.length) {
+      _stack.add(
+        _ExecutionContext(
+          context.parentBlock,
+          nextPosition,
+          _ExecutionContextKind.labelFallthrough,
+        ),
+      );
+    }
+  }
+
+  void _discardNonCallContexts() {
+    while (_stack.isNotEmpty &&
+        _stack.last.kind != _ExecutionContextKind.call) {
+      _stack.removeLast();
+    }
   }
 
   /// Reset the runner to the beginning.
   void reset() {
+    _stack.clear();
     _position = 0;
     _currentBlock = script.statements;
     _currentLabel = null;
