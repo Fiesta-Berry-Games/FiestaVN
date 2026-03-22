@@ -117,6 +117,83 @@ label start:
     expect(runner.state, RenPyRunnerState.waitingForInput);
   });
 
+  test('runner pauses and resumes within dialogue at w text tags', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    "First.{w} Second."
+''', 'dialogue.rpy').script;
+    final runner = RenPyRunner(script);
+    final dialogue = <RenPyDialogueEvent>[];
+    final pauses = <RenPyPauseEvent>[];
+
+    runner.onDialogueEvent = dialogue.add;
+    runner.onPause = pauses.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(dialogue, [const RenPyDialogueEvent(text: 'First.{w}')]);
+    expect(pauses, isEmpty);
+    expect(runner.state, RenPyRunnerState.waitingForInput);
+
+    runner.continueExecution();
+
+    expect(dialogue, [
+      const RenPyDialogueEvent(text: 'First.{w}'),
+      const RenPyDialogueEvent(text: 'First.{w} Second.'),
+    ]);
+    expect(runner.state, RenPyRunnerState.waitingForInput);
+  });
+
+  test('runner carries auto-continue duration from timed w tags', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    "First.{w=0.25} Second."
+''', 'dialogue.rpy').script;
+    final runner = RenPyRunner(script);
+    final dialogue = <RenPyDialogueEvent>[];
+
+    runner.onDialogueEvent = dialogue.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(dialogue, [
+      const RenPyDialogueEvent(
+        text: 'First.{w=0.25}',
+        autoContinueDuration: 0.25,
+      ),
+    ]);
+    expect(runner.state, RenPyRunnerState.waitingForInput);
+  });
+
+  test('runner treats p tags as inline waits', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    "First.{p} Second.{p=0.5} Third."
+''', 'dialogue.rpy').script;
+    final runner = RenPyRunner(script);
+    final dialogue = <RenPyDialogueEvent>[];
+
+    runner.onDialogueEvent = dialogue.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+    runner.continueExecution();
+
+    expect(dialogue, [
+      const RenPyDialogueEvent(text: 'First.{p}'),
+      const RenPyDialogueEvent(
+        text: 'First.{p} Second.{p=0.5}',
+        autoContinueDuration: 0.5,
+      ),
+    ]);
+    expect(runner.state, RenPyRunnerState.waitingForInput);
+  });
+
   test('runner falls through from one top-level label to the next', () {
     final script =
         RenPyParser().parse('''

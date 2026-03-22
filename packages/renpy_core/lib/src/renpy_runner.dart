@@ -26,6 +26,20 @@ class _LabelContext {
   final int index;
 }
 
+class _PendingDialogue {
+  const _PendingDialogue(this.event, this.searchStart);
+
+  final RenPyDialogueEvent event;
+  final int searchStart;
+}
+
+class _InlineWaitTag {
+  const _InlineWaitTag({required this.end, this.duration});
+
+  final int end;
+  final double? duration;
+}
+
 /// Execution state of a RenPy script
 enum RenPyRunnerState {
   /// The script is ready to be executed
@@ -107,6 +121,7 @@ class RenPyRunner {
   final Map<String, Map<String, dynamic>> _characters = {};
 
   RenPyDialogueEvent? _lastDialogueEvent;
+  _PendingDialogue? _pendingDialogue;
   late RenPyTransitionResolver _transitionResolver;
 
   /// Callbacks for various events
@@ -234,6 +249,7 @@ class RenPyRunner {
       // Reset to beginning.
       _position = 0;
       _currentBlock = script.statements;
+      _pendingDialogue = null;
       _state = RenPyRunnerState.ready;
     }
 
@@ -341,19 +357,96 @@ class RenPyRunner {
             ? RenPyDialogueEvent(text: stmt.text ?? '')
             : _dialogueEventForSayStatement(stmt);
 
-    _emitDialogueEvent(event);
-
     _position++;
     if (_hasNoWaitTag(event.text)) {
+      _emitDialogueEvent(event);
       _executeNext();
       return;
     }
+
+    final waitTag = _firstInlineWaitTag(event.text);
+    if (waitTag != null) {
+      _pendingDialogue = _PendingDialogue(event, waitTag.end);
+      _emitDialogueEvent(
+        _dialogueEventWithText(
+          event,
+          event.text.substring(0, waitTag.end),
+          autoContinueDuration: waitTag.duration,
+        ),
+      );
+      _state = RenPyRunnerState.waitingForInput;
+      return;
+    }
+
+    _emitDialogueEvent(event);
 
     // Wait for player input.
     _state = RenPyRunnerState.waitingForInput;
   }
 
   bool _hasNoWaitTag(String text) => RegExp(r'\{nw\}').hasMatch(text);
+
+  static final RegExp _inlineWaitTagPattern = RegExp(
+    r'\{(?:w|p)(?:=([0-9]+(?:\.[0-9]+)?|\.[0-9]+))?\}',
+  );
+
+  _InlineWaitTag? _firstInlineWaitTag(String text, {int start = 0}) {
+    final match = _inlineWaitTagPattern.matchAsPrefix(text, start);
+    if (match != null) {
+      return _InlineWaitTag(
+        end: match.end,
+        duration: double.tryParse(match.group(1) ?? ''),
+      );
+    }
+
+    final next = _inlineWaitTagPattern.allMatches(text, start).firstOrNull;
+    if (next == null) return null;
+    return _InlineWaitTag(
+      end: next.end,
+      duration: double.tryParse(next.group(1) ?? ''),
+    );
+  }
+
+  RenPyDialogueEvent _dialogueEventWithText(
+    RenPyDialogueEvent event,
+    String text, {
+    double? autoContinueDuration,
+  }) {
+    return RenPyDialogueEvent(
+      characterId: event.characterId,
+      displayName: event.displayName,
+      text: text,
+      color: event.color,
+      autoContinueDuration: autoContinueDuration,
+    );
+  }
+
+  void _continuePendingDialogue(_PendingDialogue pending) {
+    final waitTag = _firstInlineWaitTag(
+      pending.event.text,
+      start: pending.searchStart,
+    );
+    if (waitTag != null) {
+      _pendingDialogue = _PendingDialogue(pending.event, waitTag.end);
+      _emitDialogueEvent(
+        _dialogueEventWithText(
+          pending.event,
+          pending.event.text.substring(0, waitTag.end),
+          autoContinueDuration: waitTag.duration,
+        ),
+      );
+      _state = RenPyRunnerState.waitingForInput;
+      return;
+    }
+
+    _pendingDialogue = null;
+    _emitDialogueEvent(pending.event);
+    if (_hasNoWaitTag(pending.event.text)) {
+      _executeNext();
+      return;
+    }
+    _state = RenPyRunnerState.waitingForInput;
+  }
 
   RenPyDialogueEvent _dialogueEventForSayStatement(RenPySayStatement stmt) {
     // Resolve character name if it's a defined character.
@@ -691,6 +784,11 @@ class RenPyRunner {
   void continueExecution() {
     if (_state == RenPyRunnerState.waitingForInput) {
       _state = RenPyRunnerState.running;
+      final pending = _pendingDialogue;
+      if (pending != null) {
+        _continuePendingDialogue(pending);
+        return;
+      }
       _executeNext();
     }
   }
@@ -703,6 +801,7 @@ class RenPyRunner {
     }
 
     _stack.clear();
+    _pendingDialogue = null;
     _prepareLabelContext(context);
     _state = RenPyRunnerState.ready;
   }
@@ -753,6 +852,7 @@ class RenPyRunner {
   /// Reset the runner to the beginning.
   void reset() {
     _stack.clear();
+    _pendingDialogue = null;
     _position = 0;
     _currentBlock = script.statements;
     _currentLabel = null;

@@ -5,6 +5,7 @@ class RenPyDialogueEvent {
     this.displayName,
     required this.text,
     this.color,
+    this.autoContinueDuration,
   });
 
   /// The RenPy character variable, such as `s` in `s "Hello"`.
@@ -18,6 +19,9 @@ class RenPyDialogueEvent {
   /// The raw RenPy color expression for the character, usually `#rrggbb`.
   final String? color;
 
+  /// Optional duration, in seconds, after which this dialogue should continue.
+  final double? autoContinueDuration;
+
   @override
   bool operator ==(Object other) {
     return identical(this, other) ||
@@ -25,15 +29,18 @@ class RenPyDialogueEvent {
             characterId == other.characterId &&
             displayName == other.displayName &&
             text == other.text &&
-            color == other.color;
+            color == other.color &&
+            autoContinueDuration == other.autoContinueDuration;
   }
 
   @override
-  int get hashCode => Object.hash(characterId, displayName, text, color);
+  int get hashCode =>
+      Object.hash(characterId, displayName, text, color, autoContinueDuration);
 
   @override
   String toString() {
     return 'RenPyDialogueEvent(characterId: $characterId, '
-        'displayName: $displayName, text: $text, color: $color)';
+        'displayName: $displayName, text: $text, color: $color, '
+        'autoContinueDuration: $autoContinueDuration)';
   }
 }

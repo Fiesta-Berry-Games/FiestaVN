@@ -318,7 +318,8 @@ void main() {
       controller,
       (status) =>
           status is RenPyDialogue &&
-          status.text.contains('bottled letter never reaches'),
+          status.text.contains('bottled letter never reaches') &&
+          status.text.contains('punishment I deserve'),
       maxSteps: 20,
     );
 
@@ -421,6 +422,7 @@ Future<void> _pumpUntilImages(WidgetTester tester) async {
   for (var i = 0; i < 50; i += 1) {
     await tester.pump(const Duration(milliseconds: 50));
     if (find.byType(Image).evaluate().isNotEmpty) return;
+    await tester.tapAt(tester.getCenter(find.byType(RenPyProjectPlayer)));
   }
 
   fail('Timed out waiting for archived images.');

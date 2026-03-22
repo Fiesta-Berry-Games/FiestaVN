@@ -240,6 +240,67 @@ label start:
     await _continueUntil(controller, (status) => status is RenPyComplete);
   });
 
+  test('controller auto-resumes timed inline wait tags', () async {
+    final controller = RenPyFlutterController();
+    final dialogue = <RenPyDialogue>[];
+    addTearDown(controller.dispose);
+
+    controller.addListener(() {
+      final status = controller.value;
+      if (status is RenPyDialogue) dialogue.add(status);
+    });
+
+    controller.load('''
+label start:
+    "First.{w=0.01} Second."
+''');
+
+    await _waitUntil(
+      controller,
+      (status) => status is RenPyDialogue && status.text.contains('Second.'),
+    );
+
+    expect(dialogue.map((event) => event.text), [
+      'First.{w=0.01}',
+      'First.{w=0.01} Second.',
+    ]);
+  });
+
+  test('controller waits for input at untimed inline wait tags', () async {
+    final controller = RenPyFlutterController();
+    final dialogue = <RenPyDialogue>[];
+    addTearDown(controller.dispose);
+
+    controller.addListener(() {
+      final status = controller.value;
+      if (status is RenPyDialogue) dialogue.add(status);
+    });
+
+    controller.load('''
+label start:
+    "First.{w} Second."
+''');
+
+    await _waitUntil(
+      controller,
+      (status) => status is RenPyDialogue && status.text == 'First.{w}',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(dialogue.map((event) => event.text), ['First.{w}']);
+
+    controller.continueGame();
+
+    await _waitUntil(
+      controller,
+      (status) => status is RenPyDialogue && status.text.contains('Second.'),
+    );
+    expect(dialogue.map((event) => event.text), [
+      'First.{w}',
+      'First.{w} Second.',
+    ]);
+  });
+
   test('controller emits audio changes from play statements', () async {
     final controller = RenPyFlutterController();
     final audio = <RenPyAudioChange>[];
@@ -473,6 +534,18 @@ Future<void> _continueUntil(
     if (controller.value is RenPyDialogue) {
       controller.continueGame();
     }
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+  }
+
+  fail('Controller did not reach expected state. Last: ${controller.value}');
+}
+
+Future<void> _waitUntil(
+  RenPyFlutterController controller,
+  bool Function(RenPyGameStatus status) predicate,
+) async {
+  for (var i = 0; i < 50; i++) {
+    if (predicate(controller.value)) return;
     await Future<void>.delayed(const Duration(milliseconds: 1));
   }
 

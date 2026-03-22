@@ -221,12 +221,20 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
 
   void _onDialogueEvent(RenPyDialogueEvent event) {
     debugPrint('Dialogue: ${event.displayName ?? "Narrator"}: ${event.text}');
+    _pauseTimer?.cancel();
+    _pauseTimer = null;
     value = RenPyDialogue(
       event.displayName,
       event.text,
       characterId: event.characterId,
       color: event.color,
     );
+
+    final duration = event.autoContinueDuration;
+    if (duration == null) return;
+    _pauseTimer = Timer(Duration(milliseconds: (duration * 1000).round()), () {
+      continueGame();
+    });
   }
 
   void _onMenu(
