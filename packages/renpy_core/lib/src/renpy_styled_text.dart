@@ -88,6 +88,15 @@ class RenPyStyledText {
   }
 
   static final RegExp _tagPattern = RegExp(r'\{[^}]+\}');
+  static final RegExp _controlTagPattern = RegExp(
+    r'\{(?:nw|[wp](?:=(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+))?)\}',
+  );
+
+  /// Returns text intended for rendering, with wait/no-wait control tags
+  /// removed while preserving style tags for a renderer to consume.
+  static String stripControlTags(String text) {
+    return text.replaceAll(_controlTagPattern, '');
+  }
 
   /// Visible text with all RenPy inline tags removed.
   String get plainText => runs.map((run) => run.text).join();

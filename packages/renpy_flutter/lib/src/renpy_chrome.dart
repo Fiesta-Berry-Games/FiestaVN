@@ -50,7 +50,7 @@ class RenPyDialogueView extends StatelessWidget {
                         const SizedBox(height: 4),
                       ],
                       RenPyText(
-                        status.text,
+                        status.displayText,
                         style: Theme.of(
                           context,
                         ).textTheme.bodyLarge?.copyWith(color: Colors.white),

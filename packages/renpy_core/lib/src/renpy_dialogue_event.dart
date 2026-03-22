@@ -1,3 +1,5 @@
+import 'renpy_styled_text.dart';
+
 /// A platform-neutral dialogue line emitted while running a RenPy script.
 class RenPyDialogueEvent {
   const RenPyDialogueEvent({
@@ -15,6 +17,12 @@ class RenPyDialogueEvent {
   final String? displayName;
 
   final String text;
+
+  /// Text intended for rendering after removing dialogue control tags.
+  ///
+  /// Styling tags are preserved so Flutter or another frontend can still
+  /// render them, while [text] remains the raw RenPy dialogue string.
+  String get displayText => RenPyStyledText.stripControlTags(text);
 
   /// The raw RenPy color expression for the character, usually `#rrggbb`.
   final String? color;

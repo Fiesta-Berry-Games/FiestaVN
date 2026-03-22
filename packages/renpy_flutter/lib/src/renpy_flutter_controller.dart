@@ -13,11 +13,20 @@ final class RenPyIdle extends RenPyGameStatus {}
 
 /// A line of dialogue, optionally attributed to a character.
 final class RenPyDialogue extends RenPyGameStatus {
-  RenPyDialogue(this.character, this.text, {this.characterId, this.color});
+  RenPyDialogue(
+    this.character,
+    this.text, {
+    String? displayText,
+    this.characterId,
+    this.color,
+  }) : displayText = displayText ?? text;
 
   /// The resolved display name shown to the player.
   final String? character;
   final String text;
+
+  /// Text intended for rendering after removing control tags.
+  final String displayText;
 
   /// The RenPy character variable, such as `s` in `s "Hello"`.
   final String? characterId;
@@ -226,6 +235,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     value = RenPyDialogue(
       event.displayName,
       event.text,
+      displayText: event.displayText,
       characterId: event.characterId,
       color: event.color,
     );

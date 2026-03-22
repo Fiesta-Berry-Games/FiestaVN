@@ -264,6 +264,10 @@ label start:
       'First.{w=0.01}',
       'First.{w=0.01} Second.',
     ]);
+    expect(dialogue.map((event) => event.displayText), [
+      'First.',
+      'First. Second.',
+    ]);
   });
 
   test('controller waits for input at untimed inline wait tags', () async {

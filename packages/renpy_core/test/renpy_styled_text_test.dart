@@ -60,6 +60,15 @@ void main() {
       expect(styled.runs, [const RenPyTextRun('Huh?')]);
     });
 
+    test('strips control tags while preserving style tags for rendering', () {
+      expect(
+        RenPyStyledText.stripControlTags(
+          '{i}Please note{/i}.{w=0.25} Next.{p}{nw}',
+        ),
+        '{i}Please note{/i}. Next.',
+      );
+    });
+
     test('preserves unknown text outside tags', () {
       final styled = RenPyStyledText.parse('A {unknown}B{/unknown} C');
 

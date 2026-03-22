@@ -47,6 +47,24 @@ void main() {
     expect(name.style?.color, const Color(0xFFC8FFC8));
   });
 
+  testWidgets('dialogue view renders precomputed display text', (tester) async {
+    final controller = _TestController();
+    addTearDown(controller.dispose);
+
+    controller.value = RenPyDialogue(
+      null,
+      'Raw runtime text.{w}',
+      displayText: '{i}Visible text{/i}.',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyDialogueView(controller: controller)),
+    );
+
+    expect(find.text('Visible text.'), findsOneWidget);
+    expect(find.text('Raw runtime text.'), findsNothing);
+  });
+
   testWidgets('dialogue view renders errors and hides non-dialogue states', (
     tester,
   ) async {

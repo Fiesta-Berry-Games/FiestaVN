@@ -2,6 +2,15 @@ import 'package:renpy_core/renpy_core.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('dialogue events expose control-tag-free display text', () {
+    const event = RenPyDialogueEvent(
+      text: '{i}Please note{/i}.{w=0.25} Next.{p}{nw}',
+    );
+
+    expect(event.text, '{i}Please note{/i}.{w=0.25} Next.{p}{nw}');
+    expect(event.displayText, '{i}Please note{/i}. Next.');
+  });
+
   test('runner emits dialogue events with character metadata', () {
     final script =
         RenPyParser().parse('''

@@ -57,6 +57,9 @@ void main() {
 
     final dialogue = controller.value as RenPyDialogue;
     expect(dialogue.text, startsWith('Please note.'));
+    expect(dialogue.text, contains('{w}'));
+    expect(dialogue.displayText, startsWith('Please note.'));
+    expect(dialogue.displayText, isNot(contains('{w}')));
   }, skip: skipReason);
 
   test('Confession resolves first archived image and music assets', () async {
