@@ -201,6 +201,45 @@ label start:
     expect(dialogue.color, '#c8ffc8');
   });
 
+  test(
+    'controller advances through nw-tagged dialogue without input',
+    () async {
+      final controller = RenPyFlutterController();
+      final dialogue = <RenPyDialogue>[];
+      addTearDown(controller.dispose);
+
+      controller.addListener(() {
+        final status = controller.value;
+        if (status is RenPyDialogue) dialogue.add(status);
+      });
+
+      controller.load('''
+label start:
+    "Flash.{nw}"
+    "Next."
+''');
+
+      await _continueUntil(
+        controller,
+        (status) => status is RenPyDialogue && status.text == 'Next.',
+      );
+
+      expect(dialogue.map((event) => event.text), ['Flash.{nw}', 'Next.']);
+    },
+  );
+
+  test('controller completes after terminal nw-tagged dialogue', () async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    controller.load('''
+label start:
+    "Flash.{nw}"
+''');
+
+    await _continueUntil(controller, (status) => status is RenPyComplete);
+  });
+
   test('controller emits audio changes from play statements', () async {
     final controller = RenPyFlutterController();
     final audio = <RenPyAudioChange>[];

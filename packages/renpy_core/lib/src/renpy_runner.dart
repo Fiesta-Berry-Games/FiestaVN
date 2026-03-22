@@ -343,10 +343,17 @@ class RenPyRunner {
 
     _emitDialogueEvent(event);
 
+    _position++;
+    if (_hasNoWaitTag(event.text)) {
+      _executeNext();
+      return;
+    }
+
     // Wait for player input.
     _state = RenPyRunnerState.waitingForInput;
-    _position++;
   }
+
+  bool _hasNoWaitTag(String text) => RegExp(r'\{nw\}').hasMatch(text);
 
   RenPyDialogueEvent _dialogueEventForSayStatement(RenPySayStatement stmt) {
     // Resolve character name if it's a defined character.

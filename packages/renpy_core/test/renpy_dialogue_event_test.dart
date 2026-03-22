@@ -98,6 +98,25 @@ label start:
     ]);
   });
 
+  test('runner does not wait for input after nw text tags', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    "Flash.{nw}"
+    "Next."
+''', 'dialogue.rpy').script;
+    final runner = RenPyRunner(script);
+    final dialogue = <String>[];
+
+    runner.onDialogue = (character, text) => dialogue.add(text);
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(dialogue, ['Flash.{nw}', 'Next.']);
+    expect(runner.state, RenPyRunnerState.waitingForInput);
+  });
+
   test('runner falls through from one top-level label to the next', () {
     final script =
         RenPyParser().parse('''
