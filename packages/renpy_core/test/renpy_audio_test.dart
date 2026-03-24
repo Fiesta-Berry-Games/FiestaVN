@@ -69,4 +69,29 @@ label start:
       const RenPyAudioEvent.play(channel: 'music', asset: '/music/She End.ogg'),
     ]);
   });
+
+  test('runner maps legacy renpy audio helper calls to audio events', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    \$ renpy.music_start('sun-flower-slow-drag.mid')
+    \$ renpy.play("18005551212.wav")
+''', 'audio.rpy').script;
+    final runner = RenPyRunner(script);
+    final audio = <RenPyAudioEvent>[];
+
+    runner.onAudio = audio.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(runner.state, RenPyRunnerState.complete);
+    expect(audio, [
+      const RenPyAudioEvent.play(
+        channel: 'music',
+        asset: 'sun-flower-slow-drag.mid',
+      ),
+      const RenPyAudioEvent.play(channel: 'sound', asset: '18005551212.wav'),
+    ]);
+  });
 }

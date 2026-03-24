@@ -47,6 +47,13 @@ class _ConditionComparison {
   final String right;
 }
 
+class _PythonAssignment {
+  const _PythonAssignment(this.name, this.expression);
+
+  final String name;
+  final String expression;
+}
+
 /// Execution state of a RenPy script
 enum RenPyRunnerState {
   /// The script is ready to be executed
@@ -219,6 +226,9 @@ class RenPyRunner {
     if (value == 'False' || value == 'false') return false;
     if (value == 'None' || value == 'null') return null;
     if (value == '[]') return <dynamic>[];
+
+    final imagemapResult = _renpyImagemapResult(value);
+    if (imagemapResult != null) return imagemapResult;
 
     final quoted = RegExp(r'''^["'](.*)["']$''').firstMatch(value);
     if (quoted != null) return quoted.group(1);
@@ -690,6 +700,27 @@ class RenPyRunner {
 
   /// Execute a Python statement.
   void _executePythonStatement(RenPyPythonStatement stmt) {
+    final assignment = _pythonAssignment(stmt.code);
+    if (assignment != null) {
+      _variables[assignment.name] = _evaluateExpression(assignment.expression);
+      _position++;
+      _executeNext();
+      return;
+    }
+
+    if (_isRenpyFullRestart(stmt.code)) {
+      _state = RenPyRunnerState.complete;
+      return;
+    }
+
+    final audio = _renpyAudioEvent(stmt.code);
+    if (audio != null) {
+      onAudio?.call(audio);
+      _position++;
+      _executeNext();
+      return;
+    }
+
     final pause = _renpyPauseEvent(stmt.code);
     if (pause != null) {
       onPause?.call(pause);
@@ -706,6 +737,53 @@ class RenPyRunner {
 
     _position++;
     _executeNext();
+  }
+
+  _PythonAssignment? _pythonAssignment(String code) {
+    final match = RegExp(
+      r'^([a-zA-Z_]\w*)\s*=\s*(.+)$',
+      dotAll: true,
+    ).firstMatch(code.trim());
+    if (match == null) return null;
+    return _PythonAssignment(match.group(1)!, match.group(2)!);
+  }
+
+  String? _renpyImagemapResult(String expression) {
+    if (!expression.trimLeft().startsWith('renpy.imagemap')) return null;
+
+    final hotspot = RegExp(
+      r'''\(\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*,\s*["']([^"']+)["']\s*\)''',
+    ).firstMatch(expression);
+    return hotspot?.group(1);
+  }
+
+  bool _isRenpyFullRestart(String code) {
+    return RegExp(r'^renpy\.full_restart\s*\(\s*\)$').hasMatch(code.trim());
+  }
+
+  RenPyAudioEvent? _renpyAudioEvent(String code) {
+    final trimmed = code.trim();
+    final musicStart = RegExp(
+      r'''^renpy\.music_start\s*\(\s*(.+?)\s*\)$''',
+    ).firstMatch(trimmed);
+    if (musicStart != null) {
+      return RenPyAudioEvent.play(
+        channel: 'music',
+        asset: _evaluateAudioAsset(musicStart.group(1)!),
+      );
+    }
+
+    final play = RegExp(
+      r'''^renpy\.play\s*\(\s*(.+?)\s*\)$''',
+    ).firstMatch(trimmed);
+    if (play != null) {
+      return RenPyAudioEvent.play(
+        channel: 'sound',
+        asset: _evaluateAudioAsset(play.group(1)!),
+      );
+    }
+
+    return null;
   }
 
   RenPyPauseEvent? _renpyPauseEvent(String code) {
