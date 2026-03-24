@@ -15,6 +15,10 @@ class RenPyScript {
         if (stmt is RenPyLabelStatement) {
           result[stmt.name] = stmt;
           findLabels(stmt.block);
+        } else if (stmt is RenPyIfStatement) {
+          for (final entry in stmt.entries) {
+            findLabels(entry.block);
+          }
         } else if (stmt is RenPyBlockStatement) {
           findLabels(stmt.block);
         }
@@ -39,7 +43,7 @@ class RenPyScript {
             result[stmt.name] = stmt.expression;
           }
         } else if (stmt is RenPyPythonStatement) {
-          // crude but effective:  `$ e = Character(`…
+          // crude but effective:  `$ e = Character(`...
           final pyMatch = RegExp(
             r'''\$\s*([a-zA-Z_]\w*)\s*=\s*Character\s*\(''',
           ).firstMatch(stmt.code);
@@ -50,7 +54,11 @@ class RenPyScript {
         }
 
         // Search in blocks too.
-        if (stmt is RenPyBlockStatement) {
+        if (stmt is RenPyIfStatement) {
+          for (final entry in stmt.entries) {
+            findCharacters(entry.block);
+          }
+        } else if (stmt is RenPyBlockStatement) {
           findCharacters(stmt.block);
         }
       }
@@ -75,10 +83,14 @@ class RenPyScript {
           result.add(stmt);
         }
 
-        if (stmt is RenPyBlockStatement) {
+        if (stmt is RenPyIfStatement) {
+          for (final entry in stmt.entries) {
+            searchStatements(entry.block);
+          }
+        } else if (stmt is RenPyBlockStatement) {
           searchStatements(stmt.block);
-            } else if (stmt is RenPyMenuStatement) {
-          // Recurse into every choice’s block so nested menus, play-sound lines,
+        } else if (stmt is RenPyMenuStatement) {
+          // Recurse into every choice's block so nested menus, play-sound lines,
           // etc. are discoverable.
           for (final choice in stmt.items) {
             searchStatements(choice.block);

@@ -47,11 +47,22 @@ class RenPyParser {
   ) {
     final statements = <RenPyStatement>[];
 
-    for (final line in lines) {
+    for (var index = 0; index < lines.length; index += 1) {
+      final line = lines[index];
       try {
-        final statement = _parseStatement(line, warnings);
+        final statement =
+            _isIfLine(line)
+                ? _parseIfStatement(
+                  line,
+                  warnings,
+                  branches: _collectIfBranches(lines, index),
+                )
+                : _parseStatement(line, warnings);
         if (statement != null) {
           statements.add(statement);
+        }
+        if (statement is RenPyIfStatement) {
+          index += _collectIfBranches(lines, index).length;
         }
       } catch (e) {
         warnings.add(
@@ -61,6 +72,25 @@ class RenPyParser {
     }
 
     return statements;
+  }
+
+  List<GroupedLine> _collectIfBranches(List<GroupedLine> lines, int ifIndex) {
+    final branches = <GroupedLine>[];
+    for (var index = ifIndex + 1; index < lines.length; index += 1) {
+      final line = lines[index];
+      if (!_isElifOrElseLine(line)) break;
+      branches.add(line);
+    }
+    return branches;
+  }
+
+  bool _isIfLine(GroupedLine line) {
+    return line.text.trim().replaceFirst('\uFEFF', '').startsWith('if ');
+  }
+
+  bool _isElifOrElseLine(GroupedLine line) {
+    final text = line.text.trim().replaceFirst('\uFEFF', '');
+    return text.startsWith('elif ') || text == 'else:';
   }
 
   /// Parse a single statement from a grouped logical line
@@ -751,7 +781,11 @@ class RenPyParser {
     );
   }
 
-  RenPyIfStatement _parseIfStatement(GroupedLine line, List<String> warnings) {
+  RenPyIfStatement _parseIfStatement(
+    GroupedLine line,
+    List<String> warnings, {
+    List<GroupedLine> branches = const [],
+  }) {
     final text = line.text.trim();
     final ifRegex = RegExp(r'^if\s+(.+?)\s*:');
     final match = ifRegex.firstMatch(text);
@@ -762,15 +796,29 @@ class RenPyParser {
 
     final condition = match.group(1)!;
 
-    // Parse the if block
     final entries = <IfEntry>[];
+    entries.add(IfEntry(condition, _parseBlock(line.block, warnings)));
 
-    if (line.block.isNotEmpty) {
-      final ifBlock = _parseBlock(line.block, warnings);
-      entries.add(IfEntry(condition, ifBlock));
+    for (final branch in branches) {
+      final branchText = branch.text.trim();
+      final elifMatch = RegExp(r'^elif\s+(.+?)\s*:').firstMatch(branchText);
+      if (elifMatch != null) {
+        entries.add(
+          IfEntry(elifMatch.group(1)!, _parseBlock(branch.block, warnings)),
+        );
+        continue;
+      }
+      if (RegExp(r'^else\s*:').hasMatch(branchText)) {
+        entries.add(IfEntry('True', _parseBlock(branch.block, warnings)));
+        continue;
+      }
+      throw RenPyParseError(
+        'Invalid if branch syntax',
+        branch.filename,
+        branch.number,
+        0,
+      );
     }
-
-    // TODO: Parse elif and else blocks
 
     return RenPyIfStatement(entries, line.filename, line.number);
   }

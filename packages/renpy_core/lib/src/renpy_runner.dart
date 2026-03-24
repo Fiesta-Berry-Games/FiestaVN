@@ -40,6 +40,13 @@ class _InlineWaitTag {
   final double? duration;
 }
 
+class _ConditionComparison {
+  const _ConditionComparison(this.left, this.right);
+
+  final String left;
+  final String right;
+}
+
 /// Execution state of a RenPy script
 enum RenPyRunnerState {
   /// The script is ready to be executed
@@ -234,12 +241,63 @@ class RenPyRunner {
     }
     if (value.startsWith('!')) return !_evaluateCondition(value.substring(1));
 
+    final equality = _splitComparison(value, '==');
+    if (equality != null) {
+      return _evaluateComparable(equality.left) ==
+          _evaluateComparable(equality.right);
+    }
+
+    final inequality = _splitComparison(value, '!=');
+    if (inequality != null) {
+      return _evaluateComparable(inequality.left) !=
+          _evaluateComparable(inequality.right);
+    }
+
     final variable = _variables[value];
     if (variable is bool) return variable;
     if (variable is num) return variable != 0;
     if (variable is String) return variable.isNotEmpty;
     if (variable is Iterable) return variable.isNotEmpty;
     return variable != null;
+  }
+
+  dynamic _evaluateComparable(String expression) {
+    final value = expression.trim();
+    if (_variables.containsKey(value)) return _variables[value];
+    return _evaluateExpression(value);
+  }
+
+  _ConditionComparison? _splitComparison(String condition, String operator) {
+    String? quote;
+    var escaped = false;
+
+    for (var index = 0; index <= condition.length - operator.length; index++) {
+      final character = condition[index];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (character == r'\') {
+        escaped = true;
+        continue;
+      }
+      if (quote != null) {
+        if (character == quote) quote = null;
+        continue;
+      }
+      if (character == '"' || character == "'") {
+        quote = character;
+        continue;
+      }
+      if (condition.startsWith(operator, index)) {
+        return _ConditionComparison(
+          condition.substring(0, index),
+          condition.substring(index + operator.length),
+        );
+      }
+    }
+
+    return null;
   }
 
   /// Start or resume execution.
