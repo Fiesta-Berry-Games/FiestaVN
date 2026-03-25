@@ -33,12 +33,15 @@ class _LauncherScreen extends StatelessWidget {
   final RenPyProjectPicker projectPicker;
 
   // Convenience helper
-  void _startGame(BuildContext ctx, String assetPath) {
+  void _startGame(BuildContext ctx, String title, String assetPath) {
     Navigator.of(ctx).push(
       MaterialPageRoute(
         builder:
-            (_) =>
-                GameScreen(assetPath: assetPath, audioPlayback: audioPlayback),
+            (_) => GameScreen(
+              title: title,
+              assetPath: assetPath,
+              audioPlayback: audioPlayback,
+            ),
       ),
     );
   }
@@ -86,9 +89,10 @@ class _LauncherScreen extends StatelessWidget {
           children: [
             for (final game in games) ...[
               ElevatedButton.icon(
+                key: ValueKey('demo_game_${game.$1}'),
                 icon: Icon(game.$3),
                 label: Text(game.$1),
-                onPressed: () => _startGame(context, game.$2),
+                onPressed: () => _startGame(context, game.$1, game.$2),
               ),
               const SizedBox(height: 16),
             ],
@@ -129,15 +133,21 @@ class ExternalGameScreen extends StatelessWidget {
 
 /// The game screen itself.
 class GameScreen extends StatelessWidget {
-  const GameScreen({super.key, required this.assetPath, this.audioPlayback});
+  const GameScreen({
+    super.key,
+    required this.title,
+    required this.assetPath,
+    this.audioPlayback,
+  });
 
+  final String title;
   final String assetPath;
   final RenPyAudioPlayback? audioPlayback;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(assetPath.split('/').elementAt(2))),
+      appBar: AppBar(title: Text(title)),
       body: RenPyAssetPlayer(
         scriptAsset: assetPath,
         backgroundColor: Colors.grey.shade900,
