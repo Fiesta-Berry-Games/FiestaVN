@@ -51,12 +51,14 @@ class RenPySayStatement extends RenPyStatement {
 class RenPyMenuStatement extends RenPyStatement {
   final List<MenuChoice> items;
   final String? caption;
+  final String? setVariable;
 
   RenPyMenuStatement(
     this.items,
     String filename,
     int linenumber, {
     this.caption,
+    this.setVariable,
   }) : super(filename, linenumber);
 
   @override

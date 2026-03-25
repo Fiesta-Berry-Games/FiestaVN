@@ -164,6 +164,15 @@ class RenPyLexer {
           look++;
         }
 
+        if (look < content.length && content[look] == '#') {
+          while (look < content.length && content[look] != '\n') {
+            look++;
+          }
+          pos = look;
+          if (pos < content.length && content[pos] == '\n') pos++;
+          continue;
+        }
+
         if (onlyWs) {
           // The whole physical line was blank; skip it.
           pos = look;
@@ -195,13 +204,18 @@ class RenPyLexer {
     // Triple quote state.
     bool inTripleQuote = false;
     String? tripleQuoteChar;
+    String? quoteChar;
+    var escaped = false;
 
     while (pos < content.length) {
       final char = content[pos];
 
       // Handle end of line.
       if (char == '\n') {
-        if (openParens.isEmpty && !lineContinuation && !inTripleQuote) {
+        if (openParens.isEmpty &&
+            !lineContinuation &&
+            !inTripleQuote &&
+            quoteChar == null) {
           // End of logical line.
           pos++;
           break;
@@ -209,6 +223,17 @@ class RenPyLexer {
 
         // Reset line continuation flag.
         lineContinuation = false;
+        escaped = false;
+      }
+      // Handle escaped characters inside regular quoted strings.
+      else if (quoteChar != null && escaped) {
+        escaped = false;
+      } else if (quoteChar != null && char == r'\') {
+        escaped = true;
+      } else if (quoteChar != null) {
+        if (char == quoteChar) {
+          quoteChar = null;
+        }
       }
       // Check for line continuation.
       else if (char == '\\' &&
@@ -243,40 +268,20 @@ class RenPyLexer {
           }
         }
 
-        // Handle regular quotes.
         if (!inTripleQuote) {
-          chars.add(char);
-          pos++;
-
-          // Skip the quoted content.
-          while (pos < content.length) {
-            final c = content[pos];
-
-            if (c == char) {
-              // End of quote.
-              chars.add(c);
-              pos++;
-              break;
-            } else if (c == '\\' && pos + 1 < content.length) {
-              // Escaped character.
-              chars.add(c);
-              chars.add(content[pos + 1]);
-              pos += 2;
-            } else {
-              chars.add(c);
-              pos++;
-            }
-          }
-
-          continue;
+          quoteChar = char;
         }
       }
       // Handle opening parentheses/brackets/braces.
-      else if (char == '(' || char == '[' || char == '{') {
+      else if (!inTripleQuote &&
+          quoteChar == null &&
+          (char == '(' || char == '[' || char == '{')) {
         openParens.add(char);
       }
       // Handle closing parentheses/brackets/braces.
-      else if (char == ')' || char == ']' || char == '}') {
+      else if (!inTripleQuote &&
+          quoteChar == null &&
+          (char == ')' || char == ']' || char == '}')) {
         if (openParens.isEmpty) {
           throw RenPyParseError(
             'Unmatched closing bracket: $char',

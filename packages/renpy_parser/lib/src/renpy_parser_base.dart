@@ -410,6 +410,7 @@ class RenPyParser {
 
     final items = <MenuChoice>[];
     String? caption;
+    String? setVariable;
 
     // Parse the menu items (choices).
     for (final choiceLine in line.block) {
@@ -423,6 +424,14 @@ class RenPyParser {
       if (!choiceText.endsWith(':') && _isSayStatement(choiceText)) {
         final say = _parseSayStatement(choiceLine, warnings);
         caption ??= say.text;
+        continue;
+      }
+
+      final setMatch = RegExp(
+        r'^set\s+([a-zA-Z_][a-zA-Z0-9_]*)$',
+      ).firstMatch(choiceText);
+      if (setMatch != null) {
+        setVariable = setMatch.group(1);
         continue;
       }
 
@@ -456,6 +465,7 @@ class RenPyParser {
       line.filename,
       line.number,
       caption: caption,
+      setVariable: setVariable,
     );
   }
 

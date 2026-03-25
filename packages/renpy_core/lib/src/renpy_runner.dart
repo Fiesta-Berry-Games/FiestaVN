@@ -225,7 +225,7 @@ class RenPyRunner {
     if (value == 'True' || value == 'true') return true;
     if (value == 'False' || value == 'false') return false;
     if (value == 'None' || value == 'null') return null;
-    if (value == '[]') return <dynamic>[];
+    if (RegExp(r'^\[\s*\]$').hasMatch(value)) return <dynamic>[];
 
     final imagemapResult = _renpyImagemapResult(value);
     if (imagemapResult != null) return imagemapResult;
@@ -576,7 +576,11 @@ class RenPyRunner {
   void _executeMenuStatement(RenPyMenuStatement stmt) {
     final items =
         stmt.items
-            .where((choice) => _evaluateCondition(choice.condition))
+            .where(
+              (choice) =>
+                  _evaluateCondition(choice.condition) &&
+                  !_menuSetContains(stmt.setVariable, choice.text),
+            )
             .toList();
     if (items.isEmpty) {
       _position++;
@@ -599,6 +603,11 @@ class RenPyRunner {
 
   /// Execute a menu choice.
   void _executeMenuChoice(MenuChoice choice) {
+    final menu = _currentBlock[_position];
+    if (menu is RenPyMenuStatement) {
+      _recordMenuSetChoice(menu.setVariable, choice.text);
+    }
+
     // Resume after this statement when the branch ends.
     _stack.add(
       _ExecutionContext(
@@ -619,6 +628,22 @@ class RenPyRunner {
     _position = 0;
     _state = RenPyRunnerState.running; // We just answered - keep going.
     _executeNext();
+  }
+
+  bool _menuSetContains(String? setVariable, String choice) {
+    if (setVariable == null) return false;
+    final value = _variables[setVariable];
+    return value is Iterable && value.contains(choice);
+  }
+
+  void _recordMenuSetChoice(String? setVariable, String choice) {
+    if (setVariable == null) return;
+    final value = _variables[setVariable];
+    if (value is List) {
+      if (!value.contains(choice)) value.add(choice);
+      return;
+    }
+    _variables[setVariable] = <String>[choice];
   }
 
   /// Execute a show statement.
