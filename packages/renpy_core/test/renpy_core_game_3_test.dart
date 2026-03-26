@@ -72,7 +72,65 @@ void main() {
       );
       expect(menuChoices.last, contains("I think I've heard enough."));
     });
+
+    test('runs to completion with deterministic tutorial choices', () {
+      final script = RenPyParser().parse(source, 'script3.rpy').script;
+      final runner = RenPyRunner(script);
+      final dialogue = <String>[];
+      final selectedChoices = <String>[];
+      const expectedMainTopics = <String>{
+        "What are some features of Ren'Py games?",
+        'How do I write my own games with it?',
+        'Why are we in Washington, DC?',
+        'Where can I find out more?',
+      };
+      final remainingMainTopics = expectedMainTopics.toSet();
+
+      runner.onDialogue = (character, text) => dialogue.add(text);
+      runner.onMenu = (items, onChoice, caption) {
+        final choice = _deterministicTutorialChoice(items, remainingMainTopics);
+        selectedChoices.add(choice);
+        remainingMainTopics.remove(choice);
+        onChoice(items.indexOf(choice));
+      };
+
+      runner.jumpToLabel('start');
+      runner.run();
+
+      for (var step = 0; step < 5000; step += 1) {
+        if (runner.state == RenPyRunnerState.complete ||
+            runner.state == RenPyRunnerState.error) {
+          break;
+        }
+
+        if (runner.state == RenPyRunnerState.waitingForInput) {
+          runner.continueExecution();
+        }
+      }
+
+      expect(runner.state, RenPyRunnerState.complete);
+      expect(runner.errorMessage, isNull);
+      expect(selectedChoices, containsAll(expectedMainTopics));
+      expect(selectedChoices, contains("I think I've heard enough."));
+      expect(
+        dialogue,
+        contains("We can't wait to see what you do with this. Good luck!"),
+      );
+    });
   });
+}
+
+String _deterministicTutorialChoice(
+  List<String> items,
+  Set<String> mainTopics,
+) {
+  for (final topic in mainTopics) {
+    if (items.contains(topic)) return topic;
+  }
+  if (items.contains("I think I've heard enough.")) {
+    return "I think I've heard enough.";
+  }
+  return items.first;
 }
 
 void _continueUntilMenu(RenPyRunner runner, bool Function() done) {
