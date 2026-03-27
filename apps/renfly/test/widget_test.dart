@@ -7,6 +7,9 @@ import 'package:renfly/project_picker.dart';
 import 'package:renpy_flutter/renpy_flutter.dart';
 
 void main() {
+  final confessionFixture = Directory('assets/games/Confession-1.03-pc/game');
+  final confessionFixtureMissing = !confessionFixture.existsSync();
+
   testWidgets('launcher lists The Question', (tester) async {
     await _pumpFreshApp(tester);
 
@@ -174,6 +177,68 @@ label start:
     expect(find.text('the_question'), findsOneWidget);
     expect(find.byType(Image), findsWidgets);
   });
+
+  testWidgets(
+    'launcher opens Confession folder and auto-plays into chapter one',
+    (tester) async {
+      final driver = _ConfessionAutoPlayer();
+      final playback = _RecordingAudioPlayback();
+      addTearDown(driver.dispose);
+      addTearDown(playback.dispose);
+
+      await _pumpFreshApp(
+        tester,
+        audioPlayback: playback,
+        projectPicker: _FakeProjectPicker(
+          _loadProjectFolder(confessionFixture),
+        ),
+        onGameControllerCreated: driver.attach,
+      );
+
+      await tester.tap(find.text('Open Folder'));
+      await _pumpUntil(
+        tester,
+        () => driver.firstDialogueSeen,
+        description: 'Confession first dialogue',
+      );
+      await _pumpUntil(
+        tester,
+        () => driver.titleCardSeen,
+        description: 'Confession title card',
+        attempts: 700,
+      );
+      await _pumpUntil(
+        tester,
+        () => driver.chapterOneDialogueSeen,
+        description: 'Confession chapter one dialogue',
+        attempts: 200,
+      );
+
+      expect(driver.error, isNull);
+      expect(find.text('Confession-1.03-pc'), findsOneWidget);
+      expect(driver.dialogue.first.displayText, startsWith('Please note.'));
+      expect(
+        driver.dialogue.map((line) => line.displayText),
+        contains(contains('If you are reading this, deliver unto me')),
+      );
+      expect(driver.scenes, contains('red'));
+      expect(driver.showTextDisplayables, [
+        contains('Confession of the Golden Witch'),
+      ]);
+      expect(driver.unsupportedTransitions, isEmpty);
+      expect(
+        playback.calls,
+        contains(
+          const _AudioCall(
+            channel: 'music',
+            asset: '/music/She End.ogg',
+            assetSourcePath: 'games/Confession-1.03-pc/game/music/She End.ogg',
+          ),
+        ),
+      );
+    },
+    skip: confessionFixtureMissing,
+  );
 }
 
 Future<void> _pumpFreshApp(
@@ -365,5 +430,67 @@ class _ReferenceGame3AutoPlayer {
       return "I think I've heard enough.";
     }
     return choices.first;
+  }
+}
+
+class _ConfessionAutoPlayer {
+  final dialogue = <RenPyDialogue>[];
+  final scenes = <String>[];
+  final showTextDisplayables = <String>[];
+  final transitions = <String>[];
+  final unsupportedTransitions = <String>{};
+
+  RenPyFlutterController? _controller;
+  String? error;
+
+  bool get firstDialogueSeen => dialogue.isNotEmpty;
+
+  bool get titleCardSeen => showTextDisplayables.any(
+    (text) => text.contains('Confession of the Golden Witch'),
+  );
+
+  bool get chapterOneDialogueSeen => dialogue.any(
+    (line) =>
+        line.displayText.contains('bottled letter never reaches') &&
+        line.displayText.contains('punishment I deserve'),
+  );
+
+  void attach(RenPyFlutterController controller) {
+    _controller?.removeListener(_onStatusChanged);
+    _controller = controller..addListener(_onStatusChanged);
+  }
+
+  void dispose() {
+    _controller?.removeListener(_onStatusChanged);
+    _controller = null;
+  }
+
+  void _onStatusChanged() {
+    final controller = _controller;
+    if (controller == null) return;
+
+    switch (controller.value) {
+      case final RenPyDialogue line:
+        dialogue.add(line);
+        if (!chapterOneDialogueSeen) {
+          Future<void>.delayed(Duration.zero, controller.continueGame);
+        }
+      case RenPyPause():
+        if (!chapterOneDialogueSeen) {
+          Future<void>.delayed(Duration.zero, controller.continueGame);
+        }
+      case RenPyImageChange(:final scene, :final showText):
+        if (scene != null) scenes.add(scene);
+        if (showText != null) showTextDisplayables.add(showText);
+      case RenPyTransitionChange(:final name, :final intent):
+        transitions.add(name);
+        if (intent?.fidelity == RenPyTransitionFidelity.unsupported) {
+          unsupportedTransitions.add(name);
+        }
+      case RenPyError(:final message):
+        error = message;
+      case _:
+        break;
+    }
   }
 }
