@@ -83,6 +83,7 @@ class RenPyAssetPlayer extends StatefulWidget {
     this.audioPlayback,
     this.loadingBuilder,
     this.loadErrorBuilder,
+    this.onControllerCreated,
   });
 
   final String scriptAsset;
@@ -95,6 +96,7 @@ class RenPyAssetPlayer extends StatefulWidget {
   final RenPyAudioPlayback? audioPlayback;
   final RenPyLoadingBuilder? loadingBuilder;
   final RenPyLoadErrorBuilder? loadErrorBuilder;
+  final ValueChanged<RenPyFlutterController>? onControllerCreated;
 
   @override
   State<RenPyAssetPlayer> createState() => _RenPyAssetPlayerState();
@@ -111,6 +113,7 @@ class RenPyProjectPlayer extends StatefulWidget {
     this.imageLayerBuilder,
     this.audioPlayback,
     this.fontRegistrar,
+    this.onControllerCreated,
   });
 
   final RenPyGameProject project;
@@ -120,6 +123,7 @@ class RenPyProjectPlayer extends StatefulWidget {
   final RenPyLayerBuilder? imageLayerBuilder;
   final RenPyAudioPlayback? audioPlayback;
   final RenPyProjectFontRegistrar? fontRegistrar;
+  final ValueChanged<RenPyFlutterController>? onControllerCreated;
 
   @override
   State<RenPyProjectPlayer> createState() => _RenPyProjectPlayerState();
@@ -134,6 +138,7 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
   void initState() {
     super.initState();
     _controller = RenPyFlutterController();
+    widget.onControllerCreated?.call(_controller);
     _configureOwnedAudio();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _bootstrapProject();
@@ -268,6 +273,7 @@ class _RenPyAssetPlayerState extends State<RenPyAssetPlayer> {
   void initState() {
     super.initState();
     _controller = RenPyFlutterController();
+    widget.onControllerCreated?.call(_controller);
     _availableAssets = widget.availableAssets ?? const {};
   }
 

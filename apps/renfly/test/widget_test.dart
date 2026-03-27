@@ -15,20 +15,43 @@ void main() {
     expect(find.text('The Question'), findsOneWidget);
   });
 
-  testWidgets('launcher opens Reference Game 3 through the writing path', (
+  testWidgets('launcher can auto-play Reference Game 3 to completion', (
     tester,
   ) async {
+    final driver = _ReferenceGame3AutoPlayer();
     final playback = _RecordingAudioPlayback();
     addTearDown(playback.dispose);
 
-    await _pumpFreshApp(tester, audioPlayback: playback);
-
-    await tester.tap(find.byKey(const ValueKey('demo_game_Reference Game 3')));
-    await _pumpUntilText(
+    await _pumpFreshApp(
       tester,
-      "Hi, and welcome to the Ren'Py 4 demo program.",
+      audioPlayback: playback,
+      onGameControllerCreated: driver.attach,
     );
 
+    final referenceGame3 = find.byKey(
+      const ValueKey('demo_game_Reference Game 3'),
+    );
+    expect(referenceGame3, findsOneWidget);
+
+    await tester.tap(referenceGame3);
+    await _pumpUntil(
+      tester,
+      () => driver.dialogue.isNotEmpty,
+      description: 'Reference Game 3 first dialogue',
+    );
+    await _pumpUntil(
+      tester,
+      () => driver.menus.isNotEmpty,
+      description: 'Reference Game 3 first menu',
+    );
+    await _pumpUntil(
+      tester,
+      () => driver.complete,
+      description: 'Reference Game 3 completion',
+      attempts: 400,
+    );
+
+    expect(driver.error, isNull);
     expect(
       find.descendant(
         of: find.byType(AppBar),
@@ -36,49 +59,37 @@ void main() {
       ),
       findsOneWidget,
     );
-    expect(playback.calls, [
+    expect(
+      playback.calls.first,
       const _AudioCall(
         channel: 'music',
         asset: 'sun-flower-slow-drag.mid',
         assetSourcePath: 'games/3/game/sun-flower-slow-drag.mid',
       ),
-    ]);
-
-    await _tapDialogue(tester, 5);
-    await _pumpUntilText(tester, "What are some features of Ren'Py games?");
-
+    );
     expect(
-      find.text("What are some features of Ren'Py games?"),
-      findsOneWidget,
+      driver.dialogue.first,
+      "Hi, and welcome to the Ren'Py 4 demo program.",
     );
-    expect(find.text('How do I write my own games with it?'), findsOneWidget);
-    expect(find.text('Why are we in Washington, DC?'), findsOneWidget);
-    expect(find.text('Where can I find out more?'), findsNothing);
-    expect(find.text("I think I've heard enough."), findsNothing);
-
-    await tester.tap(find.text('How do I write my own games with it?'));
-    await _pumpUntilText(
-      tester,
-      "If you want to write a game, I recommend that you read the\n"
-      "       Ren'Py tutorial, which you can get from our web page,\n"
-      '       http://www.bishoujo.us/renpy/.',
+    expect(driver.menus.first, [
+      "What are some features of Ren'Py games?",
+      'How do I write my own games with it?',
+      'Why are we in Washington, DC?',
+    ]);
+    expect(
+      driver.selectedChoices,
+      containsAll([
+        "What are some features of Ren'Py games?",
+        'How do I write my own games with it?',
+        'Why are we in Washington, DC?',
+        'Where can I find out more?',
+        "I think I've heard enough.",
+      ]),
     );
-
-    await _tapDialogueUntilText(tester, 'You picked me!');
-    expect(find.text('You picked me!'), findsOneWidget);
-
-    await _tapDialogueUntil(
-      tester,
-      () => playback.calls.contains(
-        const _AudioCall(
-          channel: 'sound',
-          asset: '18005551212.wav',
-          assetSourcePath: 'games/3/game/18005551212.wav',
-        ),
-      ),
-      description: 'Reference Game 3 sound effect',
+    expect(
+      driver.dialogue,
+      contains("We can't wait to see what you do with this. Good luck!"),
     );
-
     expect(
       playback.calls,
       contains(
@@ -169,14 +180,20 @@ Future<void> _pumpFreshApp(
   WidgetTester tester, {
   RenPyAudioPlayback audioPlayback = const RenPyNoOpAudioPlayback(),
   RenPyProjectPicker? projectPicker,
+  ValueChanged<RenPyFlutterController>? onGameControllerCreated,
 }) async {
   await tester.pumpWidget(const SizedBox.shrink());
   await tester.pumpAndSettle();
+  addTearDown(() async {
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
   await tester.pumpWidget(
     FiestaVNApp(
       key: UniqueKey(),
       audioPlayback: audioPlayback,
       projectPicker: projectPicker,
+      onGameControllerCreated: onGameControllerCreated,
     ),
   );
   await tester.pumpAndSettle();
@@ -206,33 +223,15 @@ Future<void> _pumpUntilText(WidgetTester tester, String text) async {
   fail('Timed out waiting for "$text".');
 }
 
-Future<void> _tapDialogue(WidgetTester tester, int count) async {
-  for (var i = 0; i < count; i += 1) {
-    await tester.tap(find.byType(RenPyDialogueView));
-    await tester.pump(const Duration(milliseconds: 50));
-  }
-}
-
-Future<void> _tapDialogueUntilText(WidgetTester tester, String text) async {
-  final finder = find.text(text);
-
-  await _tapDialogueUntil(tester, () => finder.evaluate().isNotEmpty);
-}
-
-Future<void> _tapDialogueUntil(
+Future<void> _pumpUntil(
   WidgetTester tester,
   bool Function() done, {
   String description = 'condition',
+  int attempts = 80,
 }) async {
-  for (var i = 0; i < 80; i += 1) {
+  for (var i = 0; i < attempts; i += 1) {
     await tester.pump(const Duration(milliseconds: 50));
     if (done()) return;
-
-    if (find.byType(RenPyDialogueView).evaluate().isNotEmpty) {
-      await tester.tap(find.byType(RenPyDialogueView));
-    } else if (find.byType(RenPyPauseView).evaluate().isNotEmpty) {
-      await tester.tap(find.byType(RenPyPauseView));
-    }
   }
 
   fail('Timed out waiting for $description.');
@@ -307,5 +306,64 @@ class _AudioCall {
   String toString() {
     return '_AudioCall(channel: $channel, asset: $asset, '
         'assetSourcePath: $assetSourcePath)';
+  }
+}
+
+class _ReferenceGame3AutoPlayer {
+  final dialogue = <String>[];
+  final menus = <List<String>>[];
+  final selectedChoices = <String>[];
+  final _remainingMainTopics = <String>{
+    "What are some features of Ren'Py games?",
+    'How do I write my own games with it?',
+    'Why are we in Washington, DC?',
+    'Where can I find out more?',
+  };
+
+  RenPyFlutterController? _controller;
+  bool complete = false;
+  String? error;
+
+  void attach(RenPyFlutterController controller) {
+    _controller?.removeListener(_onStatusChanged);
+    _controller = controller..addListener(_onStatusChanged);
+  }
+
+  void _onStatusChanged() {
+    final controller = _controller;
+    if (controller == null) return;
+
+    switch (controller.value) {
+      case RenPyDialogue(:final text):
+        dialogue.add(text);
+        Future<void>.delayed(Duration.zero, controller.continueGame);
+      case RenPyPause():
+        Future<void>.delayed(Duration.zero, controller.continueGame);
+      case RenPyMenu(:final choices, :final onChoice):
+        menus.add(choices);
+        final choice = _choiceFor(choices);
+        selectedChoices.add(choice);
+        _remainingMainTopics.remove(choice);
+        Future<void>.delayed(
+          Duration.zero,
+          () => onChoice(choices.indexOf(choice)),
+        );
+      case RenPyComplete():
+        complete = true;
+      case RenPyError(:final message):
+        error = message;
+      case _:
+        break;
+    }
+  }
+
+  String _choiceFor(List<String> choices) {
+    for (final topic in _remainingMainTopics) {
+      if (choices.contains(topic)) return topic;
+    }
+    if (choices.contains("I think I've heard enough.")) {
+      return "I think I've heard enough.";
+    }
+    return choices.first;
   }
 }

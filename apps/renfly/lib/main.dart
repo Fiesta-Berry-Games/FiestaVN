@@ -6,10 +6,16 @@ import 'project_picker.dart';
 void main() => runApp(const FiestaVNApp());
 
 class FiestaVNApp extends StatelessWidget {
-  const FiestaVNApp({super.key, this.audioPlayback, this.projectPicker});
+  const FiestaVNApp({
+    super.key,
+    this.audioPlayback,
+    this.projectPicker,
+    this.onGameControllerCreated,
+  });
 
   final RenPyAudioPlayback? audioPlayback;
   final RenPyProjectPicker? projectPicker;
+  final ValueChanged<RenPyFlutterController>? onGameControllerCreated;
 
   @override
   Widget build(BuildContext context) {
@@ -20,6 +26,7 @@ class FiestaVNApp extends StatelessWidget {
       home: _LauncherScreen(
         audioPlayback: audioPlayback,
         projectPicker: projectPicker ?? createRenPyProjectPicker(),
+        onGameControllerCreated: onGameControllerCreated,
       ),
     );
   }
@@ -27,10 +34,15 @@ class FiestaVNApp extends StatelessWidget {
 
 /// Choose which game to play.
 class _LauncherScreen extends StatelessWidget {
-  const _LauncherScreen({this.audioPlayback, required this.projectPicker});
+  const _LauncherScreen({
+    this.audioPlayback,
+    required this.projectPicker,
+    this.onGameControllerCreated,
+  });
 
   final RenPyAudioPlayback? audioPlayback;
   final RenPyProjectPicker projectPicker;
+  final ValueChanged<RenPyFlutterController>? onGameControllerCreated;
 
   // Convenience helper
   void _startGame(BuildContext ctx, String title, String assetPath) {
@@ -41,6 +53,7 @@ class _LauncherScreen extends StatelessWidget {
               title: title,
               assetPath: assetPath,
               audioPlayback: audioPlayback,
+              onControllerCreated: onGameControllerCreated,
             ),
       ),
     );
@@ -57,6 +70,7 @@ class _LauncherScreen extends StatelessWidget {
               (_) => ExternalGameScreen(
                 project: project,
                 audioPlayback: audioPlayback,
+                onControllerCreated: onGameControllerCreated,
               ),
         ),
       );
@@ -113,10 +127,12 @@ class ExternalGameScreen extends StatelessWidget {
     super.key,
     required this.project,
     this.audioPlayback,
+    this.onControllerCreated,
   });
 
   final RenPyGameProject project;
   final RenPyAudioPlayback? audioPlayback;
+  final ValueChanged<RenPyFlutterController>? onControllerCreated;
 
   @override
   Widget build(BuildContext context) {
@@ -126,6 +142,7 @@ class ExternalGameScreen extends StatelessWidget {
         project: project,
         backgroundColor: Colors.grey.shade900,
         audioPlayback: audioPlayback,
+        onControllerCreated: onControllerCreated,
       ),
     );
   }
@@ -138,11 +155,13 @@ class GameScreen extends StatelessWidget {
     required this.title,
     required this.assetPath,
     this.audioPlayback,
+    this.onControllerCreated,
   });
 
   final String title;
   final String assetPath;
   final RenPyAudioPlayback? audioPlayback;
+  final ValueChanged<RenPyFlutterController>? onControllerCreated;
 
   @override
   Widget build(BuildContext context) {
@@ -152,6 +171,7 @@ class GameScreen extends StatelessWidget {
         scriptAsset: assetPath,
         backgroundColor: Colors.grey.shade900,
         audioPlayback: audioPlayback,
+        onControllerCreated: onControllerCreated,
       ),
     );
   }

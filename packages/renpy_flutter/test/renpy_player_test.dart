@@ -133,6 +133,38 @@ label start:
     ]);
   });
 
+  testWidgets('asset player exposes its controller for harnesses', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    "Harnessed."
+''',
+    });
+    RenPyFlutterController? controller;
+    final statuses = <RenPyGameStatus>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+          onControllerCreated: (created) {
+            controller = created;
+            created.addListener(() => statuses.add(created.value));
+          },
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('Harnessed.'));
+
+    expect(controller, isNotNull);
+    expect(statuses, contains(isA<RenPyDialogue>()));
+  });
+
   testWidgets('asset player resumes automatically after timed RenPy pauses', (
     tester,
   ) async {
@@ -208,6 +240,36 @@ label start:
         assetSourcePath: 'the_question/game/illurock.opus',
       ),
     ]);
+  });
+
+  testWidgets('project player exposes its controller for harnesses', (
+    tester,
+  ) async {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('project/game/script.rpy', '''
+label start:
+    "Project harnessed."
+'''),
+    ]);
+    RenPyFlutterController? controller;
+    final statuses = <RenPyGameStatus>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyProjectPlayer(
+          project: project,
+          onControllerCreated: (created) {
+            controller = created;
+            created.addListener(() => statuses.add(created.value));
+          },
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('Project harnessed.'));
+
+    expect(controller, isNotNull);
+    expect(statuses, contains(isA<RenPyDialogue>()));
   });
 
   testWidgets('project player registers project fonts before loading script', (
