@@ -271,8 +271,6 @@ label start:
         contains('Afterword:'),
       );
       expect(driver.problematicDiagnosticSummaries.toSet(), {
-        'RenPyDiagnosticCode.skippedPython: renpy.pause(0.5, hard=True)',
-        'RenPyDiagnosticCode.skippedPython: renpy.pause(2.0, hard=True)',
         'RenPyDiagnosticCode.skippedPython: persistent.confession_finished = True',
       });
     },

@@ -46,4 +46,29 @@ label start:
     expect(runner.state, RenPyRunnerState.waitingForInput);
     expect(pauses, [const RenPyPauseEvent(duration: 1.25)]);
   });
+
+  test('runner treats hard renpy.pause keyword as pause metadata', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    \$ renpy.pause(0.5, hard=True)
+    "After pause."
+''', 'pause.rpy').script;
+    final runner = RenPyRunner(script);
+    final pauses = <RenPyPauseEvent>[];
+    final diagnostics = <RenPyDiagnostic>[];
+
+    runner.onPause = pauses.add;
+    runner.onDiagnostic = diagnostics.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(runner.state, RenPyRunnerState.waitingForInput);
+    expect(pauses, [const RenPyPauseEvent(duration: 0.5)]);
+    expect(
+      diagnostics.where((d) => d.code == RenPyDiagnosticCode.skippedPython),
+      isEmpty,
+    );
+  });
 }

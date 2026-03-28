@@ -861,13 +861,37 @@ class RenPyRunner {
   }
 
   RenPyPauseEvent? _renpyPauseEvent(String code) {
-    final match = RegExp(
-      r'^renpy\.pause\s*\(\s*([0-9]+(?:\.[0-9]+)?|\.[0-9]+)?\s*\)$',
-    ).firstMatch(code.trim());
+    final match = RegExp(r'^renpy\.pause\s*\((.*)\)$').firstMatch(code.trim());
     if (match == null) return null;
 
-    final duration = double.tryParse(match.group(1) ?? '');
+    final duration = _renpyPauseDuration(match.group(1)!);
     return RenPyPauseEvent(duration: duration);
+  }
+
+  double? _renpyPauseDuration(String arguments) {
+    final positional =
+        _splitPythonArguments(arguments)
+            .map((argument) => argument.trim())
+            .where((argument) => argument.isNotEmpty && !argument.contains('='))
+            .firstOrNull;
+    if (positional == null) return null;
+    return double.tryParse(positional);
+  }
+
+  List<String> _splitPythonArguments(String arguments) {
+    final parts = <String>[];
+    final current = StringBuffer();
+    for (final codeUnit in arguments.codeUnits) {
+      final character = String.fromCharCode(codeUnit);
+      if (character == ',') {
+        parts.add(current.toString());
+        current.clear();
+      } else {
+        current.write(character);
+      }
+    }
+    parts.add(current.toString());
+    return parts;
   }
 
   /// Execute a define statement.
