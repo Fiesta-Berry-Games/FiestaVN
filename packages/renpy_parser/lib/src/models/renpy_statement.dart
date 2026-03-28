@@ -109,6 +109,7 @@ class RenPyShowStatement extends RenPyStatement {
   final String imageName;
   final String? atExpression;
   final String? behindExpression;
+  final String? onLayerExpression;
   final String? withExpression;
   final String? displayableText;
 
@@ -119,6 +120,7 @@ class RenPyShowStatement extends RenPyStatement {
     String filename,
     int linenumber, {
     this.behindExpression,
+    this.onLayerExpression,
     this.displayableText,
   }) : super(filename, linenumber);
 
@@ -130,6 +132,7 @@ class RenPyShowStatement extends RenPyStatement {
 class RenPySceneStatement extends RenPyStatement {
   final String? imageName;
   final String? atExpression;
+  final String? onLayerExpression;
   final String? withExpression;
 
   RenPySceneStatement(
@@ -137,8 +140,9 @@ class RenPySceneStatement extends RenPyStatement {
     this.atExpression,
     this.withExpression,
     String filename,
-    int linenumber,
-  ) : super(filename, linenumber);
+    int linenumber, {
+    this.onLayerExpression,
+  }) : super(filename, linenumber);
 
   @override
   String toString() => 'Scene: ${imageName ?? "clear"}';
@@ -147,14 +151,16 @@ class RenPySceneStatement extends RenPyStatement {
 /// Represents a hide statement (hide image_name).
 class RenPyHideStatement extends RenPyStatement {
   final String imageName;
+  final String? onLayerExpression;
   final String? withExpression;
 
   RenPyHideStatement(
     this.imageName,
     this.withExpression,
     String filename,
-    int linenumber,
-  ) : super(filename, linenumber);
+    int linenumber, {
+    this.onLayerExpression,
+  }) : super(filename, linenumber);
 
   @override
   String toString() => 'Hide: $imageName';

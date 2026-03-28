@@ -60,6 +60,9 @@ final class RenPyImageChange extends RenPyGameStatus {
     this.hide,
     this.sceneAt,
     this.showAt,
+    this.sceneOnLayer,
+    this.showOnLayer,
+    this.hideOnLayer,
     this.showBehind,
     this.scenePlacement,
     this.showPlacement,
@@ -75,6 +78,9 @@ final class RenPyImageChange extends RenPyGameStatus {
   final String? hide;
   final String? sceneAt;
   final String? showAt;
+  final String? sceneOnLayer;
+  final String? showOnLayer;
+  final String? hideOnLayer;
   final String? showBehind;
   final RenPyImagePlacement? scenePlacement;
   final RenPyImagePlacement? showPlacement;
@@ -296,6 +302,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
         value = RenPyImageChange(
           scene: event.imageName,
           sceneAt: event.at,
+          sceneOnLayer: event.onLayer,
           scenePlacement: event.placement,
           sceneAsset: image?.assetPath,
           sceneImage: image,
@@ -311,6 +318,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
         value = RenPyImageChange(
           show: event.imageName,
           showAt: event.at,
+          showOnLayer: event.onLayer,
           showBehind: event.behind,
           showPlacement: event.placement,
           showAsset: image?.assetPath,
@@ -318,7 +326,10 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
           showText: event.displayableText,
         );
       case RenPyImageAction.hide:
-        value = RenPyImageChange(hide: event.imageName);
+        value = RenPyImageChange(
+          hide: event.imageName,
+          hideOnLayer: event.onLayer,
+        );
     }
   }
 

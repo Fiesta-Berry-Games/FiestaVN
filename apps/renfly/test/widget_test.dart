@@ -274,10 +274,6 @@ label start:
         'RenPyDiagnosticCode.skippedPython: renpy.pause(0.5, hard=True)',
         'RenPyDiagnosticCode.skippedPython: renpy.pause(2.0, hard=True)',
         'RenPyDiagnosticCode.skippedPython: persistent.confession_finished = True',
-        'RenPyDiagnosticCode.unresolvedImageAsset: meta onlayer belowmid -> assets/games/Confession-1.03-pc/game/meta onlayer belowmid.png',
-        'RenPyDiagnosticCode.unresolvedImageAsset: logo onlayer abovemid -> assets/games/Confession-1.03-pc/game/logo onlayer abovemid.png',
-        'RenPyDiagnosticCode.unresolvedImageAsset: ware onlayer belowmid -> assets/games/Confession-1.03-pc/game/ware onlayer belowmid.png',
-        'RenPyDiagnosticCode.unresolvedImageAsset: stillrainfront onlayer abovemid -> assets/games/Confession-1.03-pc/game/stillrainfront onlayer abovemid.png',
       });
     },
     skip: confessionFixtureMissing,

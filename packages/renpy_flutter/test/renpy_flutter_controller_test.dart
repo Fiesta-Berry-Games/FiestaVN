@@ -116,8 +116,9 @@ label start:
     controller.load(
       '''
 label start:
-    scene bg lecturehall at center
-    show sylvie green normal at Position(xpos = 0.8) behind eileen
+    scene bg lecturehall at center onlayer master
+    show sylvie green normal at Position(xpos = 0.8) onlayer abovemid behind eileen
+    hide sylvie onlayer abovemid
     "Welcome."
 ''',
       gameRoot: 'assets/game',
@@ -128,11 +129,12 @@ label start:
     );
 
     await _continueUntil(controller, (status) => status is RenPyDialogue);
+    expect(images, hasLength(3));
 
-    expect(images.first.scene, 'bg lecturehall');
-    expect(images.first.sceneAt, 'center');
+    expect(images[0].scene, 'bg lecturehall');
+    expect(images[0].sceneAt, 'center');
     expect(
-      images.first.scenePlacement,
+      images[0].scenePlacement,
       const RenPyImagePlacement.position(
         xpos: 0.5,
         xanchor: 0.5,
@@ -140,15 +142,19 @@ label start:
         yanchor: 1,
       ),
     );
-    expect(images.first.sceneAsset, 'assets/game/images/bg lecturehall.png');
-    expect(images.last.show, 'sylvie green normal');
-    expect(images.last.showAt, 'Position(xpos = 0.8)');
+    expect(images[0].sceneOnLayer, 'master');
+    expect(images[0].sceneAsset, 'assets/game/images/bg lecturehall.png');
+    expect(images[1].show, 'sylvie green normal');
+    expect(images[1].showAt, 'Position(xpos = 0.8)');
     expect(
-      images.last.showPlacement,
+      images[1].showPlacement,
       const RenPyImagePlacement.position(xpos: 0.8),
     );
-    expect(images.last.showBehind, 'eileen');
-    expect(images.last.showAsset, 'assets/game/images/sylvie green normal.png');
+    expect(images[1].showOnLayer, 'abovemid');
+    expect(images[1].showBehind, 'eileen');
+    expect(images[1].showAsset, 'assets/game/images/sylvie green normal.png');
+    expect(images[2].hide, 'sylvie');
+    expect(images[2].hideOnLayer, 'abovemid');
   });
 
   test(

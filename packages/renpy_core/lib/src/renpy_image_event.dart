@@ -32,20 +32,25 @@ class RenPyImageDefinitionEvent {
 
 /// A platform-neutral image command emitted while running a RenPy script.
 class RenPyImageEvent {
-  const RenPyImageEvent.scene(this.imageName, {this.at, this.placement})
-    : action = RenPyImageAction.scene,
-      behind = null,
-      displayableText = null;
+  const RenPyImageEvent.scene(
+    this.imageName, {
+    this.at,
+    this.placement,
+    this.onLayer,
+  }) : action = RenPyImageAction.scene,
+       behind = null,
+       displayableText = null;
 
   const RenPyImageEvent.show(
     this.imageName, {
     this.at,
     this.placement,
+    this.onLayer,
     this.behind,
     this.displayableText,
   }) : action = RenPyImageAction.show;
 
-  const RenPyImageEvent.hide(this.imageName)
+  const RenPyImageEvent.hide(this.imageName, {this.onLayer})
     : action = RenPyImageAction.hide,
       at = null,
       placement = null,
@@ -61,6 +66,9 @@ class RenPyImageEvent {
   /// Parsed placement intent for common RenPy `at` expressions.
   final RenPyImagePlacement? placement;
 
+  /// The RenPy layer targeted by `onlayer`, if specified.
+  final String? onLayer;
+
   /// The image tag this show statement should render behind, if specified.
   final String? behind;
 
@@ -75,18 +83,27 @@ class RenPyImageEvent {
             imageName == other.imageName &&
             at == other.at &&
             placement == other.placement &&
+            onLayer == other.onLayer &&
             behind == other.behind &&
             displayableText == other.displayableText;
   }
 
   @override
-  int get hashCode =>
-      Object.hash(action, imageName, at, placement, behind, displayableText);
+  int get hashCode => Object.hash(
+    action,
+    imageName,
+    at,
+    placement,
+    onLayer,
+    behind,
+    displayableText,
+  );
 
   @override
   String toString() {
     return 'RenPyImageEvent.$action('
         'imageName: $imageName, at: $at, placement: $placement, '
-        'behind: $behind, displayableText: $displayableText)';
+        'onLayer: $onLayer, behind: $behind, '
+        'displayableText: $displayableText)';
   }
 }

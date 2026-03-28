@@ -89,6 +89,27 @@ label start:
     expect(events[3].behind, 'enj');
   });
 
+  test('runner emits onlayer metadata separately from image names', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    show meta onlayer belowmid with longdissolve
+    hide logo onlayer abovemid with dissolve
+''', 'image_onlayer.rpy').script;
+    final runner = RenPyRunner(script);
+    final events = <RenPyImageEvent>[];
+
+    runner.onImageEvent = events.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(events, [
+      const RenPyImageEvent.show('meta', onLayer: 'belowmid'),
+      const RenPyImageEvent.hide('logo', onLayer: 'abovemid'),
+    ]);
+  });
+
   test('runner emits show text displayables as structured image events', () {
     final script =
         RenPyParser().parse('''

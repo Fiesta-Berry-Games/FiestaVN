@@ -665,6 +665,7 @@ class RenPyRunner {
         stmt.imageName,
         at: stmt.atExpression,
         placement: placement,
+        onLayer: stmt.onLayerExpression,
         behind: stmt.behindExpression,
         displayableText: stmt.displayableText,
       ),
@@ -687,6 +688,7 @@ class RenPyRunner {
         stmt.imageName,
         at: stmt.atExpression,
         placement: placement,
+        onLayer: stmt.onLayerExpression,
       ),
     );
     if (onImage != null) {
@@ -699,7 +701,9 @@ class RenPyRunner {
   }
 
   void _executeHideStatement(RenPyHideStatement stmt) {
-    onImageEvent?.call(RenPyImageEvent.hide(stmt.imageName));
+    onImageEvent?.call(
+      RenPyImageEvent.hide(stmt.imageName, onLayer: stmt.onLayerExpression),
+    );
     if (onImage != null) {
       onImage!(null, null, stmt.imageName);
     }

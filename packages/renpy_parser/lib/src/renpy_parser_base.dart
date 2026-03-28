@@ -520,12 +520,9 @@ class RenPyParser {
     final textDisplayable = _tryParseShowTextStatement(line);
     if (textDisplayable != null) return textDisplayable;
 
-    final showRegex = RegExp(
-      r'^show\s+(.+?)(?:\s+at\s+(.+?))?(?:\s+behind\s+(.+?))?(?:\s+with\s+(.+?))?$',
-    );
-    final match = showRegex.firstMatch(text);
-
-    if (match == null) {
+    const prefix = 'show ';
+    if (!text.startsWith(prefix) ||
+        text.substring(prefix.length).trim().isEmpty) {
       throw RenPyParseError(
         'Invalid show syntax',
         line.filename,
@@ -534,18 +531,21 @@ class RenPyParser {
       );
     }
 
-    final imageName = match.group(1)!;
-    final atExpression = match.group(2);
-    final behindExpression = match.group(3);
-    final withExpression = match.group(4);
+    final parts = _parseImageStatementParts(
+      text.substring(prefix.length),
+      line,
+      'show',
+      const ['at', 'onlayer', 'behind', 'with'],
+    );
 
     return RenPyShowStatement(
-      imageName,
-      atExpression,
-      withExpression,
+      parts.imageName,
+      parts.clauses['at'],
+      parts.clauses['with'],
       line.filename,
       line.number,
-      behindExpression: behindExpression,
+      behindExpression: parts.clauses['behind'],
+      onLayerExpression: parts.clauses['onlayer'],
     );
   }
 
@@ -568,27 +568,128 @@ class RenPyParser {
     }
 
     final suffix = quoted.remainder.trim();
-    final suffixMatch = RegExp(
-      r'^(?:as\s+(\S+))?(?:\s*at\s+(.+?)(?=\s+behind\s+|\s+with\s+|$))?(?:\s*behind\s+(.+?)(?=\s+with\s+|$))?(?:\s*with\s+(.+?))?$',
-    ).firstMatch(suffix);
-    if (suffixMatch == null) {
+    final parts = _parseImageStatementParts(suffix, line, 'show text', const [
+      'as',
+      'at',
+      'onlayer',
+      'behind',
+      'with',
+    ], requireImageName: false);
+
+    return RenPyShowStatement(
+      parts.clauses['as'] ?? 'text',
+      parts.clauses['at'],
+      parts.clauses['with'],
+      line.filename,
+      line.number,
+      behindExpression: parts.clauses['behind'],
+      onLayerExpression: parts.clauses['onlayer'],
+      displayableText: _unescapeString(quoted.value),
+    );
+  }
+
+  _ImageStatementParts _parseImageStatementParts(
+    String text,
+    GroupedLine line,
+    String statementName,
+    List<String> keywords, {
+    bool requireImageName = true,
+  }) {
+    final trimmed = text.trim();
+    final clauseStarts = _findTopLevelClauseStarts(trimmed, keywords);
+    final imageEnd =
+        clauseStarts.isEmpty ? trimmed.length : clauseStarts.first.index;
+    final imageName = trimmed.substring(0, imageEnd).trim();
+    if (requireImageName && imageName.isEmpty) {
       throw RenPyParseError(
-        'Invalid show text syntax',
+        'Invalid $statementName syntax',
         line.filename,
         line.number,
         0,
       );
     }
 
-    return RenPyShowStatement(
-      suffixMatch.group(1)?.trim() ?? 'text',
-      suffixMatch.group(2)?.trim(),
-      suffixMatch.group(4)?.trim(),
-      line.filename,
-      line.number,
-      behindExpression: suffixMatch.group(3)?.trim(),
-      displayableText: _unescapeString(quoted.value),
-    );
+    final clauses = <String, String>{};
+    for (var i = 0; i < clauseStarts.length; i += 1) {
+      final start = clauseStarts[i];
+      final valueStart = start.index + start.keyword.length;
+      final valueEnd =
+          i + 1 < clauseStarts.length
+              ? clauseStarts[i + 1].index
+              : trimmed.length;
+      final value = trimmed.substring(valueStart, valueEnd).trim();
+      if (value.isEmpty) {
+        throw RenPyParseError(
+          'Invalid $statementName syntax',
+          line.filename,
+          line.number,
+          0,
+        );
+      }
+      clauses[start.keyword] = value;
+    }
+
+    return _ImageStatementParts(imageName, clauses);
+  }
+
+  List<_ClauseStart> _findTopLevelClauseStarts(
+    String text,
+    List<String> keywords,
+  ) {
+    final starts = <_ClauseStart>[];
+    var depth = 0;
+    String? quote;
+    var escaped = false;
+
+    for (var i = 0; i < text.length; i += 1) {
+      final character = text[i];
+      if (quote != null) {
+        if (escaped) {
+          escaped = false;
+        } else if (character == r'\') {
+          escaped = true;
+        } else if (character == quote) {
+          quote = null;
+        }
+        continue;
+      }
+
+      if (character == '"' || character == "'") {
+        quote = character;
+        continue;
+      }
+      if (character == '(' || character == '[' || character == '{') {
+        depth += 1;
+        continue;
+      }
+      if (character == ')' || character == ']' || character == '}') {
+        if (depth > 0) depth -= 1;
+        continue;
+      }
+      if (depth != 0) continue;
+      if (i != 0 && !_isWhitespace(text.codeUnitAt(i - 1))) continue;
+
+      for (final keyword in keywords) {
+        if (!_startsWithKeyword(text, i, keyword)) continue;
+        starts.add(_ClauseStart(i, keyword));
+        i += keyword.length - 1;
+        break;
+      }
+    }
+    return starts;
+  }
+
+  bool _startsWithKeyword(String text, int index, String keyword) {
+    if (!text.startsWith(keyword, index)) return false;
+    final end = index + keyword.length;
+    return end < text.length && _isWhitespace(text.codeUnitAt(end));
+  }
+
+  bool _isWhitespace(int codeUnit) {
+    return codeUnit == 0x20 ||
+        codeUnit == 0x09 ||
+        codeUnit == 0x0a ||
+        codeUnit == 0x0d;
   }
 
   _QuotedPrefix? _parseQuotedPrefix(String text) {
@@ -631,12 +732,9 @@ class RenPyParser {
       return RenPySceneStatement(null, null, null, line.filename, line.number);
     }
 
-    final sceneRegex = RegExp(
-      r'^scene\s+(.+?)(?:\s+at\s+(.+?))?(?:\s+with\s+(.+?))?$',
-    );
-    final match = sceneRegex.firstMatch(text);
-
-    if (match == null) {
+    const prefix = 'scene ';
+    if (!text.startsWith(prefix) ||
+        text.substring(prefix.length).trim().isEmpty) {
       throw RenPyParseError(
         'Invalid scene syntax',
         line.filename,
@@ -645,16 +743,20 @@ class RenPyParser {
       );
     }
 
-    final imageName = match.group(1)!;
-    final atExpression = match.group(2);
-    final withExpression = match.group(3);
+    final parts = _parseImageStatementParts(
+      text.substring(prefix.length),
+      line,
+      'scene',
+      const ['at', 'onlayer', 'with'],
+    );
 
     return RenPySceneStatement(
-      imageName,
-      atExpression,
-      withExpression,
+      parts.imageName,
+      parts.clauses['at'],
+      parts.clauses['with'],
       line.filename,
       line.number,
+      onLayerExpression: parts.clauses['onlayer'],
     );
   }
 
@@ -663,10 +765,9 @@ class RenPyParser {
     List<String> warnings,
   ) {
     final text = line.text.trim();
-    final hideRegex = RegExp(r'^hide\s+(.+?)(?:\s+with\s+(.+?))?$');
-    final match = hideRegex.firstMatch(text);
-
-    if (match == null) {
+    const prefix = 'hide ';
+    if (!text.startsWith(prefix) ||
+        text.substring(prefix.length).trim().isEmpty) {
       throw RenPyParseError(
         'Invalid hide syntax',
         line.filename,
@@ -675,11 +776,19 @@ class RenPyParser {
       );
     }
 
+    final parts = _parseImageStatementParts(
+      text.substring(prefix.length),
+      line,
+      'hide',
+      const ['onlayer', 'with'],
+    );
+
     return RenPyHideStatement(
-      match.group(1)!.trim(),
-      match.group(2),
+      parts.imageName,
+      parts.clauses['with'],
       line.filename,
       line.number,
+      onLayerExpression: parts.clauses['onlayer'],
     );
   }
 
@@ -942,4 +1051,18 @@ class RenPyInitStatement extends RenPyBlockStatement {
     required String filename,
     required int linenumber,
   }) : super(block, filename, linenumber);
+}
+
+class _ImageStatementParts {
+  const _ImageStatementParts(this.imageName, this.clauses);
+
+  final String imageName;
+  final Map<String, String> clauses;
+}
+
+class _ClauseStart {
+  const _ClauseStart(this.index, this.keyword);
+
+  final int index;
+  final String keyword;
 }

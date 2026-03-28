@@ -60,4 +60,30 @@ label start:
     expect(show.atExpression, 'truecenter');
     expect(show.withExpression, 'dissolve');
   });
+
+  test('image statements carry onlayer clauses separately from names', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    show meta onlayer belowmid with longdissolve
+    show text "Chapter One" as title onlayer abovemid at truecenter
+    hide logo onlayer abovemid with dissolve
+''', 'show_onlayer.rpy').script;
+
+    final shows = script.findStatements<RenPyShowStatement>((_) => true);
+    final hide = script.findStatements<RenPyHideStatement>((_) => true).single;
+
+    expect(shows[0].imageName, 'meta');
+    expect(shows[0].onLayerExpression, 'belowmid');
+    expect(shows[0].withExpression, 'longdissolve');
+
+    expect(shows[1].imageName, 'title');
+    expect(shows[1].displayableText, 'Chapter One');
+    expect(shows[1].onLayerExpression, 'abovemid');
+    expect(shows[1].atExpression, 'truecenter');
+
+    expect(hide.imageName, 'logo');
+    expect(hide.onLayerExpression, 'abovemid');
+    expect(hide.withExpression, 'dissolve');
+  });
 }
