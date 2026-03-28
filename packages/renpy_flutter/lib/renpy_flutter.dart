@@ -2,6 +2,8 @@
 
 export 'package:renpy_core/renpy_core.dart' show RenPyAudioAction;
 export 'package:renpy_core/renpy_core.dart'
+    show RenPyDiagnostic, RenPyDiagnosticCallback, RenPyDiagnosticCode;
+export 'package:renpy_core/renpy_core.dart'
     show
         RenPyImageOperation,
         RenPyImageOperationType,

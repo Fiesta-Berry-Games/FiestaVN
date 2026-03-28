@@ -1,11 +1,13 @@
 import 'package:renpy_parser/renpy_parser.dart';
 
 import 'renpy_audio_event.dart';
+import 'renpy_diagnostic.dart';
 import 'renpy_dialogue_event.dart';
 import 'renpy_image_event.dart';
 import 'renpy_image_placement.dart';
 import 'renpy_pause_event.dart';
 import 'renpy_transition_event.dart';
+import 'renpy_transition_intent.dart';
 import 'renpy_transition_resolver.dart';
 
 enum _ExecutionContextKind { block, labelFallthrough, call }
@@ -148,6 +150,7 @@ class RenPyRunner {
   AudioCallback? onAudio;
   TransitionCallback? onTransition;
   PauseCallback? onPause;
+  RenPyDiagnosticCallback? onDiagnostic;
 
   /// Error message if an error occurred
   String? _errorMessage;
@@ -404,6 +407,13 @@ class RenPyRunner {
     } else {
       // Unknown statement type, just skip it.
       print('Warning: Unknown statement type: ${stmt.runtimeType}');
+      _emitDiagnostic(
+        RenPyDiagnostic(
+          code: RenPyDiagnosticCode.unknownStatement,
+          message: 'Skipped unknown RenPy statement.',
+          detail: stmt.runtimeType.toString(),
+        ),
+      );
       _position++;
       _executeNext();
     }
@@ -648,11 +658,13 @@ class RenPyRunner {
 
   /// Execute a show statement.
   void _executeShowStatement(RenPyShowStatement stmt) {
+    final placement = RenPyImagePlacement.parse(stmt.atExpression);
+    _diagnosePlacement(placement);
     onImageEvent?.call(
       RenPyImageEvent.show(
         stmt.imageName,
         at: stmt.atExpression,
-        placement: RenPyImagePlacement.parse(stmt.atExpression),
+        placement: placement,
         behind: stmt.behindExpression,
         displayableText: stmt.displayableText,
       ),
@@ -668,11 +680,13 @@ class RenPyRunner {
 
   /// Execute a scene statement.
   void _executeSceneStatement(RenPySceneStatement stmt) {
+    final placement = RenPyImagePlacement.parse(stmt.atExpression);
+    _diagnosePlacement(placement);
     onImageEvent?.call(
       RenPyImageEvent.scene(
         stmt.imageName,
         at: stmt.atExpression,
-        placement: RenPyImagePlacement.parse(stmt.atExpression),
+        placement: placement,
       ),
     );
     if (onImage != null) {
@@ -720,6 +734,15 @@ class RenPyRunner {
   void _emitTransition(String transition) {
     final name = transition.trim();
     final intent = _transitionResolver.resolve(name);
+    if (intent?.fidelity == RenPyTransitionFidelity.unsupported) {
+      _emitDiagnostic(
+        RenPyDiagnostic(
+          code: RenPyDiagnosticCode.unsupportedTransition,
+          message: 'Unsupported RenPy transition expression.',
+          detail: intent?.expression ?? name,
+        ),
+      );
+    }
     onTransition?.call(RenPyTransitionEvent(name, intent: intent));
   }
 
@@ -759,9 +782,31 @@ class RenPyRunner {
     print(
       '_executePythonStatement Unimplemented: skipping code `${stmt.code}`',
     );
+    _emitDiagnostic(
+      RenPyDiagnostic(
+        code: RenPyDiagnosticCode.skippedPython,
+        message: 'Skipped unsupported Python statement.',
+        detail: stmt.code,
+      ),
+    );
 
     _position++;
     _executeNext();
+  }
+
+  void _diagnosePlacement(RenPyImagePlacement? placement) {
+    if (placement == null || placement.isSupported) return;
+    _emitDiagnostic(
+      RenPyDiagnostic(
+        code: RenPyDiagnosticCode.unsupportedPlacement,
+        message: 'Unsupported RenPy image placement expression.',
+        detail: placement.expression,
+      ),
+    );
+  }
+
+  void _emitDiagnostic(RenPyDiagnostic diagnostic) {
+    onDiagnostic?.call(diagnostic);
   }
 
   _PythonAssignment? _pythonAssignment(String code) {

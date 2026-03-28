@@ -3,6 +3,72 @@ import 'package:renpy_flutter/renpy_flutter.dart';
 
 void main() {
   test(
+    'controller collects diagnostics for unsupported compatibility signals',
+    () async {
+      final controller = RenPyFlutterController();
+      addTearDown(controller.dispose);
+
+      controller.load(
+        '''
+define strange = PushMove(1.0, "left")
+
+label start:
+    scene missing background at Transform(xzoom=1.2) with strange
+    play sound "missing.ogg"
+    \$ persistent.confession_finished = True
+    "Done."
+        ''',
+        gameRoot: 'assets/game',
+        availableAssets: const {'assets/game/images/other.png'},
+      );
+
+      await _continueUntil(controller, (status) => status is RenPyDialogue);
+
+      expect(
+        controller.diagnostics.map((diagnostic) => diagnostic.code),
+        containsAll([
+          RenPyDiagnosticCode.unsupportedPlacement,
+          RenPyDiagnosticCode.unsupportedTransition,
+          RenPyDiagnosticCode.unresolvedImageAsset,
+          RenPyDiagnosticCode.unresolvedAudioAsset,
+          RenPyDiagnosticCode.skippedPython,
+        ]),
+      );
+      expect(
+        controller.diagnostics.map((diagnostic) => diagnostic.detail),
+        contains('persistent.confession_finished = True'),
+      );
+    },
+  );
+
+  test('controller treats available audio assets case-insensitively', () async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    controller.load(
+      '''
+label start:
+    play sound "/SE/Z1.wav"
+    "Done."
+''',
+      gameRoot: 'assets/game',
+      availableAssets: const {'assets/game/se/Z1.wav'},
+    );
+
+    await _continueUntil(controller, (status) => status is RenPyDialogue);
+
+    expect(
+      controller.diagnostics
+          .where(
+            (diagnostic) =>
+                diagnostic.code == RenPyDiagnosticCode.unresolvedAudioAsset,
+          )
+          .toList(),
+      isEmpty,
+    );
+  });
+
+  test(
     'controller emits dialogue, menu captions, and resolved image assets',
     () async {
       final controller = RenPyFlutterController();

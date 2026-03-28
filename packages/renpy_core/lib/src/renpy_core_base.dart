@@ -1,6 +1,7 @@
 library renpy_core;
 
 export 'renpy_audio_event.dart';
+export 'renpy_diagnostic.dart';
 export 'renpy_dialogue_event.dart';
 export 'renpy_game_project.dart';
 export 'renpy_image_event.dart';

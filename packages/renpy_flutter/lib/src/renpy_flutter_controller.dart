@@ -130,14 +130,21 @@ final class RenPyError extends RenPyGameStatus {
 
 /// Drives [RenPyRunner] and turns callbacks into [ValueNotifier] updates.
 class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
-  RenPyFlutterController({this.onComplete}) : super(RenPyIdle());
+  RenPyFlutterController({this.onComplete, this.onDiagnostic})
+    : super(RenPyIdle());
 
   final VoidCallback? onComplete;
+  final RenPyDiagnosticCallback? onDiagnostic;
 
   RenPyRunner? _runner;
   StreamSubscription? _ticker;
   Timer? _pauseTimer;
   RenPyImageResolver _imageResolver = RenPyImageResolver();
+  final List<RenPyDiagnostic> _diagnostics = [];
+  String? _gameRoot;
+  Set<String> _availableAssets = const {};
+
+  List<RenPyDiagnostic> get diagnostics => List.unmodifiable(_diagnostics);
 
   /// Loads a `.rpy` script and immediately jumps to `start` when present.
   ///
@@ -152,6 +159,9 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     _ticker?.cancel();
     _pauseTimer?.cancel();
     _runner = null;
+    _diagnostics.clear();
+    _gameRoot = gameRoot;
+    _availableAssets = availableAssets;
     value = RenPyIdle();
 
     final parser = RenPyParser();
@@ -174,7 +184,8 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
           ..onImageDefinition = _onImageDefinition
           ..onAudio = _onAudio
           ..onTransition = _onTransition
-          ..onPause = _onPause;
+          ..onPause = _onPause
+          ..onDiagnostic = _emitDiagnostic;
     _runner = runner;
 
     if (result.script.findLabel('start') != null) {
@@ -281,6 +292,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     switch (event.action) {
       case RenPyImageAction.scene:
         final image = _imageResolver.resolveImage(event.imageName);
+        _diagnoseResolvedImage(event.imageName, image);
         value = RenPyImageChange(
           scene: event.imageName,
           sceneAt: event.at,
@@ -293,6 +305,9 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
             event.displayableText == null
                 ? _imageResolver.resolveImage(event.imageName)
                 : null;
+        if (event.displayableText == null) {
+          _diagnoseResolvedImage(event.imageName, image);
+        }
         value = RenPyImageChange(
           show: event.imageName,
           showAt: event.at,
@@ -324,6 +339,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       case RenPyAudioAction.play:
         final asset = event.asset;
         if (asset == null) return;
+        _diagnoseAudioAsset(asset);
         value = RenPyAudioChange.play(channel: event.channel, asset: asset);
       case RenPyAudioAction.stop:
         value = RenPyAudioChange.stop(
@@ -336,6 +352,55 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   void _onTransition(RenPyTransitionEvent event) {
     debugPrint('Transition command - ${event.name}');
     value = RenPyTransitionChange(event.name, intent: event.intent);
+  }
+
+  void _diagnoseResolvedImage(String? imageName, RenPyResolvedImage? image) {
+    final asset = image?.assetPath;
+    if (imageName == null || asset == null || _availableAssets.isEmpty) return;
+    if (_availableAssetExists(asset)) return;
+    _emitDiagnostic(
+      RenPyDiagnostic(
+        code: RenPyDiagnosticCode.unresolvedImageAsset,
+        message: 'Resolved image asset was not found in available assets.',
+        detail: '$imageName -> $asset',
+      ),
+    );
+  }
+
+  void _diagnoseAudioAsset(String asset) {
+    if (_availableAssets.isEmpty) return;
+    final assetPath = _audioAssetSourcePath(asset);
+    if (_availableAssetExists(assetPath)) return;
+    _emitDiagnostic(
+      RenPyDiagnostic(
+        code: RenPyDiagnosticCode.unresolvedAudioAsset,
+        message: 'Resolved audio asset was not found in available assets.',
+        detail: '$asset -> $assetPath',
+      ),
+    );
+  }
+
+  String _audioAssetSourcePath(String asset) {
+    final normalizedAsset = asset
+        .replaceAll(r'\', '/')
+        .replaceFirst(RegExp(r'^/+'), '');
+    if (normalizedAsset.startsWith('assets/')) return normalizedAsset;
+
+    final root = _gameRoot ?? '';
+    if (root.isEmpty) return normalizedAsset;
+    if (root.endsWith('/')) return '$root$normalizedAsset';
+    return '$root/$normalizedAsset';
+  }
+
+  bool _availableAssetExists(String assetPath) {
+    if (_availableAssets.contains(assetPath)) return true;
+    final lower = assetPath.toLowerCase();
+    return _availableAssets.any((asset) => asset.toLowerCase() == lower);
+  }
+
+  void _emitDiagnostic(RenPyDiagnostic diagnostic) {
+    _diagnostics.add(diagnostic);
+    onDiagnostic?.call(diagnostic);
   }
 
   @override

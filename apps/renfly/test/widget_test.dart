@@ -225,7 +225,7 @@ label start:
       expect(driver.showTextDisplayables, [
         contains('Confession of the Golden Witch'),
       ]);
-      expect(driver.unsupportedTransitions, isEmpty);
+      expect(driver.problematicDiagnostics, isEmpty);
       expect(
         playback.calls,
         contains(
@@ -437,8 +437,6 @@ class _ConfessionAutoPlayer {
   final dialogue = <RenPyDialogue>[];
   final scenes = <String>[];
   final showTextDisplayables = <String>[];
-  final transitions = <String>[];
-  final unsupportedTransitions = <String>{};
 
   RenPyFlutterController? _controller;
   String? error;
@@ -454,6 +452,13 @@ class _ConfessionAutoPlayer {
         line.displayText.contains('bottled letter never reaches') &&
         line.displayText.contains('punishment I deserve'),
   );
+
+  List<RenPyDiagnostic> get problematicDiagnostics {
+    return [
+      for (final diagnostic in _controller?.diagnostics ?? const [])
+        if (_problematicDiagnosticCodes.contains(diagnostic.code)) diagnostic,
+    ];
+  }
 
   void attach(RenPyFlutterController controller) {
     _controller?.removeListener(_onStatusChanged);
@@ -482,11 +487,6 @@ class _ConfessionAutoPlayer {
       case RenPyImageChange(:final scene, :final showText):
         if (scene != null) scenes.add(scene);
         if (showText != null) showTextDisplayables.add(showText);
-      case RenPyTransitionChange(:final name, :final intent):
-        transitions.add(name);
-        if (intent?.fidelity == RenPyTransitionFidelity.unsupported) {
-          unsupportedTransitions.add(name);
-        }
       case RenPyError(:final message):
         error = message;
       case _:
@@ -494,3 +494,12 @@ class _ConfessionAutoPlayer {
     }
   }
 }
+
+const _problematicDiagnosticCodes = {
+  RenPyDiagnosticCode.skippedPython,
+  RenPyDiagnosticCode.unsupportedPlacement,
+  RenPyDiagnosticCode.unsupportedTransition,
+  RenPyDiagnosticCode.unresolvedImageAsset,
+  RenPyDiagnosticCode.unresolvedAudioAsset,
+  RenPyDiagnosticCode.unknownStatement,
+};
