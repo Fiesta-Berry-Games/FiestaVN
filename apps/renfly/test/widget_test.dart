@@ -239,6 +239,49 @@ label start:
     },
     skip: confessionFixtureMissing,
   );
+
+  testWidgets(
+    'launcher can scan Confession to completion for diagnostics',
+    (tester) async {
+      final driver = _ConfessionAutoPlayer(stopAtChapterOne: false);
+      final playback = _RecordingAudioPlayback();
+      addTearDown(driver.dispose);
+      addTearDown(playback.dispose);
+
+      await _pumpFreshApp(
+        tester,
+        audioPlayback: playback,
+        projectPicker: _FakeProjectPicker(
+          _loadProjectFolder(confessionFixture),
+        ),
+        onGameControllerCreated: driver.attach,
+      );
+
+      await tester.tap(find.text('Open Folder'));
+      await _pumpUntil(
+        tester,
+        () => driver.complete,
+        description: 'Confession completion',
+        attempts: 1200,
+      );
+
+      expect(driver.error, isNull);
+      expect(
+        driver.dialogue.map((line) => line.displayText),
+        contains('Afterword:'),
+      );
+      expect(driver.problematicDiagnosticSummaries.toSet(), {
+        'RenPyDiagnosticCode.skippedPython: renpy.pause(0.5, hard=True)',
+        'RenPyDiagnosticCode.skippedPython: renpy.pause(2.0, hard=True)',
+        'RenPyDiagnosticCode.skippedPython: persistent.confession_finished = True',
+        'RenPyDiagnosticCode.unresolvedImageAsset: meta onlayer belowmid -> assets/games/Confession-1.03-pc/game/meta onlayer belowmid.png',
+        'RenPyDiagnosticCode.unresolvedImageAsset: logo onlayer abovemid -> assets/games/Confession-1.03-pc/game/logo onlayer abovemid.png',
+        'RenPyDiagnosticCode.unresolvedImageAsset: ware onlayer belowmid -> assets/games/Confession-1.03-pc/game/ware onlayer belowmid.png',
+        'RenPyDiagnosticCode.unresolvedImageAsset: stillrainfront onlayer abovemid -> assets/games/Confession-1.03-pc/game/stillrainfront onlayer abovemid.png',
+      });
+    },
+    skip: confessionFixtureMissing,
+  );
 }
 
 Future<void> _pumpFreshApp(
@@ -434,12 +477,16 @@ class _ReferenceGame3AutoPlayer {
 }
 
 class _ConfessionAutoPlayer {
+  _ConfessionAutoPlayer({this.stopAtChapterOne = true});
+
+  final bool stopAtChapterOne;
   final dialogue = <RenPyDialogue>[];
   final scenes = <String>[];
   final showTextDisplayables = <String>[];
 
   RenPyFlutterController? _controller;
   String? error;
+  bool complete = false;
 
   bool get firstDialogueSeen => dialogue.isNotEmpty;
 
@@ -460,6 +507,13 @@ class _ConfessionAutoPlayer {
     ];
   }
 
+  List<String> get problematicDiagnosticSummaries {
+    return [
+      for (final diagnostic in problematicDiagnostics)
+        '${diagnostic.code}: ${diagnostic.detail}',
+    ];
+  }
+
   void attach(RenPyFlutterController controller) {
     _controller?.removeListener(_onStatusChanged);
     _controller = controller..addListener(_onStatusChanged);
@@ -477,22 +531,26 @@ class _ConfessionAutoPlayer {
     switch (controller.value) {
       case final RenPyDialogue line:
         dialogue.add(line);
-        if (!chapterOneDialogueSeen) {
+        if (!_shouldStop) {
           Future<void>.delayed(Duration.zero, controller.continueGame);
         }
       case RenPyPause():
-        if (!chapterOneDialogueSeen) {
+        if (!_shouldStop) {
           Future<void>.delayed(Duration.zero, controller.continueGame);
         }
       case RenPyImageChange(:final scene, :final showText):
         if (scene != null) scenes.add(scene);
         if (showText != null) showTextDisplayables.add(showText);
+      case RenPyComplete():
+        complete = true;
       case RenPyError(:final message):
         error = message;
       case _:
         break;
     }
   }
+
+  bool get _shouldStop => stopAtChapterOne && chapterOneDialogueSeen;
 }
 
 const _problematicDiagnosticCodes = {
