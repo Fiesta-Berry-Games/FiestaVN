@@ -152,6 +152,8 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
 
   List<RenPyDiagnostic> get diagnostics => List.unmodifiable(_diagnostics);
 
+  Map<String, dynamic> get persistent => _runner?.persistent ?? const {};
+
   /// Loads a `.rpy` script and immediately jumps to `start` when present.
   ///
   /// Calling [load] again cleanly restarts the controller with the new script.

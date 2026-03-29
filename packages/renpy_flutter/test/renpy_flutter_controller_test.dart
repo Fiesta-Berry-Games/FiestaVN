@@ -31,13 +31,15 @@ label start:
           RenPyDiagnosticCode.unsupportedTransition,
           RenPyDiagnosticCode.unresolvedImageAsset,
           RenPyDiagnosticCode.unresolvedAudioAsset,
-          RenPyDiagnosticCode.skippedPython,
         ]),
       );
       expect(
-        controller.diagnostics.map((diagnostic) => diagnostic.detail),
-        contains('persistent.confession_finished = True'),
+        controller.diagnostics.where(
+          (diagnostic) => diagnostic.code == RenPyDiagnosticCode.skippedPython,
+        ),
+        isEmpty,
       );
+      expect(controller.persistent, {'confession_finished': true});
     },
   );
 
