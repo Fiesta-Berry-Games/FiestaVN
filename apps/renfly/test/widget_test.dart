@@ -270,9 +270,7 @@ label start:
         driver.dialogue.map((line) => line.displayText),
         contains('Afterword:'),
       );
-      expect(driver.problematicDiagnosticSummaries.toSet(), {
-        'RenPyDiagnosticCode.skippedPython: persistent.confession_finished = True',
-      });
+      expect(driver.problematicDiagnosticSummaries, isEmpty);
     },
     skip: confessionFixtureMissing,
   );

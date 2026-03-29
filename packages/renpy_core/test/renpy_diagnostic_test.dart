@@ -25,12 +25,13 @@ label start:
       containsAll([
         RenPyDiagnosticCode.unsupportedPlacement,
         RenPyDiagnosticCode.unsupportedTransition,
-        RenPyDiagnosticCode.skippedPython,
       ]),
     );
     expect(
-      diagnostics.map((diagnostic) => diagnostic.detail),
-      contains('persistent.confession_finished = True'),
+      diagnostics.where(
+        (diagnostic) => diagnostic.code == RenPyDiagnosticCode.skippedPython,
+      ),
+      isEmpty,
     );
   });
 }

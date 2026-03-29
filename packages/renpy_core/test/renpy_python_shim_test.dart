@@ -50,4 +50,33 @@ label start:
     expect(dialogue, ['Before restart.']);
     expect(runner.state, RenPyRunnerState.complete);
   });
+
+  test('runner stores persistent assignments for later conditions', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    \$ persistent.confession_finished = True
+
+    if persistent.confession_finished:
+        "Unlocked."
+    else:
+        "Locked."
+''', 'python_shim.rpy').script;
+    final runner = RenPyRunner(script);
+    final dialogue = <String>[];
+    final diagnostics = <RenPyDiagnostic>[];
+
+    runner.onDialogue = (character, text) => dialogue.add(text);
+    runner.onDiagnostic = diagnostics.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(runner.persistent, {'confession_finished': true});
+    expect(dialogue, ['Unlocked.']);
+    expect(
+      diagnostics.where((d) => d.code == RenPyDiagnosticCode.skippedPython),
+      isEmpty,
+    );
+  });
 }

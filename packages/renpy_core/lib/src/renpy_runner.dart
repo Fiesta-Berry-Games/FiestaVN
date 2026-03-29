@@ -133,6 +133,11 @@ class RenPyRunner {
   /// Variables defined in the script
   final Map<String, dynamic> _variables = {};
 
+  /// Ren'Py persistent namespace values assigned during this run.
+  final Map<String, dynamic> _persistent = {};
+
+  Map<String, dynamic> get persistent => Map.unmodifiable(_persistent);
+
   /// Character definitions
   final Map<String, Map<String, dynamic>> _characters = {};
 
@@ -266,18 +271,42 @@ class RenPyRunner {
           _evaluateComparable(inequality.right);
     }
 
-    final variable = _variables[value];
-    if (variable is bool) return variable;
-    if (variable is num) return variable != 0;
-    if (variable is String) return variable.isNotEmpty;
-    if (variable is Iterable) return variable.isNotEmpty;
-    return variable != null;
+    final variable = _lookupVariable(value);
+    if (!variable.found) return false;
+
+    final variableValue = variable.value;
+    if (variableValue is bool) return variableValue;
+    if (variableValue is num) return variableValue != 0;
+    if (variableValue is String) return variableValue.isNotEmpty;
+    if (variableValue is Iterable) return variableValue.isNotEmpty;
+    return variableValue != null;
   }
 
   dynamic _evaluateComparable(String expression) {
     final value = expression.trim();
-    if (_variables.containsKey(value)) return _variables[value];
+    final variable = _lookupVariable(value);
+    if (variable.found) return variable.value;
     return _evaluateExpression(value);
+  }
+
+  _VariableLookup _lookupVariable(String name) {
+    final persistentField = _persistentFieldName(name);
+    if (persistentField != null) {
+      return _VariableLookup(
+        _persistent.containsKey(persistentField),
+        _persistent[persistentField],
+      );
+    }
+
+    return _VariableLookup(_variables.containsKey(name), _variables[name]);
+  }
+
+  String? _persistentFieldName(String name) {
+    const prefix = 'persistent.';
+    if (!name.startsWith(prefix)) return null;
+
+    final field = name.substring(prefix.length);
+    return field.isEmpty ? null : field;
   }
 
   _ConditionComparison? _splitComparison(String condition, String operator) {
@@ -754,7 +783,13 @@ class RenPyRunner {
   void _executePythonStatement(RenPyPythonStatement stmt) {
     final assignment = _pythonAssignment(stmt.code);
     if (assignment != null) {
-      _variables[assignment.name] = _evaluateExpression(assignment.expression);
+      final value = _evaluateExpression(assignment.expression);
+      final persistentField = _persistentFieldName(assignment.name);
+      if (persistentField != null) {
+        _persistent[persistentField] = value;
+      } else {
+        _variables[assignment.name] = value;
+      }
       _position++;
       _executeNext();
       return;
@@ -815,7 +850,7 @@ class RenPyRunner {
 
   _PythonAssignment? _pythonAssignment(String code) {
     final match = RegExp(
-      r'^([a-zA-Z_]\w*)\s*=\s*(.+)$',
+      r'^([a-zA-Z_]\w*|persistent\.[a-zA-Z_]\w*)\s*=\s*(.+)$',
       dotAll: true,
     ).firstMatch(code.trim());
     if (match == null) return null;
@@ -1093,4 +1128,11 @@ class RenPyRunner {
     _state = RenPyRunnerState.ready;
     _errorMessage = null;
   }
+}
+
+class _VariableLookup {
+  const _VariableLookup(this.found, this.value);
+
+  final bool found;
+  final dynamic value;
 }
