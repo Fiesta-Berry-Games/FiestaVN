@@ -79,4 +79,38 @@ label start:
       isEmpty,
     );
   });
+
+  test('runner restores persistent assignments from a shared store', () {
+    final store = RenPyMemoryPersistentStore();
+    final firstScript =
+        RenPyParser().parse('''
+label start:
+    \$ persistent.confession_finished = True
+    "Stored."
+''', 'first.rpy').script;
+    final firstRunner = RenPyRunner(firstScript, persistentStore: store);
+
+    firstRunner.jumpToLabel('start');
+    firstRunner.run();
+
+    expect(firstRunner.persistent, {'confession_finished': true});
+
+    final secondScript =
+        RenPyParser().parse('''
+label start:
+    if persistent.confession_finished:
+        "Restored."
+    else:
+        "Missing."
+''', 'second.rpy').script;
+    final secondRunner = RenPyRunner(secondScript, persistentStore: store);
+    final dialogue = <String>[];
+
+    secondRunner.onDialogue = (character, text) => dialogue.add(text);
+    secondRunner.jumpToLabel('start');
+    secondRunner.run();
+
+    expect(secondRunner.persistent, {'confession_finished': true});
+    expect(dialogue, ['Restored.']);
+  });
 }

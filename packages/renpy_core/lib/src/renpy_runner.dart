@@ -6,6 +6,7 @@ import 'renpy_dialogue_event.dart';
 import 'renpy_image_event.dart';
 import 'renpy_image_placement.dart';
 import 'renpy_pause_event.dart';
+import 'renpy_persistent_store.dart';
 import 'renpy_transition_event.dart';
 import 'renpy_transition_intent.dart';
 import 'renpy_transition_resolver.dart';
@@ -134,7 +135,10 @@ class RenPyRunner {
   final Map<String, dynamic> _variables = {};
 
   /// Ren'Py persistent namespace values assigned during this run.
-  final Map<String, dynamic> _persistent = {};
+  final Map<String, dynamic> _persistent;
+
+  /// Optional backing store for persistent namespace values.
+  final RenPyPersistentStore? _persistentStore;
 
   Map<String, dynamic> get persistent => Map.unmodifiable(_persistent);
 
@@ -161,7 +165,11 @@ class RenPyRunner {
   String? _errorMessage;
   String? get errorMessage => _errorMessage;
 
-  RenPyRunner(this.script) {
+  RenPyRunner(this.script, {RenPyPersistentStore? persistentStore})
+    : _persistentStore = persistentStore,
+      _persistent = Map<String, dynamic>.of(
+        persistentStore?.load() ?? const <String, dynamic>{},
+      ) {
     // Initialize with the default block of statements
     _currentBlock = script.statements;
     _transitionResolver = RenPyTransitionResolver.fromScript(script);
@@ -375,9 +383,9 @@ class RenPyRunner {
       // otherwise original end-of-script behaviour:
       if (_currentLabel != null) {
         _currentLabel = null;
-        _state = RenPyRunnerState.complete;
+        _complete();
       } else {
-        _state = RenPyRunnerState.complete;
+        _complete();
       }
       return;
     }
@@ -787,6 +795,7 @@ class RenPyRunner {
       final persistentField = _persistentFieldName(assignment.name);
       if (persistentField != null) {
         _persistent[persistentField] = value;
+        _flushPersistent();
       } else {
         _variables[assignment.name] = value;
       }
@@ -796,7 +805,7 @@ class RenPyRunner {
     }
 
     if (_isRenpyFullRestart(stmt.code)) {
-      _state = RenPyRunnerState.complete;
+      _complete();
       return;
     }
 
@@ -1017,7 +1026,7 @@ class RenPyRunner {
       }
     }
 
-    _state = RenPyRunnerState.complete;
+    _complete();
   }
 
   void _executeCallStatement(RenPyCallStatement stmt) {
@@ -1127,6 +1136,15 @@ class RenPyRunner {
     _currentLabel = null;
     _state = RenPyRunnerState.ready;
     _errorMessage = null;
+  }
+
+  void _complete() {
+    _state = RenPyRunnerState.complete;
+    _flushPersistent();
+  }
+
+  void _flushPersistent() {
+    _persistentStore?.save(_persistent);
   }
 }
 
