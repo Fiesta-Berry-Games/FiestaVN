@@ -136,11 +136,15 @@ final class RenPyError extends RenPyGameStatus {
 
 /// Drives [RenPyRunner] and turns callbacks into [ValueNotifier] updates.
 class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
-  RenPyFlutterController({this.onComplete, this.onDiagnostic})
-    : super(RenPyIdle());
+  RenPyFlutterController({
+    this.onComplete,
+    this.onDiagnostic,
+    this.persistentStore,
+  }) : super(RenPyIdle());
 
   final VoidCallback? onComplete;
   final RenPyDiagnosticCallback? onDiagnostic;
+  final RenPyPersistentStore? persistentStore;
 
   RenPyRunner? _runner;
   StreamSubscription? _ticker;
@@ -185,7 +189,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     );
 
     final runner =
-        RenPyRunner(result.script)
+        RenPyRunner(result.script, persistentStore: persistentStore)
           ..onDialogueEvent = _onDialogueEvent
           ..onMenu = _onMenu
           ..onImageEvent = _onImageEvent

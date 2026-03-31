@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:renfly/main.dart';
 import 'package:renfly/project_picker.dart';
 import 'package:renpy_flutter/renpy_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   final confessionFixture = Directory('assets/games/Confession-1.03-pc/game');
@@ -282,6 +283,7 @@ Future<void> _pumpFreshApp(
   RenPyProjectPicker? projectPicker,
   ValueChanged<RenPyFlutterController>? onGameControllerCreated,
 }) async {
+  SharedPreferences.setMockInitialValues({});
   await tester.pumpWidget(const SizedBox.shrink());
   await tester.pumpAndSettle();
   addTearDown(() async {

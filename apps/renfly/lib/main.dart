@@ -138,14 +138,56 @@ class ExternalGameScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(project.name)),
-      body: RenPyProjectPlayer(
-        project: project,
-        backgroundColor: Colors.grey.shade900,
-        audioPlayback: audioPlayback,
-        onControllerCreated: onControllerCreated,
+      body: _PersistentStoreLoader(
+        storeKey: _persistentStoreKey(project.gameRoot),
+        builder:
+            (context, persistentStore) => RenPyProjectPlayer(
+              project: project,
+              backgroundColor: Colors.grey.shade900,
+              audioPlayback: audioPlayback,
+              onControllerCreated: onControllerCreated,
+              persistentStore: persistentStore,
+            ),
       ),
     );
   }
+}
+
+class _PersistentStoreLoader extends StatefulWidget {
+  const _PersistentStoreLoader({required this.storeKey, required this.builder});
+
+  final String storeKey;
+  final Widget Function(BuildContext context, RenPyPersistentStore store)
+  builder;
+
+  @override
+  State<_PersistentStoreLoader> createState() => _PersistentStoreLoaderState();
+}
+
+class _PersistentStoreLoaderState extends State<_PersistentStoreLoader> {
+  late final Future<RenPyPersistentStore> _store =
+      RenPySharedPreferencesPersistentStore.create(key: widget.storeKey);
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<RenPyPersistentStore>(
+      future: _store,
+      builder: (context, snapshot) {
+        final store = snapshot.data;
+        if (store != null) return widget.builder(context, store);
+
+        final error = snapshot.error;
+        if (error != null) {
+          return Center(child: Text('Failed to load persistent data: $error'));
+        }
+        return const Center(child: CircularProgressIndicator());
+      },
+    );
+  }
+}
+
+String _persistentStoreKey(String identifier) {
+  return 'renfly.persistent.${Uri.encodeComponent(identifier)}';
 }
 
 /// The game screen itself.
@@ -167,11 +209,16 @@ class GameScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(title)),
-      body: RenPyAssetPlayer(
-        scriptAsset: assetPath,
-        backgroundColor: Colors.grey.shade900,
-        audioPlayback: audioPlayback,
-        onControllerCreated: onControllerCreated,
+      body: _PersistentStoreLoader(
+        storeKey: _persistentStoreKey(assetPath),
+        builder:
+            (context, persistentStore) => RenPyAssetPlayer(
+              scriptAsset: assetPath,
+              backgroundColor: Colors.grey.shade900,
+              audioPlayback: audioPlayback,
+              onControllerCreated: onControllerCreated,
+              persistentStore: persistentStore,
+            ),
       ),
     );
   }

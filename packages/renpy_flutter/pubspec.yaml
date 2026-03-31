@@ -12,6 +12,7 @@ dependencies:
     sdk: flutter
   renpy_core:
     path: ../renpy_core
+  shared_preferences: ^2.5.5
 
 dependency_overrides:
   renpy_parser:

@@ -78,6 +78,7 @@ class RenPyAssetPlayer extends StatefulWidget {
     this.gameRoot,
     this.availableAssets,
     this.backgroundColor = const Color(0xFF212121),
+    this.persistentStore,
     this.showRestartButton = true,
     this.imageLayerBuilder,
     this.audioPlayback,
@@ -95,6 +96,7 @@ class RenPyAssetPlayer extends StatefulWidget {
   final RenPyLayerBuilder? imageLayerBuilder;
   final RenPyAudioPlayback? audioPlayback;
   final RenPyLoadingBuilder? loadingBuilder;
+  final RenPyPersistentStore? persistentStore;
   final RenPyLoadErrorBuilder? loadErrorBuilder;
   final ValueChanged<RenPyFlutterController>? onControllerCreated;
 
@@ -114,6 +116,7 @@ class RenPyProjectPlayer extends StatefulWidget {
     this.audioPlayback,
     this.fontRegistrar,
     this.onControllerCreated,
+    this.persistentStore,
   });
 
   final RenPyGameProject project;
@@ -124,6 +127,7 @@ class RenPyProjectPlayer extends StatefulWidget {
   final RenPyAudioPlayback? audioPlayback;
   final RenPyProjectFontRegistrar? fontRegistrar;
   final ValueChanged<RenPyFlutterController>? onControllerCreated;
+  final RenPyPersistentStore? persistentStore;
 
   @override
   State<RenPyProjectPlayer> createState() => _RenPyProjectPlayerState();
@@ -137,7 +141,9 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
   @override
   void initState() {
     super.initState();
-    _controller = RenPyFlutterController();
+    _controller = RenPyFlutterController(
+      persistentStore: widget.persistentStore,
+    );
     widget.onControllerCreated?.call(_controller);
     _configureOwnedAudio();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -272,7 +278,9 @@ class _RenPyAssetPlayerState extends State<RenPyAssetPlayer> {
   @override
   void initState() {
     super.initState();
-    _controller = RenPyFlutterController();
+    _controller = RenPyFlutterController(
+      persistentStore: widget.persistentStore,
+    );
     widget.onControllerCreated?.call(_controller);
     _availableAssets = widget.availableAssets ?? const {};
   }

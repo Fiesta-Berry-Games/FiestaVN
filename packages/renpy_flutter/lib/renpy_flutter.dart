@@ -11,7 +11,11 @@ export 'package:renpy_core/renpy_core.dart'
         RenPyColorValue,
         RenPyResolvedImage;
 export 'package:renpy_core/renpy_core.dart'
-    show RenPyTransitionFidelity, RenPyTransitionIntent, RenPyTransitionType;
+    show
+        RenPyPersistentStore,
+        RenPyTransitionFidelity,
+        RenPyTransitionIntent,
+        RenPyTransitionType;
 export 'package:renpy_core/renpy_core.dart'
     show RenPyGameProject, RenPyProjectFile;
 
@@ -21,3 +25,4 @@ export 'src/renpy_flutter_controller.dart';
 export 'src/renpy_image_layer.dart';
 export 'src/renpy_player.dart';
 export 'src/renpy_text.dart';
+export 'src/renpy_shared_preferences_store.dart';

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:renpy_flutter/renpy_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   test(
@@ -40,6 +41,63 @@ label start:
         isEmpty,
       );
       expect(controller.persistent, {'confession_finished': true});
+    },
+  );
+
+  test(
+    'controller restores persistent values from shared preferences',
+    () async {
+      const key = 'renpy.test.controller.persistent';
+      SharedPreferences.setMockInitialValues({});
+
+      final firstStore = await RenPySharedPreferencesPersistentStore.create(
+        key: key,
+      );
+      final firstController = RenPyFlutterController(
+        persistentStore: firstStore,
+      );
+      addTearDown(firstController.dispose);
+
+      firstController.load('''
+label start:
+    \$ persistent.confession_finished = True
+    "Stored."
+''');
+
+      await _continueUntil(
+        firstController,
+        (status) => status is RenPyDialogue,
+      );
+      expect(firstController.persistent, {'confession_finished': true});
+
+      final secondStore = await RenPySharedPreferencesPersistentStore.create(
+        key: key,
+      );
+      final secondController = RenPyFlutterController(
+        persistentStore: secondStore,
+      );
+      final dialogue = <String>[];
+      addTearDown(secondController.dispose);
+
+      secondController.addListener(() {
+        final status = secondController.value;
+        if (status is RenPyDialogue) dialogue.add(status.text);
+      });
+      secondController.load('''
+label start:
+    if persistent.confession_finished:
+        "Restored."
+    else:
+        "Missing."
+''');
+
+      await _continueUntil(
+        secondController,
+        (status) => status is RenPyDialogue,
+      );
+
+      expect(secondController.persistent, {'confession_finished': true});
+      expect(dialogue, ['Restored.']);
     },
   );
 
