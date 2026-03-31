@@ -16,4 +16,5 @@ export 'renpy_transition_event.dart';
 export 'renpy_transition_intent.dart';
 export 'renpy_transition_resolver.dart';
 export 'renpy_runner.dart';
+export 'renpy_runner_snapshot.dart';
 export 'package:renpy_parser/renpy_parser.dart';

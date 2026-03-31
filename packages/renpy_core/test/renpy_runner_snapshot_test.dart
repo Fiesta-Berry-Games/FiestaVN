@@ -1,0 +1,124 @@
+import 'package:renpy_core/renpy_core.dart';
+import 'package:test/test.dart';
+
+void main() {
+  test('runner restores execution state from a dialogue boundary', () {
+    final script =
+        RenPyParser().parse('''
+define e = Character("Eileen", color="#c8ffc8")
+
+label start:
+    \$ route = "good"
+    \$ persistent.confession_finished = True
+    e "Before save."
+
+    if route == "good":
+        e "Route restored."
+    else:
+        e "Route lost."
+
+    if persistent.confession_finished:
+        "Persistent restored."
+    else:
+        "Persistent lost."
+''', 'snapshot.rpy').script;
+    final firstRunner = RenPyRunner(script);
+    final firstDialogue = <RenPyDialogueEvent>[];
+
+    firstRunner.onDialogueEvent = firstDialogue.add;
+    firstRunner.jumpToLabel('start');
+    firstRunner.run();
+
+    expect(firstDialogue.single.displayName, 'Eileen');
+    expect(firstDialogue.single.color, '#c8ffc8');
+    expect(firstDialogue.single.text, 'Before save.');
+    expect(firstRunner.state, RenPyRunnerState.waitingForInput);
+
+    final snapshot = RenPyRunnerSnapshot.fromJson(
+      firstRunner.snapshot().toJson(),
+    );
+    final restoredRunner = RenPyRunner(script);
+    final restoredDialogue = <RenPyDialogueEvent>[];
+
+    restoredRunner.onDialogueEvent = restoredDialogue.add;
+    restoredRunner.restoreSnapshot(snapshot);
+    restoredRunner.continueExecution();
+
+    expect(restoredDialogue.single.displayName, 'Eileen');
+    expect(restoredDialogue.single.color, '#c8ffc8');
+    expect(restoredDialogue.single.text, 'Route restored.');
+    expect(restoredRunner.persistent, {'confession_finished': true});
+
+    final branchSnapshot = RenPyRunnerSnapshot.fromJson(
+      restoredRunner.snapshot().toJson(),
+    );
+    final branchRunner = RenPyRunner(script);
+    final branchDialogue = <RenPyDialogueEvent>[];
+
+    branchRunner.onDialogueEvent = branchDialogue.add;
+    branchRunner.restoreSnapshot(branchSnapshot);
+    branchRunner.continueExecution();
+
+    expect(branchDialogue.single.text, 'Persistent restored.');
+  });
+
+  test(
+    'runner restores menu state and executes choices on the restored runner',
+    () {
+      final script =
+          RenPyParser().parse('''
+label start:
+    menu:
+        "Take the left path":
+            "Left restored."
+        "Take the right path":
+            "Right restored."
+
+    "After menu."
+''', 'snapshot_menu.rpy').script;
+      final firstRunner = RenPyRunner(script);
+      late List<String> firstChoices;
+
+      firstRunner.onMenu = (choices, onChoice, caption) {
+        firstChoices = choices;
+      };
+      firstRunner.jumpToLabel('start');
+      firstRunner.run();
+
+      expect(firstChoices, ['Take the left path', 'Take the right path']);
+      expect(firstRunner.state, RenPyRunnerState.waitingForInput);
+
+      final restoredRunner = RenPyRunner(script);
+      final restoredDialogue = <String>[];
+      late List<String> restoredChoices;
+      late void Function(int) choose;
+
+      restoredRunner.onMenu = (choices, onChoice, caption) {
+        restoredChoices = choices;
+        choose = onChoice;
+      };
+      restoredRunner.onDialogue =
+          (character, text) => restoredDialogue.add(text);
+      restoredRunner.restoreSnapshot(firstRunner.snapshot());
+      restoredRunner.continueExecution();
+
+      expect(restoredChoices, ['Take the left path', 'Take the right path']);
+
+      choose(1);
+
+      expect(restoredDialogue, ['Right restored.']);
+
+      final choiceSnapshot = RenPyRunnerSnapshot.fromJson(
+        restoredRunner.snapshot().toJson(),
+      );
+      final choiceRunner = RenPyRunner(script);
+      final choiceDialogue = <String>[];
+
+      choiceRunner.onDialogue = (character, text) => choiceDialogue.add(text);
+      choiceRunner.restoreSnapshot(choiceSnapshot);
+      choiceRunner.continueExecution();
+
+      expect(choiceDialogue, ['After menu.']);
+    },
+  );
+}

@@ -10,6 +10,7 @@ import 'renpy_persistent_store.dart';
 import 'renpy_transition_event.dart';
 import 'renpy_transition_intent.dart';
 import 'renpy_transition_resolver.dart';
+import 'renpy_runner_snapshot.dart';
 
 enum _ExecutionContextKind { block, labelFallthrough, call }
 
@@ -1071,6 +1072,80 @@ class RenPyRunner {
     }
   }
 
+  /// Captures enough execution state to resume this runner later.
+  RenPyRunnerSnapshot snapshot() {
+    return RenPyRunnerSnapshot(
+      state: _state.name,
+      currentLabel: _currentLabel,
+      currentBlockPath: _pathForBlock(_currentBlock),
+      position: _position,
+      stack:
+          _stack
+              .map(
+                (context) => RenPyRunnerSnapshotStackFrame(
+                  blockPath: _pathForBlock(context.block),
+                  position: context.position,
+                  kind: context.kind.name,
+                ),
+              )
+              .toList(),
+      variables: Map<String, dynamic>.of(_variables),
+      persistent: Map<String, dynamic>.of(_persistent),
+      characters: _snapshotCharacters(),
+      lastDialogue: _snapshotDialogue(_lastDialogueEvent),
+      pendingDialogue:
+          _pendingDialogue == null
+              ? null
+              : RenPyRunnerSnapshotPendingDialogue(
+                event: _snapshotDialogue(_pendingDialogue!.event)!,
+                searchStart: _pendingDialogue!.searchStart,
+              ),
+      errorMessage: _errorMessage,
+    );
+  }
+
+  /// Restores a snapshot captured from an equivalent parsed script.
+  void restoreSnapshot(RenPyRunnerSnapshot snapshot) {
+    _stack
+      ..clear()
+      ..addAll(
+        snapshot.stack.map(
+          (frame) => _ExecutionContext(
+            _blockForPath(frame.blockPath),
+            frame.position,
+            _contextKindFor(frame.kind),
+          ),
+        ),
+      );
+    _currentBlock = _blockForPath(snapshot.currentBlockPath);
+    _position = snapshot.position;
+    _currentLabel = snapshot.currentLabel;
+    _state = _runnerStateFor(snapshot.state);
+    _errorMessage = snapshot.errorMessage;
+    _variables
+      ..clear()
+      ..addAll(snapshot.variables);
+    _persistent
+      ..clear()
+      ..addAll(snapshot.persistent);
+    _characters
+      ..clear()
+      ..addAll(
+        snapshot.characters.map(
+          (name, values) => MapEntry(name, Map<String, dynamic>.of(values)),
+        ),
+      );
+    _lastDialogueEvent = snapshot.lastDialogue?.toDialogueEvent();
+    _pendingDialogue =
+        snapshot.pendingDialogue == null
+            ? null
+            : _PendingDialogue(
+              snapshot.pendingDialogue!.event.toDialogueEvent(),
+              snapshot.pendingDialogue!.searchStart,
+            );
+    _flushPersistent();
+  }
+
   /// Jump to a specific label.
   void jumpToLabel(String label) {
     final context = _findLabelContext(label);
@@ -1125,6 +1200,149 @@ class RenPyRunner {
         _stack.last.kind != _ExecutionContextKind.call) {
       _stack.removeLast();
     }
+  }
+
+  RenPyRunnerState _runnerStateFor(String name) {
+    return RenPyRunnerState.values.firstWhere(
+      (state) => state.name == name,
+      orElse: () => throw ArgumentError.value(name, 'snapshot.state'),
+    );
+  }
+
+  _ExecutionContextKind _contextKindFor(String name) {
+    return _ExecutionContextKind.values.firstWhere(
+      (kind) => kind.name == name,
+      orElse: () => throw ArgumentError.value(name, 'snapshot.stack.kind'),
+    );
+  }
+
+  List<RenPyRunnerBlockPathSegment> _pathForBlock(List<RenPyStatement> target) {
+    if (identical(target, script.statements)) {
+      return const <RenPyRunnerBlockPathSegment>[];
+    }
+
+    final path = _findBlockPath(
+      target,
+      script.statements,
+      const <RenPyRunnerBlockPathSegment>[],
+    );
+    if (path == null) {
+      throw StateError('Unable to snapshot an execution block outside script.');
+    }
+    return path;
+  }
+
+  List<RenPyRunnerBlockPathSegment>? _findBlockPath(
+    List<RenPyStatement> target,
+    List<RenPyStatement> block,
+    List<RenPyRunnerBlockPathSegment> prefix,
+  ) {
+    for (var index = 0; index < block.length; index += 1) {
+      final statement = block[index];
+
+      if (statement is RenPyIfStatement) {
+        for (
+          var entryIndex = 0;
+          entryIndex < statement.entries.length;
+          entryIndex += 1
+        ) {
+          final childPath = <RenPyRunnerBlockPathSegment>[
+            ...prefix,
+            RenPyRunnerBlockPathSegment(
+              statementIndex: index,
+              branch: RenPyRunnerBlockPathBranch.ifEntry,
+              childIndex: entryIndex,
+            ),
+          ];
+          final childBlock = statement.entries[entryIndex].block;
+          if (identical(target, childBlock)) return childPath;
+          final nested = _findBlockPath(target, childBlock, childPath);
+          if (nested != null) return nested;
+        }
+        continue;
+      }
+
+      if (statement is RenPyMenuStatement) {
+        for (
+          var choiceIndex = 0;
+          choiceIndex < statement.items.length;
+          choiceIndex += 1
+        ) {
+          final childPath = <RenPyRunnerBlockPathSegment>[
+            ...prefix,
+            RenPyRunnerBlockPathSegment(
+              statementIndex: index,
+              branch: RenPyRunnerBlockPathBranch.menuChoice,
+              childIndex: choiceIndex,
+            ),
+          ];
+          final childBlock = statement.items[choiceIndex].block;
+          if (identical(target, childBlock)) return childPath;
+          final nested = _findBlockPath(target, childBlock, childPath);
+          if (nested != null) return nested;
+        }
+        continue;
+      }
+
+      if (statement is RenPyBlockStatement) {
+        final childPath = <RenPyRunnerBlockPathSegment>[
+          ...prefix,
+          RenPyRunnerBlockPathSegment(
+            statementIndex: index,
+            branch: RenPyRunnerBlockPathBranch.block,
+          ),
+        ];
+        if (identical(target, statement.block)) return childPath;
+        final nested = _findBlockPath(target, statement.block, childPath);
+        if (nested != null) return nested;
+      }
+    }
+    return null;
+  }
+
+  List<RenPyStatement> _blockForPath(List<RenPyRunnerBlockPathSegment> path) {
+    var block = script.statements;
+    for (final segment in path) {
+      if (segment.statementIndex < 0 ||
+          segment.statementIndex >= block.length) {
+        throw StateError('Invalid runner snapshot block path.');
+      }
+      final statement = block[segment.statementIndex];
+      switch (segment.branch) {
+        case RenPyRunnerBlockPathBranch.block:
+          if (statement is! RenPyBlockStatement) {
+            throw StateError('Snapshot path expected a block statement.');
+          }
+          block = statement.block;
+        case RenPyRunnerBlockPathBranch.ifEntry:
+          if (statement is! RenPyIfStatement ||
+              segment.childIndex == null ||
+              segment.childIndex! < 0 ||
+              segment.childIndex! >= statement.entries.length) {
+            throw StateError('Snapshot path expected an if entry.');
+          }
+          block = statement.entries[segment.childIndex!].block;
+        case RenPyRunnerBlockPathBranch.menuChoice:
+          if (statement is! RenPyMenuStatement ||
+              segment.childIndex == null ||
+              segment.childIndex! < 0 ||
+              segment.childIndex! >= statement.items.length) {
+            throw StateError('Snapshot path expected a menu choice.');
+          }
+          block = statement.items[segment.childIndex!].block;
+      }
+    }
+    return block;
+  }
+
+  Map<String, Map<String, dynamic>> _snapshotCharacters() {
+    return _characters.map(
+      (name, values) => MapEntry(name, Map<String, dynamic>.of(values)),
+    );
+  }
+
+  RenPyRunnerSnapshotDialogue? _snapshotDialogue(RenPyDialogueEvent? event) {
+    return event == null ? null : RenPyRunnerSnapshotDialogue.fromEvent(event);
   }
 
   /// Reset the runner to the beginning.
