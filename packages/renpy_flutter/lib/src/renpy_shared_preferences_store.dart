@@ -46,3 +46,50 @@ final class RenPySharedPreferencesPersistentStore
     unawaited(_preferences.setString(key, jsonEncode(values)));
   }
 }
+
+/// Stores serialized runner snapshots in Flutter's platform preferences.
+final class RenPySharedPreferencesSnapshotStore
+    implements RenPyRunnerSnapshotStore {
+  RenPySharedPreferencesSnapshotStore(
+    this._preferences, {
+    this.key = defaultKey,
+  });
+
+  static const defaultKey = 'renpy.snapshot';
+
+  final SharedPreferences _preferences;
+  final String key;
+
+  static Future<RenPySharedPreferencesSnapshotStore> create({
+    String key = defaultKey,
+  }) async {
+    return RenPySharedPreferencesSnapshotStore(
+      await SharedPreferences.getInstance(),
+      key: key,
+    );
+  }
+
+  @override
+  Future<RenPyRunnerSnapshot?> load() async {
+    final encoded = _preferences.getString(key);
+    if (encoded == null || encoded.isEmpty) return null;
+
+    try {
+      final decoded = jsonDecode(encoded);
+      if (decoded is! Map) return null;
+      return RenPyRunnerSnapshot.fromJson(Map<String, Object?>.from(decoded));
+    } on FormatException {
+      return null;
+    }
+  }
+
+  @override
+  Future<void> save(RenPyRunnerSnapshot snapshot) async {
+    await _preferences.setString(key, jsonEncode(snapshot.toJson()));
+  }
+
+  @override
+  Future<void> clear() async {
+    await _preferences.remove(key);
+  }
+}

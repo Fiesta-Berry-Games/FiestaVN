@@ -11,8 +11,16 @@ export 'package:renpy_core/renpy_core.dart'
         RenPyColorValue,
         RenPyResolvedImage;
 export 'package:renpy_core/renpy_core.dart'
+    show RenPyPersistentStore, RenPyRunnerSnapshotStore;
+export 'package:renpy_core/renpy_core.dart'
     show
-        RenPyPersistentStore,
+        RenPyMemoryRunnerSnapshotStore,
+        RenPyRunnerBlockPathBranch,
+        RenPyRunnerBlockPathSegment,
+        RenPyRunnerSnapshot,
+        RenPyRunnerSnapshotDialogue,
+        RenPyRunnerSnapshotPendingDialogue,
+        RenPyRunnerSnapshotStackFrame,
         RenPyTransitionFidelity,
         RenPyTransitionIntent,
         RenPyTransitionType;

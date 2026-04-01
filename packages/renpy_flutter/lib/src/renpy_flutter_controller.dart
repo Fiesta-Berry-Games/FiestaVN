@@ -140,11 +140,13 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     this.onComplete,
     this.onDiagnostic,
     this.persistentStore,
+    this.snapshotStore,
   }) : super(RenPyIdle());
 
   final VoidCallback? onComplete;
   final RenPyDiagnosticCallback? onDiagnostic;
   final RenPyPersistentStore? persistentStore;
+  final RenPyRunnerSnapshotStore? snapshotStore;
 
   RenPyRunner? _runner;
   StreamSubscription? _ticker;
@@ -157,6 +159,8 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   List<RenPyDiagnostic> get diagnostics => List.unmodifiable(_diagnostics);
 
   Map<String, dynamic> get persistent => _runner?.persistent ?? const {};
+
+  bool get hasSnapshotStore => snapshotStore != null;
 
   /// Loads a `.rpy` script and immediately jumps to `start` when present.
   ///
@@ -188,16 +192,8 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       'Parsed script with ${result.script.statements.length} statements',
     );
 
-    final runner =
-        RenPyRunner(result.script, persistentStore: persistentStore)
-          ..onDialogueEvent = _onDialogueEvent
-          ..onMenu = _onMenu
-          ..onImageEvent = _onImageEvent
-          ..onImageDefinition = _onImageDefinition
-          ..onAudio = _onAudio
-          ..onTransition = _onTransition
-          ..onPause = _onPause
-          ..onDiagnostic = _emitDiagnostic;
+    final runner = RenPyRunner(result.script, persistentStore: persistentStore)
+      ..configureCallbacks(this);
     _runner = runner;
 
     if (result.script.findLabel('start') != null) {
@@ -222,6 +218,69 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       _pauseTimer = null;
       runner.continueExecution();
       _ticker?.resume();
+    }
+  }
+
+  Future<bool> saveGame() async {
+    final store = snapshotStore;
+    final runner = _runner;
+    if (store == null || runner == null) return false;
+    if (runner.state != RenPyRunnerState.waitingForInput) return false;
+
+    await store.save(runner.snapshot());
+    return true;
+  }
+
+  Future<bool> loadSavedGame() async {
+    final store = snapshotStore;
+    final runner = _runner;
+    if (store == null || runner == null) return false;
+
+    final snapshot = await store.load();
+    if (snapshot == null) return false;
+
+    restoreSnapshot(snapshot);
+    return true;
+  }
+
+  void restoreSnapshot(RenPyRunnerSnapshot snapshot) {
+    final runner = _runner;
+    if (runner == null) return;
+
+    _pauseTimer?.cancel();
+    _pauseTimer = null;
+    _ticker?.pause();
+
+    runner.restoreSnapshot(snapshot);
+    _presentRestoredRunner(snapshot, runner);
+  }
+
+  void _presentRestoredRunner(
+    RenPyRunnerSnapshot snapshot,
+    RenPyRunner runner,
+  ) {
+    switch (runner.state) {
+      case RenPyRunnerState.waitingForInput:
+        if (runner.isWaitingAtMenu) {
+          runner.continueExecution();
+          return;
+        }
+
+        final dialogue = snapshot.lastDialogue?.toDialogueEvent();
+        if (dialogue != null) {
+          _onDialogueEvent(dialogue);
+          _ticker?.pause();
+          return;
+        }
+
+        value = const RenPyPause();
+      case RenPyRunnerState.complete:
+        value = RenPyComplete();
+      case RenPyRunnerState.error:
+        value = RenPyError(runner.errorMessage ?? 'Unknown error');
+      case RenPyRunnerState.ready || RenPyRunnerState.running:
+        _ticker?.resume();
+        runner.run();
     }
   }
 
@@ -425,5 +484,18 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     _ticker?.cancel();
     _pauseTimer?.cancel();
     super.dispose();
+  }
+}
+
+extension on RenPyRunner {
+  void configureCallbacks(RenPyFlutterController controller) {
+    onDialogueEvent = controller._onDialogueEvent;
+    onMenu = controller._onMenu;
+    onImageEvent = controller._onImageEvent;
+    onImageDefinition = controller._onImageDefinition;
+    onAudio = controller._onAudio;
+    onTransition = controller._onTransition;
+    onPause = controller._onPause;
+    onDiagnostic = controller._emitDiagnostic;
   }
 }

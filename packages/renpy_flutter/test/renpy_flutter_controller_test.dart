@@ -101,6 +101,117 @@ label start:
     },
   );
 
+  test('controller saves and loads dialogue snapshots', () async {
+    const key = 'renpy.test.controller.snapshot.dialogue';
+    SharedPreferences.setMockInitialValues({});
+
+    final firstStore = await RenPySharedPreferencesSnapshotStore.create(
+      key: key,
+    );
+    final firstController = RenPyFlutterController(snapshotStore: firstStore);
+    addTearDown(firstController.dispose);
+
+    firstController.load('''
+label start:
+    "First."
+    "Second."
+    "Third."
+''');
+
+    await _continueUntil(
+      firstController,
+      (status) => status is RenPyDialogue && status.text == 'First.',
+    );
+    firstController.continueGame();
+    await _continueUntil(
+      firstController,
+      (status) => status is RenPyDialogue && status.text == 'Second.',
+    );
+
+    expect(await firstController.saveGame(), isTrue);
+
+    final secondStore = await RenPySharedPreferencesSnapshotStore.create(
+      key: key,
+    );
+    final secondController = RenPyFlutterController(snapshotStore: secondStore);
+    addTearDown(secondController.dispose);
+
+    secondController.load('''
+label start:
+    "First."
+    "Second."
+    "Third."
+''');
+
+    await _continueUntil(
+      secondController,
+      (status) => status is RenPyDialogue && status.text == 'First.',
+    );
+
+    expect(await secondController.loadSavedGame(), isTrue);
+    expect((secondController.value as RenPyDialogue).text, 'Second.');
+
+    secondController.continueGame();
+    await _continueUntil(
+      secondController,
+      (status) => status is RenPyDialogue && status.text == 'Third.',
+    );
+  });
+
+  test('controller saves and loads menu snapshots', () async {
+    const key = 'renpy.test.controller.snapshot.menu';
+    SharedPreferences.setMockInitialValues({});
+
+    final firstStore = await RenPySharedPreferencesSnapshotStore.create(
+      key: key,
+    );
+    final firstController = RenPyFlutterController(snapshotStore: firstStore);
+    addTearDown(firstController.dispose);
+
+    firstController.load('''
+label start:
+    menu:
+        "Left":
+            "Left ending."
+        "Right":
+            "Right ending."
+''');
+
+    await _continueUntil(firstController, (status) => status is RenPyMenu);
+    expect(await firstController.saveGame(), isTrue);
+
+    final secondStore = await RenPySharedPreferencesSnapshotStore.create(
+      key: key,
+    );
+    final secondController = RenPyFlutterController(snapshotStore: secondStore);
+    addTearDown(secondController.dispose);
+    final dialogue = <String>[];
+    secondController.addListener(() {
+      final status = secondController.value;
+      if (status is RenPyDialogue) dialogue.add(status.text);
+    });
+
+    secondController.load('''
+label start:
+    menu:
+        "Left":
+            "Left ending."
+        "Right":
+            "Right ending."
+''');
+
+    expect(await secondController.loadSavedGame(), isTrue);
+    final menu = secondController.value as RenPyMenu;
+    expect(menu.choices, ['Left', 'Right']);
+
+    menu.onChoice(1);
+    await _continueUntil(
+      secondController,
+      (status) => status is RenPyDialogue && status.text == 'Right ending.',
+    );
+    expect(dialogue, ['Right ending.']);
+  });
+
   test('controller treats available audio assets case-insensitively', () async {
     final controller = RenPyFlutterController();
     addTearDown(controller.dispose);

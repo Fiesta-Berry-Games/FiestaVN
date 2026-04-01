@@ -43,4 +43,36 @@ void main() {
       expect(restored.load(), {'finished': true, 'route': 'good'});
     },
   );
+
+  test(
+    'snapshot store round-trips snapshots through shared preferences',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final store = await RenPySharedPreferencesSnapshotStore.create(
+        key: 'renpy.test.snapshot',
+      );
+      const snapshot = RenPyRunnerSnapshot(
+        state: 'waitingForInput',
+        currentLabel: 'start',
+        currentBlockPath: [
+          RenPyRunnerBlockPathSegment(
+            statementIndex: 0,
+            branch: RenPyRunnerBlockPathBranch.block,
+          ),
+        ],
+        position: 1,
+        stack: [],
+        variables: {'route': 'good'},
+        persistent: {'finished': true},
+        characters: {},
+        lastDialogue: RenPyRunnerSnapshotDialogue(text: 'Saved.'),
+      );
+
+      await store.save(snapshot);
+
+      final restored = await store.load();
+
+      expect(restored?.toJson(), snapshot.toJson());
+    },
+  );
 }

@@ -166,6 +166,12 @@ class RenPyRunner {
   String? _errorMessage;
   String? get errorMessage => _errorMessage;
 
+  bool get isWaitingAtMenu =>
+      _state == RenPyRunnerState.waitingForInput &&
+      _pendingDialogue == null &&
+      _position < _currentBlock.length &&
+      _currentBlock[_position] is RenPyMenuStatement;
+
   RenPyRunner(this.script, {RenPyPersistentStore? persistentStore})
     : _persistentStore = persistentStore,
       _persistent = Map<String, dynamic>.of(

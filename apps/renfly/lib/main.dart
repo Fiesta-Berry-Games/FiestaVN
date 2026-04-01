@@ -139,14 +139,15 @@ class ExternalGameScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: Text(project.name)),
       body: _PersistentStoreLoader(
-        storeKey: _persistentStoreKey(project.gameRoot),
+        identifier: project.gameRoot,
         builder:
-            (context, persistentStore) => RenPyProjectPlayer(
+            (context, stores) => RenPyProjectPlayer(
               project: project,
               backgroundColor: Colors.grey.shade900,
               audioPlayback: audioPlayback,
               onControllerCreated: onControllerCreated,
-              persistentStore: persistentStore,
+              persistentStore: stores.persistent,
+              snapshotStore: stores.snapshot,
             ),
       ),
     );
@@ -154,31 +155,49 @@ class ExternalGameScreen extends StatelessWidget {
 }
 
 class _PersistentStoreLoader extends StatefulWidget {
-  const _PersistentStoreLoader({required this.storeKey, required this.builder});
+  const _PersistentStoreLoader({
+    required this.identifier,
+    required this.builder,
+  });
 
-  final String storeKey;
-  final Widget Function(BuildContext context, RenPyPersistentStore store)
-  builder;
+  final String identifier;
+  final Widget Function(BuildContext context, _GameStores stores) builder;
 
   @override
   State<_PersistentStoreLoader> createState() => _PersistentStoreLoaderState();
 }
 
+final class _GameStores {
+  const _GameStores({required this.persistent, required this.snapshot});
+
+  final RenPyPersistentStore persistent;
+  final RenPyRunnerSnapshotStore snapshot;
+}
+
 class _PersistentStoreLoaderState extends State<_PersistentStoreLoader> {
-  late final Future<RenPyPersistentStore> _store =
-      RenPySharedPreferencesPersistentStore.create(key: widget.storeKey);
+  late final Future<_GameStores> _stores = _loadStores();
+
+  Future<_GameStores> _loadStores() async {
+    final persistentStore = await RenPySharedPreferencesPersistentStore.create(
+      key: _persistentStoreKey(widget.identifier),
+    );
+    final snapshotStore = await RenPySharedPreferencesSnapshotStore.create(
+      key: _snapshotStoreKey(widget.identifier),
+    );
+    return _GameStores(persistent: persistentStore, snapshot: snapshotStore);
+  }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<RenPyPersistentStore>(
-      future: _store,
+    return FutureBuilder<_GameStores>(
+      future: _stores,
       builder: (context, snapshot) {
-        final store = snapshot.data;
-        if (store != null) return widget.builder(context, store);
+        final stores = snapshot.data;
+        if (stores != null) return widget.builder(context, stores);
 
         final error = snapshot.error;
         if (error != null) {
-          return Center(child: Text('Failed to load persistent data: $error'));
+          return Center(child: Text('Failed to load game data: $error'));
         }
         return const Center(child: CircularProgressIndicator());
       },
@@ -188,6 +207,10 @@ class _PersistentStoreLoaderState extends State<_PersistentStoreLoader> {
 
 String _persistentStoreKey(String identifier) {
   return 'renfly.persistent.${Uri.encodeComponent(identifier)}';
+}
+
+String _snapshotStoreKey(String identifier) {
+  return 'renfly.snapshot.${Uri.encodeComponent(identifier)}';
 }
 
 /// The game screen itself.
@@ -210,14 +233,15 @@ class GameScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: Text(title)),
       body: _PersistentStoreLoader(
-        storeKey: _persistentStoreKey(assetPath),
+        identifier: assetPath,
         builder:
-            (context, persistentStore) => RenPyAssetPlayer(
+            (context, stores) => RenPyAssetPlayer(
               scriptAsset: assetPath,
               backgroundColor: Colors.grey.shade900,
               audioPlayback: audioPlayback,
               onControllerCreated: onControllerCreated,
-              persistentStore: persistentStore,
+              persistentStore: stores.persistent,
+              snapshotStore: stores.snapshot,
             ),
       ),
     );

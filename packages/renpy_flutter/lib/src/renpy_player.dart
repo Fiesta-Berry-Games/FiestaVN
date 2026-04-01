@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:renpy_core/renpy_core.dart';
@@ -36,6 +38,25 @@ class RenPyPlayer extends StatelessWidget {
   final String gameRoot;
   final RenPyAudioPlayback? audioPlayback;
 
+  Future<void> _saveGame(BuildContext context) async {
+    final saved = await controller.saveGame();
+    if (!context.mounted) return;
+    _showSnackBar(context, saved ? 'Game saved.' : 'Nothing to save.');
+  }
+
+  Future<void> _loadGame(BuildContext context) async {
+    final loaded = await controller.loadSavedGame();
+    if (!context.mounted) return;
+    _showSnackBar(context, loaded ? 'Game loaded.' : 'No saved game.');
+  }
+
+  void _showSnackBar(BuildContext context, String message) {
+    if (Scaffold.maybeOf(context) == null) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+    messenger.showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Stack(
@@ -54,14 +75,38 @@ class RenPyPlayer extends StatelessWidget {
         RenPyPauseView(controller: controller),
         RenPyDialogueView(controller: controller),
         RenPyMenuSelector(controller: controller),
-        if (showRestartButton && onRestart != null)
+        if ((showRestartButton && onRestart != null) ||
+            controller.hasSnapshotStore)
           PositionedDirectional(
             end: 16,
             bottom: 16,
-            child: FloatingActionButton(
-              tooltip: 'Restart',
-              onPressed: onRestart,
-              child: const Icon(Icons.refresh),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (controller.hasSnapshotStore) ...[
+                  FloatingActionButton.small(
+                    tooltip: 'Save',
+                    heroTag: null,
+                    onPressed: () => unawaited(_saveGame(context)),
+                    child: const Icon(Icons.save),
+                  ),
+                  const SizedBox(height: 8),
+                  FloatingActionButton.small(
+                    tooltip: 'Load',
+                    heroTag: null,
+                    onPressed: () => unawaited(_loadGame(context)),
+                    child: const Icon(Icons.folder_open),
+                  ),
+                ],
+                if (showRestartButton && onRestart != null) ...[
+                  if (controller.hasSnapshotStore) const SizedBox(height: 8),
+                  FloatingActionButton(
+                    tooltip: 'Restart',
+                    onPressed: onRestart,
+                    child: const Icon(Icons.refresh),
+                  ),
+                ],
+              ],
             ),
           ),
       ],
@@ -79,6 +124,7 @@ class RenPyAssetPlayer extends StatefulWidget {
     this.availableAssets,
     this.backgroundColor = const Color(0xFF212121),
     this.persistentStore,
+    this.snapshotStore,
     this.showRestartButton = true,
     this.imageLayerBuilder,
     this.audioPlayback,
@@ -94,6 +140,7 @@ class RenPyAssetPlayer extends StatefulWidget {
   final Color backgroundColor;
   final bool showRestartButton;
   final RenPyLayerBuilder? imageLayerBuilder;
+  final RenPyRunnerSnapshotStore? snapshotStore;
   final RenPyAudioPlayback? audioPlayback;
   final RenPyLoadingBuilder? loadingBuilder;
   final RenPyPersistentStore? persistentStore;
@@ -117,6 +164,7 @@ class RenPyProjectPlayer extends StatefulWidget {
     this.fontRegistrar,
     this.onControllerCreated,
     this.persistentStore,
+    this.snapshotStore,
   });
 
   final RenPyGameProject project;
@@ -128,6 +176,7 @@ class RenPyProjectPlayer extends StatefulWidget {
   final RenPyProjectFontRegistrar? fontRegistrar;
   final ValueChanged<RenPyFlutterController>? onControllerCreated;
   final RenPyPersistentStore? persistentStore;
+  final RenPyRunnerSnapshotStore? snapshotStore;
 
   @override
   State<RenPyProjectPlayer> createState() => _RenPyProjectPlayerState();
@@ -143,6 +192,7 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
     super.initState();
     _controller = RenPyFlutterController(
       persistentStore: widget.persistentStore,
+      snapshotStore: widget.snapshotStore,
     );
     widget.onControllerCreated?.call(_controller);
     _configureOwnedAudio();
@@ -280,6 +330,7 @@ class _RenPyAssetPlayerState extends State<RenPyAssetPlayer> {
     super.initState();
     _controller = RenPyFlutterController(
       persistentStore: widget.persistentStore,
+      snapshotStore: widget.snapshotStore,
     );
     widget.onControllerCreated?.call(_controller);
     _availableAssets = widget.availableAssets ?? const {};

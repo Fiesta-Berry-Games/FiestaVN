@@ -236,3 +236,32 @@ List<Object?> _listFromJson(Object? value) =>
 Map<String, Object?> _mapFromJson(Object? value) {
   return Map<String, Object?>.from(value! as Map);
 }
+
+abstract interface class RenPyRunnerSnapshotStore {
+  Future<RenPyRunnerSnapshot?> load();
+
+  Future<void> save(RenPyRunnerSnapshot snapshot);
+
+  Future<void> clear();
+}
+
+final class RenPyMemoryRunnerSnapshotStore implements RenPyRunnerSnapshotStore {
+  RenPyRunnerSnapshot? _snapshot;
+
+  @override
+  Future<RenPyRunnerSnapshot?> load() async {
+    final snapshot = _snapshot;
+    if (snapshot == null) return null;
+    return RenPyRunnerSnapshot.fromJson(snapshot.toJson());
+  }
+
+  @override
+  Future<void> save(RenPyRunnerSnapshot snapshot) async {
+    _snapshot = RenPyRunnerSnapshot.fromJson(snapshot.toJson());
+  }
+
+  @override
+  Future<void> clear() async {
+    _snapshot = null;
+  }
+}

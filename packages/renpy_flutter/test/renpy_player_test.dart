@@ -71,6 +71,49 @@ label start:
     expect(find.text('Second.'), findsNothing);
   });
 
+  testWidgets('asset player save and load buttons restore snapshots', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    "First."
+    "Second."
+    "Third."
+''',
+    });
+    final snapshotStore = RenPyMemoryRunnerSnapshotStore();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+          snapshotStore: snapshotStore,
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('First.'));
+    expect(find.byTooltip('Save'), findsOneWidget);
+    expect(find.byTooltip('Load'), findsOneWidget);
+
+    await tester.tap(find.text('First.'));
+    await _pumpUntil(tester, find.text('Second.'));
+    await tester.tap(find.byTooltip('Save'));
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('Restart'));
+    await _pumpUntil(tester, find.text('First.'));
+
+    await tester.tap(find.byTooltip('Load'));
+    await _pumpUntil(tester, find.text('Second.'));
+
+    await tester.tap(find.text('Second.'));
+    await _pumpUntil(tester, find.text('Third.'));
+  });
+
   testWidgets('asset player supports a custom image layer', (tester) async {
     final bundle = _MemoryAssetBundle({
       'assets/game/script.rpy': '''
