@@ -160,6 +160,8 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   final Map<String, RenPyImagePlacement> _spritePlacements = {};
   final Map<String, String> _audioSnapshots = {};
 
+  final List<RenPyRunnerSnapshot> _rollbackHistory = [];
+
   static const _defaultSpritePlacement = RenPyImagePlacement.position(
     xpos: 0.5,
     xanchor: 0.5,
@@ -168,9 +170,13 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   );
   List<RenPyDiagnostic> get diagnostics => List.unmodifiable(_diagnostics);
 
+  static const _rollbackHistoryLimit = 100;
+
   Map<String, dynamic> get persistent => _runner?.persistent ?? const {};
 
   bool get hasSnapshotStore => snapshotStore != null;
+
+  bool get canRollback => _rollbackHistory.isNotEmpty;
 
   /// Loads a `.rpy` script and immediately jumps to `start` when present.
   ///
@@ -188,6 +194,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     _diagnostics.clear();
     _gameRoot = gameRoot;
     _availableAssets = availableAssets;
+    _rollbackHistory.clear();
     value = RenPyIdle();
     _clearPresentationSnapshot();
 
@@ -227,6 +234,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       debugPrint('Continuing game execution...');
       _pauseTimer?.cancel();
       _pauseTimer = null;
+      _recordRollbackBoundary(runner);
       runner.continueExecution();
       _ticker?.resume();
     }
@@ -256,7 +264,19 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     return true;
   }
 
+  bool rollback() {
+    if (_rollbackHistory.isEmpty) return false;
+    final snapshot = _rollbackHistory.removeLast();
+    _restoreSnapshot(snapshot);
+    return true;
+  }
+
   void restoreSnapshot(RenPyRunnerSnapshot snapshot) {
+    _rollbackHistory.clear();
+    _restoreSnapshot(snapshot);
+  }
+
+  void _restoreSnapshot(RenPyRunnerSnapshot snapshot) {
     final runner = _runner;
     if (runner == null) return;
 
@@ -352,6 +372,8 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     _ticker?.pause();
     value = RenPyMenu(choices, (i) {
       debugPrint('Menu choice selected: ${choices[i]}');
+      final runner = _runner;
+      if (runner != null) _recordRollbackBoundary(runner);
       onChoice(i);
       _ticker?.resume();
     }, caption: caption);
@@ -448,6 +470,16 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   void _onTransition(RenPyTransitionEvent event) {
     debugPrint('Transition command - ${event.name}');
     value = RenPyTransitionChange(event.name, intent: event.intent);
+  }
+
+  void _recordRollbackBoundary(RenPyRunner runner) {
+    if (runner.state != RenPyRunnerState.waitingForInput) return;
+    _rollbackHistory.add(
+      runner.snapshot().withPresentation(_presentationSnapshot()),
+    );
+    if (_rollbackHistory.length > _rollbackHistoryLimit) {
+      _rollbackHistory.removeAt(0);
+    }
   }
 
   RenPyPresentationSnapshot _presentationSnapshot() {

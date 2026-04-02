@@ -303,6 +303,134 @@ label start:
     );
   });
 
+  test('controller rolls back to the previous dialogue boundary', () async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    controller.load('''
+label start:
+    "First."
+    "Second."
+    "Third."
+''');
+
+    await _continueUntil(
+      controller,
+      (status) => status is RenPyDialogue && status.text == 'First.',
+    );
+    expect(controller.canRollback, isFalse);
+
+    controller.continueGame();
+    await _continueUntil(
+      controller,
+      (status) => status is RenPyDialogue && status.text == 'Second.',
+    );
+
+    expect(controller.canRollback, isTrue);
+    expect(controller.rollback(), isTrue);
+    expect((controller.value as RenPyDialogue).text, 'First.');
+
+    controller.continueGame();
+    await _continueUntil(
+      controller,
+      (status) => status is RenPyDialogue && status.text == 'Second.',
+    );
+  });
+
+  test('controller rolls back from a menu branch to the menu', () async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    controller.load('''
+label start:
+    menu:
+        "Left":
+            "Left ending."
+        "Right":
+            "Right ending."
+''');
+
+    await _continueUntil(controller, (status) => status is RenPyMenu);
+    final firstMenu = controller.value as RenPyMenu;
+    expect(firstMenu.choices, ['Left', 'Right']);
+    expect(controller.canRollback, isFalse);
+
+    firstMenu.onChoice(1);
+    await _continueUntil(
+      controller,
+      (status) => status is RenPyDialogue && status.text == 'Right ending.',
+    );
+
+    expect(controller.canRollback, isTrue);
+    expect(controller.rollback(), isTrue);
+
+    final restoredMenu = controller.value as RenPyMenu;
+    expect(restoredMenu.choices, ['Left', 'Right']);
+
+    restoredMenu.onChoice(0);
+    await _continueUntil(
+      controller,
+      (status) => status is RenPyDialogue && status.text == 'Left ending.',
+    );
+  });
+
+  test('controller rollback restores presentation snapshots', () async {
+    final controller = RenPyFlutterController();
+    final restoredEvents = <RenPyGameStatus>[];
+    addTearDown(controller.dispose);
+    controller.addListener(() {
+      restoredEvents.add(controller.value);
+    });
+
+    controller.load(
+      '''
+label start:
+    scene bg lecturehall
+    play music "first.ogg"
+    show sylvie green normal at left
+    "First."
+    scene bg uni
+    play music "second.ogg"
+    show sylvie green smile
+    "Second."
+''',
+      gameRoot: 'assets/game',
+      availableAssets: const {
+        'assets/game/images/bg lecturehall.png',
+        'assets/game/images/bg uni.png',
+        'assets/game/images/sylvie green normal.png',
+        'assets/game/images/sylvie green smile.png',
+      },
+    );
+
+    await _continueUntil(
+      controller,
+      (status) => status is RenPyDialogue && status.text == 'First.',
+    );
+    restoredEvents.clear();
+    controller.continueGame();
+    await _continueUntil(
+      controller,
+      (status) => status is RenPyDialogue && status.text == 'Second.',
+    );
+    restoredEvents.clear();
+
+    expect(controller.rollback(), isTrue);
+    expect((controller.value as RenPyDialogue).text, 'First.');
+    expect(
+      restoredEvents.whereType<RenPyImageChange>().map((event) => event.scene),
+      contains('bg lecturehall'),
+    );
+    expect(
+      restoredEvents.whereType<RenPyImageChange>().map((event) => event.show),
+      contains('sylvie green normal'),
+    );
+    expect(
+      restoredEvents.whereType<RenPyAudioChange>().map((event) => event.asset),
+      contains('first.ogg'),
+    );
+  });
+
   test('controller treats available audio assets case-insensitively', () async {
     final controller = RenPyFlutterController();
     addTearDown(controller.dispose);

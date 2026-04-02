@@ -114,6 +114,42 @@ label start:
     await _pumpUntil(tester, find.text('Third.'));
   });
 
+  testWidgets('asset player rollback button restores previous dialogue', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    "First."
+    "Second."
+    "Third."
+''',
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('First.'));
+    expect(find.byTooltip('Rollback'), findsNothing);
+
+    await tester.tap(find.text('First.'));
+    await _pumpUntil(tester, find.text('Second.'));
+    expect(find.byTooltip('Rollback'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Rollback'));
+    await _pumpUntil(tester, find.text('First.'));
+
+    expect(find.text('First.'), findsOneWidget);
+    expect(find.text('Second.'), findsNothing);
+  });
+
   testWidgets('asset player supports a custom image layer', (tester) async {
     final bundle = _MemoryAssetBundle({
       'assets/game/script.rpy': '''

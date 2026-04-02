@@ -50,6 +50,12 @@ class RenPyPlayer extends StatelessWidget {
     _showSnackBar(context, loaded ? 'Game loaded.' : 'No saved game.');
   }
 
+  void _rollbackGame(BuildContext context) {
+    final rolledBack = controller.rollback();
+    if (!context.mounted) return;
+    if (!rolledBack) _showSnackBar(context, 'Nothing to roll back.');
+  }
+
   void _showSnackBar(BuildContext context, String message) {
     if (Scaffold.maybeOf(context) == null) return;
     final messenger = ScaffoldMessenger.maybeOf(context);
@@ -75,40 +81,60 @@ class RenPyPlayer extends StatelessWidget {
         RenPyPauseView(controller: controller),
         RenPyDialogueView(controller: controller),
         RenPyMenuSelector(controller: controller),
-        if ((showRestartButton && onRestart != null) ||
-            controller.hasSnapshotStore)
-          PositionedDirectional(
-            end: 16,
-            bottom: 16,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (controller.hasSnapshotStore) ...[
-                  FloatingActionButton.small(
-                    tooltip: 'Save',
-                    heroTag: null,
-                    onPressed: () => unawaited(_saveGame(context)),
-                    child: const Icon(Icons.save),
-                  ),
-                  const SizedBox(height: 8),
-                  FloatingActionButton.small(
-                    tooltip: 'Load',
-                    heroTag: null,
-                    onPressed: () => unawaited(_loadGame(context)),
-                    child: const Icon(Icons.folder_open),
-                  ),
+        ValueListenableBuilder<RenPyGameStatus>(
+          valueListenable: controller,
+          builder: (context, status, child) {
+            final hasRestart = showRestartButton && onRestart != null;
+            final hasActions =
+                controller.canRollback ||
+                controller.hasSnapshotStore ||
+                hasRestart;
+            if (!hasActions) return const SizedBox.shrink();
+
+            return PositionedDirectional(
+              end: 16,
+              bottom: 16,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (controller.canRollback) ...[
+                    FloatingActionButton.small(
+                      tooltip: 'Rollback',
+                      heroTag: null,
+                      onPressed: () => _rollbackGame(context),
+                      child: const Icon(Icons.undo),
+                    ),
+                  ],
+                  if (controller.hasSnapshotStore) ...[
+                    if (controller.canRollback) const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      tooltip: 'Save',
+                      heroTag: null,
+                      onPressed: () => unawaited(_saveGame(context)),
+                      child: const Icon(Icons.save),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      tooltip: 'Load',
+                      heroTag: null,
+                      onPressed: () => unawaited(_loadGame(context)),
+                      child: const Icon(Icons.folder_open),
+                    ),
+                  ],
+                  if (hasRestart) ...[
+                    if (controller.canRollback || controller.hasSnapshotStore)
+                      const SizedBox(height: 8),
+                    FloatingActionButton(
+                      tooltip: 'Restart',
+                      onPressed: onRestart,
+                      child: const Icon(Icons.refresh),
+                    ),
+                  ],
                 ],
-                if (showRestartButton && onRestart != null) ...[
-                  if (controller.hasSnapshotStore) const SizedBox(height: 8),
-                  FloatingActionButton(
-                    tooltip: 'Restart',
-                    onPressed: onRestart,
-                    child: const Icon(Icons.refresh),
-                  ),
-                ],
-              ],
-            ),
-          ),
+              ),
+            );
+          },
+        ),
       ],
     );
   }
