@@ -121,4 +121,40 @@ label start:
       expect(choiceDialogue, ['After menu.']);
     },
   );
+
+  test('runner snapshot serializes presentation state', () {
+    const snapshot = RenPyRunnerSnapshot(
+      state: 'waitingForInput',
+      currentLabel: 'start',
+      currentBlockPath: [],
+      position: 0,
+      stack: [],
+      variables: {},
+      persistent: {},
+      characters: {},
+      presentation: RenPyPresentationSnapshot(
+        visual: RenPyVisualSnapshot(
+          scene: RenPyVisualElementSnapshot(
+            imageName: 'bg lecturehall',
+            assetPath: 'assets/game/images/bg lecturehall.png',
+          ),
+          sprites: [
+            RenPyVisualElementSnapshot(
+              tag: 'sylvie',
+              imageName: 'sylvie green smile',
+              assetPath: 'assets/game/images/sylvie green smile.png',
+              placement: RenPyImagePlacement.position(xpos: 0, xanchor: 0),
+            ),
+          ],
+        ),
+        audio: RenPyAudioSnapshot(
+          channels: {'music': RenPyAudioChannelSnapshot(asset: 'theme.ogg')},
+        ),
+      ),
+    );
+
+    final restored = RenPyRunnerSnapshot.fromJson(snapshot.toJson());
+
+    expect(restored.toJson(), snapshot.toJson());
+  });
 }

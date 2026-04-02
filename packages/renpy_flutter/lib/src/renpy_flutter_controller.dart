@@ -155,7 +155,17 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   final List<RenPyDiagnostic> _diagnostics = [];
   String? _gameRoot;
   Set<String> _availableAssets = const {};
+  RenPyVisualElementSnapshot? _sceneSnapshot;
+  final Map<String, RenPyVisualElementSnapshot> _spriteSnapshots = {};
+  final Map<String, RenPyImagePlacement> _spritePlacements = {};
+  final Map<String, String> _audioSnapshots = {};
 
+  static const _defaultSpritePlacement = RenPyImagePlacement.position(
+    xpos: 0.5,
+    xanchor: 0.5,
+    ypos: 1,
+    yanchor: 1,
+  );
   List<RenPyDiagnostic> get diagnostics => List.unmodifiable(_diagnostics);
 
   Map<String, dynamic> get persistent => _runner?.persistent ?? const {};
@@ -179,6 +189,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     _gameRoot = gameRoot;
     _availableAssets = availableAssets;
     value = RenPyIdle();
+    _clearPresentationSnapshot();
 
     final parser = RenPyParser();
     final result = parser.parse(source, filename);
@@ -227,7 +238,9 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     if (store == null || runner == null) return false;
     if (runner.state != RenPyRunnerState.waitingForInput) return false;
 
-    await store.save(runner.snapshot());
+    await store.save(
+      runner.snapshot().withPresentation(_presentationSnapshot()),
+    );
     return true;
   }
 
@@ -252,6 +265,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     _ticker?.pause();
 
     runner.restoreSnapshot(snapshot);
+    _restorePresentation(snapshot.presentation);
     _presentRestoredRunner(snapshot, runner);
   }
 
@@ -360,11 +374,12 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     debugPrint(
       'Image command - ${event.action}: ${event.imageName} at ${event.at}',
     );
+    late final RenPyImageChange change;
     switch (event.action) {
       case RenPyImageAction.scene:
         final image = _imageResolver.resolveImage(event.imageName);
         _diagnoseResolvedImage(event.imageName, image);
-        value = RenPyImageChange(
+        change = RenPyImageChange(
           scene: event.imageName,
           sceneAt: event.at,
           sceneOnLayer: event.onLayer,
@@ -380,7 +395,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
         if (event.displayableText == null) {
           _diagnoseResolvedImage(event.imageName, image);
         }
-        value = RenPyImageChange(
+        change = RenPyImageChange(
           show: event.imageName,
           showAt: event.at,
           showOnLayer: event.onLayer,
@@ -391,11 +406,13 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
           showText: event.displayableText,
         );
       case RenPyImageAction.hide:
-        value = RenPyImageChange(
+        change = RenPyImageChange(
           hide: event.imageName,
           hideOnLayer: event.onLayer,
         );
     }
+    _recordImageChange(change);
+    value = change;
   }
 
   void _onImageDefinition(RenPyImageDefinitionEvent event) {
@@ -411,23 +428,185 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       'Audio command - ${event.action}: ${event.channel} '
       '${event.asset ?? ""}',
     );
+    late final RenPyAudioChange change;
     switch (event.action) {
       case RenPyAudioAction.play:
         final asset = event.asset;
         if (asset == null) return;
         _diagnoseAudioAsset(asset);
-        value = RenPyAudioChange.play(channel: event.channel, asset: asset);
+        change = RenPyAudioChange.play(channel: event.channel, asset: asset);
       case RenPyAudioAction.stop:
-        value = RenPyAudioChange.stop(
+        change = RenPyAudioChange.stop(
           channel: event.channel,
           fadeout: event.fadeout,
         );
     }
+    _recordAudioChange(change);
+    value = change;
   }
 
   void _onTransition(RenPyTransitionEvent event) {
     debugPrint('Transition command - ${event.name}');
     value = RenPyTransitionChange(event.name, intent: event.intent);
+  }
+
+  RenPyPresentationSnapshot _presentationSnapshot() {
+    return RenPyPresentationSnapshot(
+      visual: RenPyVisualSnapshot(
+        scene: _sceneSnapshot,
+        sprites: _spriteSnapshots.values.toList(),
+      ),
+      audio: RenPyAudioSnapshot(
+        channels: _audioSnapshots.map(
+          (channel, asset) =>
+              MapEntry(channel, RenPyAudioChannelSnapshot(asset: asset)),
+        ),
+      ),
+    );
+  }
+
+  void _clearPresentationSnapshot() {
+    _sceneSnapshot = null;
+    _spriteSnapshots.clear();
+    _spritePlacements.clear();
+    _audioSnapshots.clear();
+  }
+
+  void _restorePresentation(RenPyPresentationSnapshot? presentation) {
+    final currentAudio = Map<String, String>.of(_audioSnapshots);
+    _clearPresentationSnapshot();
+
+    for (final channel in currentAudio.keys) {
+      final restoredChannel = presentation?.audio?.channels[channel];
+      if (restoredChannel == null) {
+        value = RenPyAudioChange.stop(channel: channel);
+      }
+    }
+
+    if (presentation == null) return;
+
+    final visual = presentation.visual;
+    final scene = visual?.scene;
+    if (scene != null) {
+      final change = _imageChangeForScene(scene);
+      _recordImageChange(change);
+      value = change;
+    }
+
+    for (final sprite
+        in visual?.sprites ?? const <RenPyVisualElementSnapshot>[]) {
+      final change = _imageChangeForSprite(sprite);
+      _recordImageChange(change);
+      value = change;
+    }
+
+    for (final entry
+        in presentation.audio?.channels.entries ??
+            const <MapEntry<String, RenPyAudioChannelSnapshot>>[]) {
+      final change = RenPyAudioChange.play(
+        channel: entry.key,
+        asset: entry.value.asset,
+      );
+      _recordAudioChange(change);
+      value = change;
+    }
+  }
+
+  RenPyImageChange _imageChangeForScene(RenPyVisualElementSnapshot snapshot) {
+    return RenPyImageChange(
+      scene: snapshot.imageName,
+      scenePlacement: snapshot.placement,
+      sceneAsset: snapshot.assetPath,
+      sceneImage: _resolvedImageFor(snapshot),
+    );
+  }
+
+  RenPyImageChange _imageChangeForSprite(RenPyVisualElementSnapshot snapshot) {
+    return RenPyImageChange(
+      show: snapshot.imageName,
+      showPlacement: snapshot.placement,
+      showAsset: snapshot.assetPath,
+      showImage: _resolvedImageFor(snapshot),
+      showText: snapshot.text,
+    );
+  }
+
+  RenPyResolvedImage? _resolvedImageFor(RenPyVisualElementSnapshot snapshot) {
+    final solidColor = snapshot.solidColor;
+    if (solidColor != null) {
+      return RenPyResolvedImage.solid(
+        solidColor,
+        operations: snapshot.operations,
+      );
+    }
+
+    final assetPath = snapshot.assetPath;
+    if (assetPath != null) {
+      return RenPyResolvedImage(
+        assetPath: assetPath,
+        operations: snapshot.operations,
+      );
+    }
+
+    return null;
+  }
+
+  void _recordImageChange(RenPyImageChange change) {
+    final scene = change.scene;
+    if (scene != null) {
+      _spriteSnapshots.clear();
+      _spritePlacements.clear();
+      _sceneSnapshot = RenPyVisualElementSnapshot(
+        imageName: scene,
+        assetPath: change.sceneAsset,
+        solidColor: change.sceneImage?.solidColor,
+        operations: change.sceneImage?.operations ?? const [],
+        placement: change.scenePlacement,
+      );
+    }
+
+    final hiddenImage = change.hide;
+    if (hiddenImage != null) {
+      final tag = _imageTag(hiddenImage);
+      _spriteSnapshots.remove(tag);
+      _spritePlacements.remove(tag);
+    }
+
+    final shownImage = change.show;
+    if (shownImage == null) return;
+
+    final tag = _imageTag(shownImage);
+    final placement =
+        change.showPlacement ??
+        RenPyImagePlacement.parse(change.showAt) ??
+        _spritePlacements[tag] ??
+        _defaultSpritePlacement;
+    _spritePlacements[tag] = placement;
+    _spriteSnapshots[tag] = RenPyVisualElementSnapshot(
+      tag: tag,
+      imageName: shownImage,
+      assetPath: change.showAsset,
+      solidColor: change.showImage?.solidColor,
+      operations: change.showImage?.operations ?? const [],
+      placement: placement,
+      text: change.showText,
+    );
+  }
+
+  void _recordAudioChange(RenPyAudioChange change) {
+    switch (change.action) {
+      case RenPyAudioAction.play:
+        final asset = change.asset;
+        if (asset != null) _audioSnapshots[change.channel] = asset;
+      case RenPyAudioAction.stop:
+        _audioSnapshots.remove(change.channel);
+    }
+  }
+
+  String _imageTag(String imageName) {
+    final baseName = imageName.split('#').first.trim();
+    if (baseName.isEmpty) return imageName;
+    return baseName.split(RegExp(r'\s+')).first;
   }
 
   void _diagnoseResolvedImage(String? imageName, RenPyResolvedImage? image) {

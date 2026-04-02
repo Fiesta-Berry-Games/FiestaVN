@@ -1,4 +1,5 @@
 import 'renpy_dialogue_event.dart';
+import 'renpy_presentation_snapshot.dart';
 
 enum RenPyRunnerBlockPathBranch { block, ifEntry, menuChoice }
 
@@ -155,6 +156,7 @@ final class RenPyRunnerSnapshot {
     this.lastDialogue,
     this.pendingDialogue,
     this.errorMessage,
+    this.presentation,
   });
 
   final String state;
@@ -168,6 +170,24 @@ final class RenPyRunnerSnapshot {
   final RenPyRunnerSnapshotDialogue? lastDialogue;
   final RenPyRunnerSnapshotPendingDialogue? pendingDialogue;
   final String? errorMessage;
+  final RenPyPresentationSnapshot? presentation;
+
+  RenPyRunnerSnapshot withPresentation(RenPyPresentationSnapshot presentation) {
+    return RenPyRunnerSnapshot(
+      state: state,
+      currentLabel: currentLabel,
+      currentBlockPath: currentBlockPath,
+      position: position,
+      stack: stack,
+      variables: variables,
+      persistent: persistent,
+      characters: characters,
+      lastDialogue: lastDialogue,
+      pendingDialogue: pendingDialogue,
+      errorMessage: errorMessage,
+      presentation: presentation,
+    );
+  }
 
   Map<String, Object?> toJson() => {
     'state': state,
@@ -182,6 +202,7 @@ final class RenPyRunnerSnapshot {
     if (lastDialogue != null) 'lastDialogue': lastDialogue!.toJson(),
     if (pendingDialogue != null) 'pendingDialogue': pendingDialogue!.toJson(),
     if (errorMessage != null) 'errorMessage': errorMessage,
+    if (presentation != null) 'presentation': presentation!.toJson(),
   };
 
   factory RenPyRunnerSnapshot.fromJson(Map<String, Object?> json) {
@@ -213,6 +234,12 @@ final class RenPyRunnerSnapshot {
                 _mapFromJson(json['pendingDialogue']),
               ),
       errorMessage: json['errorMessage'] as String?,
+      presentation:
+          json['presentation'] == null
+              ? null
+              : RenPyPresentationSnapshot.fromJson(
+                _mapFromJson(json['presentation']),
+              ),
     );
   }
 }

@@ -212,6 +212,97 @@ label start:
     expect(dialogue, ['Right ending.']);
   });
 
+  test('controller saves and loads presentation snapshots', () async {
+    final store = RenPyMemoryRunnerSnapshotStore();
+    final firstController = RenPyFlutterController(snapshotStore: store);
+    addTearDown(firstController.dispose);
+
+    firstController.load(
+      '''
+label start:
+    scene bg lecturehall
+    play music "first.ogg"
+    show sylvie green normal at left
+    "First."
+    scene bg uni
+    play music "second.ogg"
+    show sylvie green smile
+    "Second."
+    "Third."
+''',
+      gameRoot: 'assets/game',
+      availableAssets: const {
+        'assets/game/images/bg lecturehall.png',
+        'assets/game/images/bg uni.png',
+        'assets/game/images/sylvie green normal.png',
+        'assets/game/images/sylvie green smile.png',
+      },
+    );
+
+    await _continueUntil(
+      firstController,
+      (status) => status is RenPyDialogue && status.text == 'First.',
+    );
+    firstController.continueGame();
+    await _continueUntil(
+      firstController,
+      (status) => status is RenPyDialogue && status.text == 'Second.',
+    );
+
+    expect(await firstController.saveGame(), isTrue);
+
+    final secondController = RenPyFlutterController(snapshotStore: store);
+    addTearDown(secondController.dispose);
+    final restoredEvents = <RenPyGameStatus>[];
+    secondController.addListener(() {
+      restoredEvents.add(secondController.value);
+    });
+
+    secondController.load(
+      '''
+label start:
+    scene bg lecturehall
+    play music "first.ogg"
+    show sylvie green normal at left
+    "First."
+    scene bg uni
+    play music "second.ogg"
+    show sylvie green smile
+    "Second."
+    "Third."
+''',
+      gameRoot: 'assets/game',
+      availableAssets: const {
+        'assets/game/images/bg lecturehall.png',
+        'assets/game/images/bg uni.png',
+        'assets/game/images/sylvie green normal.png',
+        'assets/game/images/sylvie green smile.png',
+      },
+    );
+
+    await _continueUntil(
+      secondController,
+      (status) => status is RenPyDialogue && status.text == 'First.',
+    );
+    restoredEvents.clear();
+
+    expect(await secondController.loadSavedGame(), isTrue);
+
+    expect((secondController.value as RenPyDialogue).text, 'Second.');
+    expect(
+      restoredEvents.whereType<RenPyImageChange>().map((event) => event.scene),
+      contains('bg uni'),
+    );
+    expect(
+      restoredEvents.whereType<RenPyImageChange>().map((event) => event.show),
+      contains('sylvie green smile'),
+    );
+    expect(
+      restoredEvents.whereType<RenPyAudioChange>().map((event) => event.asset),
+      contains('second.ogg'),
+    );
+  });
+
   test('controller treats available audio assets case-insensitively', () async {
     final controller = RenPyFlutterController();
     addTearDown(controller.dispose);

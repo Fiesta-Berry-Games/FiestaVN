@@ -15,6 +15,11 @@ export 'package:renpy_core/renpy_core.dart'
 export 'package:renpy_core/renpy_core.dart'
     show
         RenPyMemoryRunnerSnapshotStore,
+        RenPyAudioChannelSnapshot,
+        RenPyAudioSnapshot,
+        RenPyPresentationSnapshot,
+        RenPyVisualElementSnapshot,
+        RenPyVisualSnapshot,
         RenPyRunnerBlockPathBranch,
         RenPyRunnerBlockPathSegment,
         RenPyRunnerSnapshot,
