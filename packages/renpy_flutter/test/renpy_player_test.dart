@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -144,6 +145,75 @@ label start:
     expect(find.byTooltip('Rollback'), findsOneWidget);
 
     await tester.tap(find.byTooltip('Rollback'));
+    await _pumpUntil(tester, find.text('First.'));
+
+    expect(find.text('First.'), findsOneWidget);
+    expect(find.text('Second.'), findsNothing);
+  });
+
+  testWidgets('asset player page-up key restores previous dialogue', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    "First."
+    "Second."
+''',
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('First.'));
+    await tester.tap(find.text('First.'));
+    await _pumpUntil(tester, find.text('Second.'));
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.pageUp);
+    await _pumpUntil(tester, find.text('First.'));
+
+    expect(find.text('First.'), findsOneWidget);
+    expect(find.text('Second.'), findsNothing);
+  });
+
+  testWidgets('asset player upward mouse wheel restores previous dialogue', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    "First."
+    "Second."
+''',
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('First.'));
+    await tester.tap(find.text('First.'));
+    await _pumpUntil(tester, find.text('Second.'));
+
+    await tester.sendEventToBinding(
+      const PointerScrollEvent(
+        position: Offset(10, 10),
+        scrollDelta: Offset(0, -20),
+      ),
+    );
     await _pumpUntil(tester, find.text('First.'));
 
     expect(find.text('First.'), findsOneWidget);

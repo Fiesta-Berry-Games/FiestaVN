@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:renpy_core/renpy_core.dart';
@@ -50,10 +51,33 @@ class RenPyPlayer extends StatelessWidget {
     _showSnackBar(context, loaded ? 'Game loaded.' : 'No saved game.');
   }
 
-  void _rollbackGame(BuildContext context) {
+  bool _rollbackGame(
+    BuildContext context, {
+    bool showUnavailableMessage = true,
+  }) {
     final rolledBack = controller.rollback();
-    if (!context.mounted) return;
-    if (!rolledBack) _showSnackBar(context, 'Nothing to roll back.');
+    if (!context.mounted) return false;
+    if (!rolledBack && showUnavailableMessage) {
+      _showSnackBar(context, 'Nothing to roll back.');
+    }
+    return rolledBack;
+  }
+
+  KeyEventResult _handleKeyEvent(BuildContext context, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    if (event.logicalKey != LogicalKeyboardKey.pageUp) {
+      return KeyEventResult.ignored;
+    }
+    return _rollbackGame(context, showUnavailableMessage: false)
+        ? KeyEventResult.handled
+        : KeyEventResult.ignored;
+  }
+
+  void _handlePointerSignal(BuildContext context, PointerSignalEvent event) {
+    if (event is! PointerScrollEvent || event.scrollDelta.dy >= 0) return;
+    _rollbackGame(context, showUnavailableMessage: false);
   }
 
   void _showSnackBar(BuildContext context, String message) {
@@ -65,77 +89,132 @@ class RenPyPlayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        ColoredBox(color: backgroundColor),
-        if (imageLayerBuilder != null)
-          imageLayerBuilder!(context, controller)
-        else
-          RenPyImageLayer(controller: controller),
-        RenPyAudioLayer(
-          controller: controller,
-          gameRoot: gameRoot,
-          playback: audioPlayback,
-        ),
-        RenPyPauseView(controller: controller),
-        RenPyDialogueView(controller: controller),
-        RenPyMenuSelector(controller: controller),
-        ValueListenableBuilder<RenPyGameStatus>(
-          valueListenable: controller,
-          builder: (context, status, child) {
-            final hasRestart = showRestartButton && onRestart != null;
-            final hasActions =
-                controller.canRollback ||
-                controller.hasSnapshotStore ||
-                hasRestart;
-            if (!hasActions) return const SizedBox.shrink();
+    return _RenPyInputSurface(
+      onKeyEvent: (event) => _handleKeyEvent(context, event),
+      onPointerSignal: (event) => _handlePointerSignal(context, event),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          ColoredBox(color: backgroundColor),
+          if (imageLayerBuilder != null)
+            imageLayerBuilder!(context, controller)
+          else
+            RenPyImageLayer(controller: controller),
+          RenPyAudioLayer(
+            controller: controller,
+            gameRoot: gameRoot,
+            playback: audioPlayback,
+          ),
+          RenPyPauseView(controller: controller),
+          RenPyDialogueView(controller: controller),
+          RenPyMenuSelector(controller: controller),
+          ValueListenableBuilder<RenPyGameStatus>(
+            valueListenable: controller,
+            builder: (context, status, child) {
+              final hasRestart = showRestartButton && onRestart != null;
+              final hasActions =
+                  controller.canRollback ||
+                  controller.hasSnapshotStore ||
+                  hasRestart;
+              if (!hasActions) return const SizedBox.shrink();
 
-            return PositionedDirectional(
-              end: 16,
-              bottom: 16,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (controller.canRollback) ...[
-                    FloatingActionButton.small(
-                      tooltip: 'Rollback',
-                      heroTag: null,
-                      onPressed: () => _rollbackGame(context),
-                      child: const Icon(Icons.undo),
-                    ),
-                  ],
-                  if (controller.hasSnapshotStore) ...[
-                    if (controller.canRollback) const SizedBox(height: 8),
-                    FloatingActionButton.small(
-                      tooltip: 'Save',
-                      heroTag: null,
-                      onPressed: () => unawaited(_saveGame(context)),
-                      child: const Icon(Icons.save),
-                    ),
-                    const SizedBox(height: 8),
-                    FloatingActionButton.small(
-                      tooltip: 'Load',
-                      heroTag: null,
-                      onPressed: () => unawaited(_loadGame(context)),
-                      child: const Icon(Icons.folder_open),
-                    ),
-                  ],
-                  if (hasRestart) ...[
-                    if (controller.canRollback || controller.hasSnapshotStore)
+              return PositionedDirectional(
+                end: 16,
+                bottom: 16,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (controller.canRollback) ...[
+                      FloatingActionButton.small(
+                        tooltip: 'Rollback',
+                        heroTag: null,
+                        onPressed: () => _rollbackGame(context),
+                        child: const Icon(Icons.undo),
+                      ),
+                    ],
+                    if (controller.hasSnapshotStore) ...[
+                      if (controller.canRollback) const SizedBox(height: 8),
+                      FloatingActionButton.small(
+                        tooltip: 'Save',
+                        heroTag: null,
+                        onPressed: () => unawaited(_saveGame(context)),
+                        child: const Icon(Icons.save),
+                      ),
                       const SizedBox(height: 8),
-                    FloatingActionButton(
-                      tooltip: 'Restart',
-                      onPressed: onRestart,
-                      child: const Icon(Icons.refresh),
-                    ),
+                      FloatingActionButton.small(
+                        tooltip: 'Load',
+                        heroTag: null,
+                        onPressed: () => unawaited(_loadGame(context)),
+                        child: const Icon(Icons.folder_open),
+                      ),
+                    ],
+                    if (hasRestart) ...[
+                      if (controller.canRollback || controller.hasSnapshotStore)
+                        const SizedBox(height: 8),
+                      FloatingActionButton(
+                        tooltip: 'Restart',
+                        onPressed: onRestart,
+                        child: const Icon(Icons.refresh),
+                      ),
+                    ],
                   ],
-                ],
-              ),
-            );
-          },
-        ),
-      ],
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RenPyInputSurface extends StatefulWidget {
+  const _RenPyInputSurface({
+    required this.child,
+    required this.onKeyEvent,
+    required this.onPointerSignal,
+  });
+
+  final Widget child;
+  final KeyEventResult Function(KeyEvent event) onKeyEvent;
+  final ValueChanged<PointerSignalEvent> onPointerSignal;
+
+  @override
+  State<_RenPyInputSurface> createState() => _RenPyInputSurfaceState();
+}
+
+class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode = FocusNode(debugLabel: 'RenPy player input');
+    WidgetsBinding.instance.addPostFrameCallback((_) => _requestFocus());
+  }
+
+  void _requestFocus() {
+    if (!mounted || _focusNode.hasFocus) return;
+    _focusNode.requestFocus();
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      focusNode: _focusNode,
+      onKeyEvent: (node, event) => widget.onKeyEvent(event),
+      child: Listener(
+        behavior: HitTestBehavior.opaque,
+        onPointerDown: (_) => _requestFocus(),
+        onPointerSignal: widget.onPointerSignal,
+        child: widget.child,
+      ),
     );
   }
 }
