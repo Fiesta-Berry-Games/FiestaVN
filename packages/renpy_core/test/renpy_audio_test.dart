@@ -94,4 +94,32 @@ label start:
       const RenPyAudioEvent.play(channel: 'sound', asset: '18005551212.wav'),
     ]);
   });
+
+  test('runner applies registered channel mixer and loop metadata', () {
+    final script =
+        RenPyParser().parse('''
+init python:
+    renpy.music.register_channel("ME", "sfx", loop=False)
+
+label start:
+    play ME "/ME/rain_2.wav"
+''', 'audio.rpy').script;
+    final runner = RenPyRunner(script);
+    final audio = <RenPyAudioEvent>[];
+
+    runner.onAudio = audio.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(runner.state, RenPyRunnerState.complete);
+    expect(audio, [
+      const RenPyAudioEvent.play(
+        channel: 'ME',
+        asset: '/ME/rain_2.wav',
+        mixer: 'sfx',
+        loop: false,
+      ),
+    ]);
+  });
 }

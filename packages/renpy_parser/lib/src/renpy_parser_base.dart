@@ -296,7 +296,10 @@ class RenPyParser {
 
     // Parse the block
     if (line.block.isNotEmpty) {
-      innerBlock = _parseBlock(line.block, warnings);
+      innerBlock =
+          isPython
+              ? _parsePythonBlockLines(line.block)
+              : _parseBlock(line.block, warnings);
     } else {
       // Init blocks require indented content
       throw RenPyParseError(
@@ -314,6 +317,19 @@ class RenPyParser {
       filename: line.filename,
       linenumber: line.number,
     );
+  }
+
+  List<RenPyStatement> _parsePythonBlockLines(List<GroupedLine> lines) {
+    return [
+      for (final line in lines)
+        if (line.text.trim().isNotEmpty && !line.text.trim().startsWith('#'))
+          RenPyPythonStatement(
+            line.text.trim(),
+            true,
+            line.filename,
+            line.number,
+          ),
+    ];
   }
 
   // For say statements, match:

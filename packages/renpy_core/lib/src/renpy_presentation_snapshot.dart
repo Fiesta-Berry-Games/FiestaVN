@@ -134,14 +134,24 @@ final class RenPyAudioSnapshot {
 }
 
 final class RenPyAudioChannelSnapshot {
-  const RenPyAudioChannelSnapshot({required this.asset});
+  const RenPyAudioChannelSnapshot({required this.asset, this.mixer, this.loop});
 
   final String asset;
+  final String? mixer;
+  final bool? loop;
 
-  Map<String, Object?> toJson() => {'asset': asset};
+  Map<String, Object?> toJson() => {
+    'asset': asset,
+    if (mixer != null) 'mixer': mixer,
+    if (loop != null) 'loop': loop,
+  };
 
   factory RenPyAudioChannelSnapshot.fromJson(Map<String, Object?> json) {
-    return RenPyAudioChannelSnapshot(asset: json['asset']! as String);
+    return RenPyAudioChannelSnapshot(
+      asset: json['asset']! as String,
+      mixer: json['mixer'] as String?,
+      loop: json['loop'] as bool?,
+    );
   }
 }
 

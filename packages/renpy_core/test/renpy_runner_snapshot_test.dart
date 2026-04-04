@@ -148,7 +148,13 @@ label start:
           ],
         ),
         audio: RenPyAudioSnapshot(
-          channels: {'music': RenPyAudioChannelSnapshot(asset: 'theme.ogg')},
+          channels: {
+            'music': RenPyAudioChannelSnapshot(
+              asset: 'theme.ogg',
+              mixer: 'sfx',
+              loop: false,
+            ),
+          },
         ),
       ),
     );

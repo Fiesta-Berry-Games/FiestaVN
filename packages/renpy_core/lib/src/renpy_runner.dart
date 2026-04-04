@@ -51,6 +51,25 @@ class _ConditionComparison {
   final String right;
 }
 
+class _AudioChannelRegistration {
+  const _AudioChannelRegistration({required this.mixer, this.loop});
+
+  final String mixer;
+  final bool? loop;
+}
+
+class _AudioChannelRegistrationCall {
+  const _AudioChannelRegistrationCall({
+    required this.name,
+    required this.mixer,
+    this.loop,
+  });
+
+  final String name;
+  final String mixer;
+  final bool? loop;
+}
+
 class _PythonAssignment {
   const _PythonAssignment(this.name, this.expression);
 
@@ -135,6 +154,9 @@ class RenPyRunner {
   /// Variables defined in the script
   final Map<String, dynamic> _variables = {};
 
+  /// Channels registered by Ren'Py audio init Python.
+  final Map<String, _AudioChannelRegistration> _audioChannels = {};
+
   /// Ren'Py persistent namespace values assigned during this run.
   final Map<String, dynamic> _persistent;
 
@@ -196,6 +218,8 @@ class RenPyRunner {
             statement.name,
             () => _evaluateExpression(statement.expression),
           );
+        } else if (statement is RenPyPythonStatement) {
+          _applyAudioChannelRegistration(statement.code);
         } else if (statement is RenPyInitStatement) {
           process(statement.block);
         }
@@ -817,6 +841,12 @@ class RenPyRunner {
     }
 
     final audio = _renpyAudioEvent(stmt.code);
+    if (_applyAudioChannelRegistration(stmt.code)) {
+      _position++;
+      _executeNext();
+      return;
+    }
+
     if (audio != null) {
       onAudio?.call(audio);
       _position++;
@@ -884,6 +914,56 @@ class RenPyRunner {
 
   bool _isRenpyFullRestart(String code) {
     return RegExp(r'^renpy\.full_restart\s*\(\s*\)$').hasMatch(code.trim());
+  }
+
+  bool _applyAudioChannelRegistration(String code) {
+    final registration = _renpyRegisterChannel(code);
+    if (registration == null) return false;
+    _audioChannels[registration.name] = _AudioChannelRegistration(
+      mixer: registration.mixer,
+      loop: registration.loop,
+    );
+    return true;
+  }
+
+  _AudioChannelRegistrationCall? _renpyRegisterChannel(String code) {
+    final match = RegExp(
+      r'^renpy\.music\.register_channel\s*\((.*)\)$',
+      dotAll: true,
+    ).firstMatch(code.trim());
+    if (match == null) return null;
+
+    final positional = <String>[];
+    final keywords = <String, String>{};
+    for (final argument in _splitPythonArguments(match.group(1)!)) {
+      final trimmed = argument.trim();
+      if (trimmed.isEmpty) continue;
+      final keyword = RegExp(
+        r'^([a-zA-Z_]\w*)\s*=\s*(.+)$',
+        dotAll: true,
+      ).firstMatch(trimmed);
+      if (keyword != null) {
+        keywords[keyword.group(1)!] = keyword.group(2)!.trim();
+      } else {
+        positional.add(trimmed);
+      }
+    }
+
+    final nameExpression =
+        keywords['name'] ?? (positional.isNotEmpty ? positional[0] : null);
+    final mixerExpression =
+        keywords['mixer'] ?? (positional.length > 1 ? positional[1] : null);
+    if (nameExpression == null || mixerExpression == null) return null;
+
+    final loopExpression = keywords['loop'];
+    return _AudioChannelRegistrationCall(
+      name: _evaluateExpression(nameExpression).toString(),
+      mixer: _evaluateExpression(mixerExpression).toString(),
+      loop:
+          loopExpression == null
+              ? null
+              : _evaluateExpression(loopExpression) == true,
+    );
   }
 
   RenPyAudioEvent? _renpyAudioEvent(String code) {
@@ -993,10 +1073,13 @@ class RenPyRunner {
 
   /// Execute a play statement.
   void _executePlayStatement(RenPyPlayStatement stmt) {
+    final registration = _audioChannels[stmt.channel];
     onAudio?.call(
       RenPyAudioEvent.play(
         channel: stmt.channel,
         asset: _evaluateAudioAsset(stmt.expression),
+        mixer: registration?.mixer,
+        loop: registration?.loop,
       ),
     );
     _position++;
