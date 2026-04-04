@@ -387,6 +387,138 @@ label start:
     expect(find.text('Second.'), findsOneWidget);
   });
 
+  testWidgets('asset player m key toggles music mute preference', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    play music "illurock.opus"
+    "First."
+''',
+    });
+    final playback = _RecordingAudioPlayback();
+    addTearDown(playback.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+          audioPlayback: playback,
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('First.'));
+    expect(playback.muteCalls, [
+      const _MuteCall(channel: 'music', muted: false),
+    ]);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyM);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyM);
+    await tester.pump();
+
+    expect(playback.muteCalls, [
+      const _MuteCall(channel: 'music', muted: false),
+      const _MuteCall(channel: 'music', muted: true),
+      const _MuteCall(channel: 'music', muted: false),
+    ]);
+  });
+
+  testWidgets('asset player game menu preferences toggle music mute', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    play music "illurock.opus"
+    "First."
+''',
+    });
+    final playback = _RecordingAudioPlayback();
+    addTearDown(playback.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+          audioPlayback: playback,
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('First.'));
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await _pumpUntil(tester, find.text('Game Menu'));
+
+    await tester.tap(find.text('Preferences'));
+    await _pumpUntil(tester, find.text('Preferences'));
+    expect(find.text('Music Muted'), findsOneWidget);
+
+    await tester.tap(find.text('Music Muted'));
+    await tester.pump();
+
+    expect(
+      playback.muteCalls.last,
+      const _MuteCall(channel: 'music', muted: true),
+    );
+  });
+
+  testWidgets('asset player restores persisted music mute preference', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    play music "illurock.opus"
+    "First."
+''',
+    });
+    final preferenceStore = RenPyMemoryPreferenceStore();
+    final firstPlayback = _RecordingAudioPlayback();
+    final secondPlayback = _RecordingAudioPlayback();
+    addTearDown(firstPlayback.dispose);
+    addTearDown(secondPlayback.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+          audioPlayback: firstPlayback,
+          preferenceStore: preferenceStore,
+        ),
+      ),
+    );
+    await _pumpUntil(tester, find.text('First.'));
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyM);
+    await tester.pump();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+          audioPlayback: secondPlayback,
+          preferenceStore: preferenceStore,
+        ),
+      ),
+    );
+    await _pumpUntil(tester, find.text('First.'));
+
+    expect(
+      secondPlayback.muteCalls.first,
+      const _MuteCall(channel: 'music', muted: true),
+    );
+  });
+
   testWidgets('asset player supports a custom image layer', (tester) async {
     final bundle = _MemoryAssetBundle({
       'assets/game/script.rpy': '''
@@ -862,6 +994,7 @@ class _MemoryAssetBundle extends CachingAssetBundle {
 
 class _RecordingAudioPlayback implements RenPyAudioPlayback {
   final List<_AudioCall> calls = [];
+  final List<_MuteCall> muteCalls = [];
 
   @override
   Future<void> play({
@@ -882,7 +1015,31 @@ class _RecordingAudioPlayback implements RenPyAudioPlayback {
   Future<void> stop({required String channel, String? fadeout}) async {}
 
   @override
+  Future<void> setMuted({required String channel, required bool muted}) async {
+    muteCalls.add(_MuteCall(channel: channel, muted: muted));
+  }
+
+  @override
   Future<void> dispose() async {}
+}
+
+class _MuteCall {
+  const _MuteCall({required this.channel, required this.muted});
+
+  final String channel;
+  final bool muted;
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        other is _MuteCall && channel == other.channel && muted == other.muted;
+  }
+
+  @override
+  int get hashCode => Object.hash(channel, muted);
+
+  @override
+  String toString() => '_MuteCall(channel: $channel, muted: $muted)';
 }
 
 class _RecordingFontRegistrar {

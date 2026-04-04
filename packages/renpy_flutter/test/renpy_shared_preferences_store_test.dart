@@ -5,6 +5,40 @@ import 'package:renpy_flutter/renpy_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  test('shared preferences store restores saved player preferences', () async {
+    const key = 'renpy.test.preferences';
+    SharedPreferences.setMockInitialValues({
+      key: jsonEncode({RenPyPlayerPreferences.musicMutedKey: true}),
+    });
+
+    final store = await RenPySharedPreferencesPreferenceStore.create(key: key);
+
+    expect(RenPyPlayerPreferences.fromJson(store.load()).musicMuted, isTrue);
+  });
+
+  test('shared preferences store ignores malformed preferences', () async {
+    const key = 'renpy.test.preferences.malformed';
+    SharedPreferences.setMockInitialValues({key: 'not json'});
+
+    final store = await RenPySharedPreferencesPreferenceStore.create(key: key);
+
+    expect(store.load(), isEmpty);
+  });
+
+  test('shared preferences store saves player preferences', () async {
+    const key = 'renpy.test.preferences.save';
+    SharedPreferences.setMockInitialValues({});
+
+    final store = await RenPySharedPreferencesPreferenceStore.create(key: key);
+    store.save(const RenPyPlayerPreferences(musicMuted: true).toJson());
+
+    final restored = await RenPySharedPreferencesPreferenceStore.create(
+      key: key,
+    );
+
+    expect(RenPyPlayerPreferences.fromJson(restored.load()).musicMuted, isTrue);
+  });
+
   test('shared preferences store restores saved persistent values', () async {
     const key = 'renpy.test.persistent';
     SharedPreferences.setMockInitialValues({

@@ -148,6 +148,7 @@ class ExternalGameScreen extends StatelessWidget {
               onControllerCreated: onControllerCreated,
               persistentStore: stores.persistent,
               snapshotStore: stores.snapshot,
+              preferenceStore: stores.preferences,
             ),
       ),
     );
@@ -168,10 +169,15 @@ class _PersistentStoreLoader extends StatefulWidget {
 }
 
 final class _GameStores {
-  const _GameStores({required this.persistent, required this.snapshot});
+  const _GameStores({
+    required this.persistent,
+    required this.snapshot,
+    required this.preferences,
+  });
 
   final RenPyPersistentStore persistent;
   final RenPyRunnerSnapshotStore snapshot;
+  final RenPyPreferenceStore preferences;
 }
 
 class _PersistentStoreLoaderState extends State<_PersistentStoreLoader> {
@@ -184,7 +190,14 @@ class _PersistentStoreLoaderState extends State<_PersistentStoreLoader> {
     final snapshotStore = await RenPySharedPreferencesSnapshotStore.create(
       key: _snapshotStoreKey(widget.identifier),
     );
-    return _GameStores(persistent: persistentStore, snapshot: snapshotStore);
+    final preferenceStore = await RenPySharedPreferencesPreferenceStore.create(
+      key: _preferenceStoreKey(widget.identifier),
+    );
+    return _GameStores(
+      persistent: persistentStore,
+      snapshot: snapshotStore,
+      preferences: preferenceStore,
+    );
   }
 
   @override
@@ -211,6 +224,10 @@ String _persistentStoreKey(String identifier) {
 
 String _snapshotStoreKey(String identifier) {
   return 'renfly.snapshot.${Uri.encodeComponent(identifier)}';
+}
+
+String _preferenceStoreKey(String identifier) {
+  return 'renfly.preferences.${Uri.encodeComponent(identifier)}';
 }
 
 /// The game screen itself.
@@ -242,6 +259,7 @@ class GameScreen extends StatelessWidget {
               onControllerCreated: onControllerCreated,
               persistentStore: stores.persistent,
               snapshotStore: stores.snapshot,
+              preferenceStore: stores.preferences,
             ),
       ),
     );

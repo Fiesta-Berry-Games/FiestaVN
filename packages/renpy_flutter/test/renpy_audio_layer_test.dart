@@ -25,6 +25,7 @@ void main() {
     await tester.pump();
 
     expect(playback.calls, [
+      const _PlaybackCall.mute(channel: 'music', muted: false),
       const _PlaybackCall.play(
         channel: 'music',
         asset: 'illurock.opus',
@@ -54,6 +55,7 @@ void main() {
     await tester.pump();
 
     expect(playback.calls, [
+      const _PlaybackCall.mute(channel: 'music', muted: false),
       const _PlaybackCall.stop(channel: 'music', fadeout: '1.5'),
     ]);
   });
@@ -81,11 +83,45 @@ void main() {
     await tester.pump();
 
     expect(playback.calls, [
+      const _PlaybackCall.mute(channel: 'music', muted: false),
       const _PlaybackCall.play(
         channel: 'music',
         asset: '/music/She End.ogg',
         assetSourcePath: 'game/music/She End.ogg',
       ),
+    ]);
+  });
+
+  testWidgets('audio layer applies music mute preference', (tester) async {
+    final controller = RenPyFlutterController();
+    final playback = _RecordingAudioPlayback();
+    addTearDown(controller.dispose);
+    addTearDown(playback.dispose);
+
+    await tester.pumpWidget(
+      RenPyAudioLayer(
+        controller: controller,
+        gameRoot: 'game',
+        playback: playback,
+      ),
+    );
+
+    expect(playback.calls, [
+      const _PlaybackCall.mute(channel: 'music', muted: false),
+    ]);
+
+    await tester.pumpWidget(
+      RenPyAudioLayer(
+        controller: controller,
+        gameRoot: 'game',
+        playback: playback,
+        musicMuted: true,
+      ),
+    );
+
+    expect(playback.calls, [
+      const _PlaybackCall.mute(channel: 'music', muted: false),
+      const _PlaybackCall.mute(channel: 'music', muted: true),
     ]);
   });
 }
@@ -114,6 +150,11 @@ class _RecordingAudioPlayback implements RenPyAudioPlayback {
   }
 
   @override
+  Future<void> setMuted({required String channel, required bool muted}) async {
+    calls.add(_PlaybackCall.mute(channel: channel, muted: muted));
+  }
+
+  @override
   Future<void> dispose() async {}
 }
 
@@ -123,18 +164,27 @@ class _PlaybackCall {
     required this.asset,
     required this.assetSourcePath,
   }) : action = 'play',
-       fadeout = null;
+       fadeout = null,
+       muted = null;
 
   const _PlaybackCall.stop({required this.channel, this.fadeout})
     : action = 'stop',
       asset = null,
-      assetSourcePath = null;
+      assetSourcePath = null,
+      muted = null;
+
+  const _PlaybackCall.mute({required this.channel, required this.muted})
+    : action = 'mute',
+      asset = null,
+      assetSourcePath = null,
+      fadeout = null;
 
   final String action;
   final String channel;
   final String? asset;
   final String? assetSourcePath;
   final String? fadeout;
+  final bool? muted;
 
   @override
   bool operator ==(Object other) {
@@ -144,16 +194,18 @@ class _PlaybackCall {
             channel == other.channel &&
             asset == other.asset &&
             assetSourcePath == other.assetSourcePath &&
-            fadeout == other.fadeout;
+            fadeout == other.fadeout &&
+            muted == other.muted;
   }
 
   @override
   int get hashCode =>
-      Object.hash(action, channel, asset, assetSourcePath, fadeout);
+      Object.hash(action, channel, asset, assetSourcePath, fadeout, muted);
 
   @override
   String toString() {
     return '_PlaybackCall.$action(channel: $channel, asset: $asset, '
-        'assetSourcePath: $assetSourcePath, fadeout: $fadeout)';
+        'assetSourcePath: $assetSourcePath, fadeout: $fadeout, '
+        'muted: $muted)';
   }
 }

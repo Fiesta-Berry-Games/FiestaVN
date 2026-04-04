@@ -14,11 +14,13 @@ class RenPyAudioLayer extends StatefulWidget {
     required this.controller,
     required this.gameRoot,
     this.playback,
+    this.musicMuted = false,
   });
 
   final RenPyFlutterController controller;
   final String gameRoot;
   final RenPyAudioPlayback? playback;
+  final bool musicMuted;
 
   @override
   State<RenPyAudioLayer> createState() => _RenPyAudioLayerState();
@@ -32,6 +34,7 @@ class _RenPyAudioLayerState extends State<RenPyAudioLayer> {
   void initState() {
     super.initState();
     _playback = widget.playback ?? AudioplayersRenPyAudioPlayback();
+    _applyMusicMuted();
     _ownsPlayback = widget.playback == null;
     widget.controller.addListener(_onControllerChanged);
   }
@@ -51,6 +54,20 @@ class _RenPyAudioLayerState extends State<RenPyAudioLayer> {
       _playback = widget.playback ?? AudioplayersRenPyAudioPlayback();
       _ownsPlayback = widget.playback == null;
     }
+
+    if (oldWidget.musicMuted != widget.musicMuted ||
+        !identical(oldWidget.playback, widget.playback)) {
+      _applyMusicMuted();
+    }
+  }
+
+  void _applyMusicMuted() {
+    _playback.setMuted(channel: 'music', muted: widget.musicMuted).onError((
+      error,
+      stackTrace,
+    ) {
+      debugPrint('Failed to update RenPy music mute preference: $error');
+    });
   }
 
   void _onControllerChanged() {
@@ -136,12 +153,15 @@ abstract interface class RenPyAudioPlayback {
 
   Future<void> stop({required String channel, String? fadeout});
 
+  Future<void> setMuted({required String channel, required bool muted});
+
   Future<void> dispose();
 }
 
 /// Production audio backend backed by the web-compatible audioplayers plugin.
 class AudioplayersRenPyAudioPlayback implements RenPyAudioPlayback {
   final Map<String, audio.AudioPlayer> _players = {};
+  final Map<String, bool> _muted = {};
 
   @override
   Future<void> play({
@@ -150,6 +170,7 @@ class AudioplayersRenPyAudioPlayback implements RenPyAudioPlayback {
     required String assetSourcePath,
   }) async {
     final player = _players.putIfAbsent(channel, audio.AudioPlayer.new);
+    await player.setVolume(_muted[channel] ?? false ? 0 : 1);
     await player.setReleaseMode(
       channel == 'music' ? audio.ReleaseMode.loop : audio.ReleaseMode.release,
     );
@@ -168,6 +189,14 @@ class AudioplayersRenPyAudioPlayback implements RenPyAudioPlayback {
 
     await player.stop();
     await player.dispose();
+  }
+
+  @override
+  Future<void> setMuted({required String channel, required bool muted}) async {
+    _muted[channel] = muted;
+    final player = _players[channel];
+    if (player == null) return;
+    await player.setVolume(muted ? 0 : 1);
   }
 
   Future<void> _fadeOut(audio.AudioPlayer player, double seconds) async {
@@ -201,6 +230,7 @@ class RenPyBytesAudioPlayback implements RenPyAudioPlayback {
   final Map<String, Uint8List> _assets;
   final Uint8List? Function(String assetPath)? _readAsset;
   final Map<String, audio.AudioPlayer> _players = {};
+  final Map<String, bool> _muted = {};
 
   @override
   Future<void> play({
@@ -216,6 +246,7 @@ class RenPyBytesAudioPlayback implements RenPyAudioPlayback {
     if (bytes == null) return;
 
     final player = _players.putIfAbsent(channel, audio.AudioPlayer.new);
+    await player.setVolume(_muted[channel] ?? false ? 0 : 1);
     await player.setReleaseMode(
       channel == 'music' ? audio.ReleaseMode.loop : audio.ReleaseMode.release,
     );
@@ -228,6 +259,14 @@ class RenPyBytesAudioPlayback implements RenPyAudioPlayback {
     if (player == null) return;
     await player.stop();
     await player.dispose();
+  }
+
+  @override
+  Future<void> setMuted({required String channel, required bool muted}) async {
+    _muted[channel] = muted;
+    final player = _players[channel];
+    if (player == null) return;
+    await player.setVolume(muted ? 0 : 1);
   }
 
   @override
@@ -251,6 +290,9 @@ class RenPyNoOpAudioPlayback implements RenPyAudioPlayback {
 
   @override
   Future<void> stop({required String channel, String? fadeout}) async {}
+
+  @override
+  Future<void> setMuted({required String channel, required bool muted}) async {}
 
   @override
   Future<void> dispose() async {}

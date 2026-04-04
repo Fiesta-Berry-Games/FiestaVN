@@ -4,6 +4,51 @@ import 'dart:convert';
 import 'package:renpy_core/renpy_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'renpy_preference_store.dart';
+
+/// Stores Ren'Py-style player preferences in Flutter's platform preferences.
+final class RenPySharedPreferencesPreferenceStore
+    implements RenPyPreferenceStore {
+  RenPySharedPreferencesPreferenceStore(
+    this._preferences, {
+    this.key = defaultKey,
+  });
+
+  static const defaultKey = 'renpy.preferences';
+
+  final SharedPreferences _preferences;
+  final String key;
+
+  static Future<RenPySharedPreferencesPreferenceStore> create({
+    String key = defaultKey,
+  }) async {
+    return RenPySharedPreferencesPreferenceStore(
+      await SharedPreferences.getInstance(),
+      key: key,
+    );
+  }
+
+  @override
+  Map<String, Object?> load() {
+    final encoded = _preferences.getString(key);
+    if (encoded == null || encoded.isEmpty) return const {};
+
+    try {
+      final decoded = jsonDecode(encoded);
+      if (decoded is! Map) return const {};
+
+      return decoded.map((key, value) => MapEntry(key.toString(), value));
+    } on FormatException {
+      return const {};
+    }
+  }
+
+  @override
+  void save(Map<String, Object?> values) {
+    unawaited(_preferences.setString(key, jsonEncode(values)));
+  }
+}
+
 /// Stores Ren'Py persistent values in Flutter's platform preferences.
 final class RenPySharedPreferencesPersistentStore
     implements RenPyPersistentStore {

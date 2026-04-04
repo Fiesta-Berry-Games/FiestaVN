@@ -9,6 +9,7 @@ import 'renpy_audio_layer.dart';
 import 'renpy_chrome.dart';
 import 'renpy_flutter_controller.dart';
 import 'renpy_image_layer.dart';
+import 'renpy_preference_store.dart';
 
 typedef RenPyLayerBuilder =
     Widget Function(BuildContext context, RenPyFlutterController controller);
@@ -29,6 +30,7 @@ class RenPyPlayer extends StatelessWidget {
     this.imageLayerBuilder,
     this.gameRoot = '',
     this.audioPlayback,
+    this.preferenceStore,
   });
 
   final RenPyFlutterController controller;
@@ -38,6 +40,7 @@ class RenPyPlayer extends StatelessWidget {
   final RenPyLayerBuilder? imageLayerBuilder;
   final String gameRoot;
   final RenPyAudioPlayback? audioPlayback;
+  final RenPyPreferenceStore? preferenceStore;
 
   Future<void> _saveGame(BuildContext context) async {
     final saved = await controller.saveGame();
@@ -90,11 +93,14 @@ class RenPyPlayer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _RenPyInputSurface(
-      gameMenuBuilder: (closeGameMenu) {
+      preferenceStore: preferenceStore,
+      gameMenuBuilder: (closeGameMenu, preferences, setMusicMuted) {
         return _RenPyGameMenu(
+          musicMuted: preferences.musicMuted,
           canSaveLoad: controller.hasSnapshotStore,
           canRestart: showRestartButton && onRestart != null,
           onResume: closeGameMenu,
+          onMusicMutedChanged: setMusicMuted,
           onSave: () => unawaited(_saveGame(context)),
           onLoad: () {
             closeGameMenu();
@@ -110,94 +116,105 @@ class RenPyPlayer extends StatelessWidget {
       },
       onKeyEvent: (event) => _handleKeyEvent(context, event),
       onPointerSignal: (event) => _handlePointerSignal(context, event),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          ColoredBox(color: backgroundColor),
-          if (imageLayerBuilder != null)
-            imageLayerBuilder!(context, controller)
-          else
-            RenPyImageLayer(controller: controller),
-          RenPyAudioLayer(
-            controller: controller,
-            gameRoot: gameRoot,
-            playback: audioPlayback,
-          ),
-          RenPyPauseView(controller: controller),
-          RenPyDialogueView(controller: controller),
-          RenPyMenuSelector(controller: controller),
-          ValueListenableBuilder<RenPyGameStatus>(
-            valueListenable: controller,
-            builder: (context, status, child) {
-              final hasRestart = showRestartButton && onRestart != null;
-              final hasActions =
-                  controller.canRollback ||
-                  controller.hasSnapshotStore ||
-                  hasRestart;
-              if (!hasActions) return const SizedBox.shrink();
+      childBuilder: (preferences) {
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            ColoredBox(color: backgroundColor),
+            if (imageLayerBuilder != null)
+              imageLayerBuilder!(context, controller)
+            else
+              RenPyImageLayer(controller: controller),
+            RenPyAudioLayer(
+              controller: controller,
+              gameRoot: gameRoot,
+              playback: audioPlayback,
+              musicMuted: preferences.musicMuted,
+            ),
+            RenPyPauseView(controller: controller),
+            RenPyDialogueView(controller: controller),
+            RenPyMenuSelector(controller: controller),
+            ValueListenableBuilder<RenPyGameStatus>(
+              valueListenable: controller,
+              builder: (context, status, child) {
+                final hasRestart = showRestartButton && onRestart != null;
+                final hasActions =
+                    controller.canRollback ||
+                    controller.hasSnapshotStore ||
+                    hasRestart;
+                if (!hasActions) return const SizedBox.shrink();
 
-              return PositionedDirectional(
-                end: 16,
-                bottom: 16,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (controller.canRollback) ...[
-                      FloatingActionButton.small(
-                        tooltip: 'Rollback',
-                        heroTag: null,
-                        onPressed: () => _rollbackGame(context),
-                        child: const Icon(Icons.undo),
-                      ),
-                    ],
-                    if (controller.hasSnapshotStore) ...[
-                      if (controller.canRollback) const SizedBox(height: 8),
-                      FloatingActionButton.small(
-                        tooltip: 'Save',
-                        heroTag: null,
-                        onPressed: () => unawaited(_saveGame(context)),
-                        child: const Icon(Icons.save),
-                      ),
-                      const SizedBox(height: 8),
-                      FloatingActionButton.small(
-                        tooltip: 'Load',
-                        heroTag: null,
-                        onPressed: () => unawaited(_loadGame(context)),
-                        child: const Icon(Icons.folder_open),
-                      ),
-                    ],
-                    if (hasRestart) ...[
-                      if (controller.canRollback || controller.hasSnapshotStore)
+                return PositionedDirectional(
+                  end: 16,
+                  bottom: 16,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (controller.canRollback) ...[
+                        FloatingActionButton.small(
+                          tooltip: 'Rollback',
+                          heroTag: null,
+                          onPressed: () => _rollbackGame(context),
+                          child: const Icon(Icons.undo),
+                        ),
+                      ],
+                      if (controller.hasSnapshotStore) ...[
+                        if (controller.canRollback) const SizedBox(height: 8),
+                        FloatingActionButton.small(
+                          tooltip: 'Save',
+                          heroTag: null,
+                          onPressed: () => unawaited(_saveGame(context)),
+                          child: const Icon(Icons.save),
+                        ),
                         const SizedBox(height: 8),
-                      FloatingActionButton(
-                        tooltip: 'Restart',
-                        onPressed: onRestart,
-                        child: const Icon(Icons.refresh),
-                      ),
+                        FloatingActionButton.small(
+                          tooltip: 'Load',
+                          heroTag: null,
+                          onPressed: () => unawaited(_loadGame(context)),
+                          child: const Icon(Icons.folder_open),
+                        ),
+                      ],
+                      if (hasRestart) ...[
+                        if (controller.canRollback ||
+                            controller.hasSnapshotStore)
+                          const SizedBox(height: 8),
+                        FloatingActionButton(
+                          tooltip: 'Restart',
+                          onPressed: onRestart,
+                          child: const Icon(Icons.refresh),
+                        ),
+                      ],
                     ],
-                  ],
-                ),
-              );
-            },
-          ),
-        ],
-      ),
+                  ),
+                );
+              },
+            ),
+          ],
+        );
+      },
     );
   }
 }
 
 class _RenPyInputSurface extends StatefulWidget {
   const _RenPyInputSurface({
-    required this.child,
+    required this.childBuilder,
     required this.gameMenuBuilder,
     required this.onKeyEvent,
     required this.onPointerSignal,
+    this.preferenceStore,
   });
 
-  final Widget child;
-  final Widget Function(VoidCallback closeGameMenu) gameMenuBuilder;
+  final Widget Function(RenPyPlayerPreferences preferences) childBuilder;
+  final Widget Function(
+    VoidCallback closeGameMenu,
+    RenPyPlayerPreferences preferences,
+    ValueChanged<bool> setMusicMuted,
+  )
+  gameMenuBuilder;
   final KeyEventResult Function(KeyEvent event) onKeyEvent;
   final ValueChanged<PointerSignalEvent> onPointerSignal;
+  final RenPyPreferenceStore? preferenceStore;
 
   @override
   State<_RenPyInputSurface> createState() => _RenPyInputSurfaceState();
@@ -205,13 +222,29 @@ class _RenPyInputSurface extends StatefulWidget {
 
 class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
   late final FocusNode _focusNode;
+  late RenPyPlayerPreferences _preferences;
   bool _gameMenuOpen = false;
 
   @override
   void initState() {
     super.initState();
     _focusNode = FocusNode(debugLabel: 'RenPy player input');
+    _preferences = _loadPreferences();
     WidgetsBinding.instance.addPostFrameCallback((_) => _requestFocus());
+  }
+
+  @override
+  void didUpdateWidget(_RenPyInputSurface oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.preferenceStore, widget.preferenceStore)) {
+      _preferences = _loadPreferences();
+    }
+  }
+
+  RenPyPlayerPreferences _loadPreferences() {
+    return RenPyPlayerPreferences.fromJson(
+      widget.preferenceStore?.load() ?? const {},
+    );
   }
 
   void _requestFocus() {
@@ -231,10 +264,26 @@ class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
     _requestFocus();
   }
 
+  void _setMusicMuted(bool muted) {
+    if (_preferences.musicMuted == muted) return;
+    setState(() {
+      _preferences = _preferences.copyWith(musicMuted: muted);
+    });
+    widget.preferenceStore?.save(_preferences.toJson());
+  }
+
+  void _toggleMusicMuted() => _setMusicMuted(!_preferences.musicMuted);
+
   KeyEventResult _handleKeyEvent(KeyEvent event) {
     if ((event is KeyDownEvent || event is KeyRepeatEvent) &&
         event.logicalKey == LogicalKeyboardKey.escape) {
       _gameMenuOpen ? _closeGameMenu() : _openGameMenu();
+      return KeyEventResult.handled;
+    }
+    if (!_gameMenuOpen &&
+        (event is KeyDownEvent || event is KeyRepeatEvent) &&
+        event.logicalKey == LogicalKeyboardKey.keyM) {
+      _toggleMusicMuted();
       return KeyEventResult.handled;
     }
     return _gameMenuOpen ? KeyEventResult.handled : widget.onKeyEvent(event);
@@ -268,8 +317,13 @@ class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            widget.child,
-            if (_gameMenuOpen) widget.gameMenuBuilder(_closeGameMenu),
+            widget.childBuilder(_preferences),
+            if (_gameMenuOpen)
+              widget.gameMenuBuilder(
+                _closeGameMenu,
+                _preferences,
+                _setMusicMuted,
+              ),
           ],
         ),
       ),
@@ -277,22 +331,33 @@ class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
   }
 }
 
-class _RenPyGameMenu extends StatelessWidget {
+class _RenPyGameMenu extends StatefulWidget {
   const _RenPyGameMenu({
+    required this.musicMuted,
     required this.canSaveLoad,
     required this.canRestart,
     required this.onResume,
+    required this.onMusicMutedChanged,
     required this.onSave,
     required this.onLoad,
     required this.onRestart,
   });
 
+  final bool musicMuted;
   final bool canSaveLoad;
   final bool canRestart;
   final VoidCallback onResume;
+  final ValueChanged<bool> onMusicMutedChanged;
   final VoidCallback onSave;
   final VoidCallback onLoad;
   final VoidCallback onRestart;
+
+  @override
+  State<_RenPyGameMenu> createState() => _RenPyGameMenuState();
+}
+
+class _RenPyGameMenuState extends State<_RenPyGameMenu> {
+  bool _showPreferences = false;
 
   @override
   Widget build(BuildContext context) {
@@ -309,50 +374,93 @@ class _RenPyGameMenu extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'Game Menu',
-                      style: Theme.of(context).textTheme.titleLarge,
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 16),
-                    FilledButton.icon(
-                      onPressed: onResume,
-                      icon: const Icon(Icons.play_arrow),
-                      label: const Text('Resume'),
-                    ),
-                    if (canSaveLoad) ...[
-                      const SizedBox(height: 8),
-                      OutlinedButton.icon(
-                        onPressed: onSave,
-                        icon: const Icon(Icons.save),
-                        label: const Text('Save'),
-                      ),
-                      const SizedBox(height: 8),
-                      OutlinedButton.icon(
-                        onPressed: onLoad,
-                        icon: const Icon(Icons.folder_open),
-                        label: const Text('Load'),
-                      ),
-                    ],
-                    if (canRestart) ...[
-                      const SizedBox(height: 8),
-                      OutlinedButton.icon(
-                        onPressed: onRestart,
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Restart'),
-                      ),
-                    ],
-                  ],
-                ),
+                child:
+                    _showPreferences
+                        ? _buildPreferences(context)
+                        : _buildRootMenu(context),
               ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildRootMenu(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Game Menu',
+          style: Theme.of(context).textTheme.titleLarge,
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 16),
+        FilledButton.icon(
+          onPressed: widget.onResume,
+          icon: const Icon(Icons.play_arrow),
+          label: const Text('Resume'),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: () => setState(() => _showPreferences = true),
+          icon: const Icon(Icons.tune),
+          label: const Text('Preferences'),
+        ),
+        if (widget.canSaveLoad) ...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: widget.onSave,
+            icon: const Icon(Icons.save),
+            label: const Text('Save'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: widget.onLoad,
+            icon: const Icon(Icons.folder_open),
+            label: const Text('Load'),
+          ),
+        ],
+        if (widget.canRestart) ...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: widget.onRestart,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Restart'),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildPreferences(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Preferences',
+          style: Theme.of(context).textTheme.titleLarge,
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 16),
+        CheckboxListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Music Muted'),
+          value: widget.musicMuted,
+          onChanged: (value) {
+            if (value == null) return;
+            widget.onMusicMutedChanged(value);
+          },
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: () => setState(() => _showPreferences = false),
+          icon: const Icon(Icons.arrow_back),
+          label: const Text('Back'),
+        ),
+      ],
     );
   }
 }
@@ -374,6 +482,7 @@ class RenPyAssetPlayer extends StatefulWidget {
     this.loadingBuilder,
     this.loadErrorBuilder,
     this.onControllerCreated,
+    this.preferenceStore,
   });
 
   final String scriptAsset;
@@ -389,6 +498,7 @@ class RenPyAssetPlayer extends StatefulWidget {
   final RenPyPersistentStore? persistentStore;
   final RenPyLoadErrorBuilder? loadErrorBuilder;
   final ValueChanged<RenPyFlutterController>? onControllerCreated;
+  final RenPyPreferenceStore? preferenceStore;
 
   @override
   State<RenPyAssetPlayer> createState() => _RenPyAssetPlayerState();
@@ -408,6 +518,7 @@ class RenPyProjectPlayer extends StatefulWidget {
     this.onControllerCreated,
     this.persistentStore,
     this.snapshotStore,
+    this.preferenceStore,
   });
 
   final RenPyGameProject project;
@@ -421,6 +532,7 @@ class RenPyProjectPlayer extends StatefulWidget {
   final RenPyPersistentStore? persistentStore;
   final RenPyRunnerSnapshotStore? snapshotStore;
 
+  final RenPyPreferenceStore? preferenceStore;
   @override
   State<RenPyProjectPlayer> createState() => _RenPyProjectPlayerState();
 }
@@ -530,6 +642,7 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
           },
       gameRoot: widget.project.gameRoot,
       audioPlayback: widget.audioPlayback ?? _ownedAudioPlayback,
+      preferenceStore: widget.preferenceStore,
     );
   }
 }
@@ -695,6 +808,7 @@ class _RenPyAssetPlayerState extends State<RenPyAssetPlayer> {
       imageLayerBuilder: widget.imageLayerBuilder,
       gameRoot: _gameRoot,
       audioPlayback: widget.audioPlayback,
+      preferenceStore: widget.preferenceStore,
     );
   }
 }
