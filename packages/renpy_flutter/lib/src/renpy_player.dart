@@ -90,6 +90,24 @@ class RenPyPlayer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _RenPyInputSurface(
+      gameMenuBuilder: (closeGameMenu) {
+        return _RenPyGameMenu(
+          canSaveLoad: controller.hasSnapshotStore,
+          canRestart: showRestartButton && onRestart != null,
+          onResume: closeGameMenu,
+          onSave: () => unawaited(_saveGame(context)),
+          onLoad: () {
+            closeGameMenu();
+            unawaited(_loadGame(context));
+          },
+          onRestart: () {
+            final restart = onRestart;
+            if (restart == null) return;
+            closeGameMenu();
+            restart();
+          },
+        );
+      },
       onKeyEvent: (event) => _handleKeyEvent(context, event),
       onPointerSignal: (event) => _handlePointerSignal(context, event),
       child: Stack(
@@ -171,11 +189,13 @@ class RenPyPlayer extends StatelessWidget {
 class _RenPyInputSurface extends StatefulWidget {
   const _RenPyInputSurface({
     required this.child,
+    required this.gameMenuBuilder,
     required this.onKeyEvent,
     required this.onPointerSignal,
   });
 
   final Widget child;
+  final Widget Function(VoidCallback closeGameMenu) gameMenuBuilder;
   final KeyEventResult Function(KeyEvent event) onKeyEvent;
   final ValueChanged<PointerSignalEvent> onPointerSignal;
 
@@ -185,6 +205,7 @@ class _RenPyInputSurface extends StatefulWidget {
 
 class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
   late final FocusNode _focusNode;
+  bool _gameMenuOpen = false;
 
   @override
   void initState() {
@@ -198,6 +219,37 @@ class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
     _focusNode.requestFocus();
   }
 
+  void _openGameMenu() {
+    if (_gameMenuOpen) return;
+    setState(() => _gameMenuOpen = true);
+    _requestFocus();
+  }
+
+  void _closeGameMenu() {
+    if (!_gameMenuOpen) return;
+    setState(() => _gameMenuOpen = false);
+    _requestFocus();
+  }
+
+  KeyEventResult _handleKeyEvent(KeyEvent event) {
+    if ((event is KeyDownEvent || event is KeyRepeatEvent) &&
+        event.logicalKey == LogicalKeyboardKey.escape) {
+      _gameMenuOpen ? _closeGameMenu() : _openGameMenu();
+      return KeyEventResult.handled;
+    }
+    return _gameMenuOpen ? KeyEventResult.handled : widget.onKeyEvent(event);
+  }
+
+  void _handlePointerDown(PointerDownEvent event) {
+    _requestFocus();
+    if ((event.buttons & kSecondaryMouseButton) != 0) _openGameMenu();
+  }
+
+  void _handlePointerSignal(PointerSignalEvent event) {
+    if (_gameMenuOpen) return;
+    widget.onPointerSignal(event);
+  }
+
   @override
   void dispose() {
     _focusNode.dispose();
@@ -208,12 +260,98 @@ class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
   Widget build(BuildContext context) {
     return Focus(
       focusNode: _focusNode,
-      onKeyEvent: (node, event) => widget.onKeyEvent(event),
+      onKeyEvent: (node, event) => _handleKeyEvent(event),
       child: Listener(
         behavior: HitTestBehavior.opaque,
-        onPointerDown: (_) => _requestFocus(),
-        onPointerSignal: widget.onPointerSignal,
-        child: widget.child,
+        onPointerDown: _handlePointerDown,
+        onPointerSignal: _handlePointerSignal,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            widget.child,
+            if (_gameMenuOpen) widget.gameMenuBuilder(_closeGameMenu),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RenPyGameMenu extends StatelessWidget {
+  const _RenPyGameMenu({
+    required this.canSaveLoad,
+    required this.canRestart,
+    required this.onResume,
+    required this.onSave,
+    required this.onLoad,
+    required this.onRestart,
+  });
+
+  final bool canSaveLoad;
+  final bool canRestart;
+  final VoidCallback onResume;
+  final VoidCallback onSave;
+  final VoidCallback onLoad;
+  final VoidCallback onRestart;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Positioned.fill(
+      child: ColoredBox(
+        color: Colors.black54,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 320),
+            child: Material(
+              color: colorScheme.surface,
+              elevation: 8,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Game Menu',
+                      style: Theme.of(context).textTheme.titleLarge,
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: onResume,
+                      icon: const Icon(Icons.play_arrow),
+                      label: const Text('Resume'),
+                    ),
+                    if (canSaveLoad) ...[
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: onSave,
+                        icon: const Icon(Icons.save),
+                        label: const Text('Save'),
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: onLoad,
+                        icon: const Icon(Icons.folder_open),
+                        label: const Text('Load'),
+                      ),
+                    ],
+                    if (canRestart) ...[
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: onRestart,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Restart'),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

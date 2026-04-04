@@ -220,6 +220,173 @@ label start:
     expect(find.text('Second.'), findsNothing);
   });
 
+  testWidgets('asset player escape key opens and resumes game menu', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    "First."
+''',
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('First.'));
+    expect(find.text('Game Menu'), findsNothing);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await _pumpUntil(tester, find.text('Game Menu'));
+
+    expect(find.text('Resume'), findsOneWidget);
+    expect(find.text('Save'), findsNothing);
+    expect(find.text('Load'), findsNothing);
+    expect(find.text('Restart'), findsOneWidget);
+
+    await tester.tap(find.text('Resume'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Game Menu'), findsNothing);
+    expect(find.text('First.'), findsOneWidget);
+  });
+
+  testWidgets('asset player right-click opens game menu', (tester) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    "First."
+''',
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('First.'));
+
+    final gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await gesture.addPointer(location: tester.getCenter(find.text('First.')));
+    addTearDown(gesture.removePointer);
+    await tester.pump();
+    await gesture.down(tester.getCenter(find.text('First.')));
+    await tester.pump();
+    await gesture.up();
+
+    await _pumpUntil(tester, find.text('Game Menu'));
+
+    expect(find.text('Resume'), findsOneWidget);
+    expect(find.text('Restart'), findsOneWidget);
+  });
+
+  testWidgets('asset player game menu save load and restart use snapshots', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    "First."
+    "Second."
+    "Third."
+''',
+    });
+    final snapshotStore = RenPyMemoryRunnerSnapshotStore();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+          snapshotStore: snapshotStore,
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('First.'));
+    await tester.tap(find.text('First.'));
+    await _pumpUntil(tester, find.text('Second.'));
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await _pumpUntil(tester, find.text('Game Menu'));
+
+    expect(find.text('Save'), findsOneWidget);
+    expect(find.text('Load'), findsOneWidget);
+    expect(find.text('Restart'), findsOneWidget);
+
+    await tester.tap(find.text('Save'));
+    await tester.pump();
+    await tester.tap(find.text('Restart'));
+    await _pumpUntil(tester, find.text('First.'));
+
+    expect(find.text('Game Menu'), findsNothing);
+    expect(find.text('Second.'), findsNothing);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await _pumpUntil(tester, find.text('Game Menu'));
+    await tester.tap(find.text('Load'));
+    await _pumpUntil(tester, find.text('Second.'));
+
+    expect(find.text('First.'), findsNothing);
+    expect(find.text('Second.'), findsOneWidget);
+  });
+
+  testWidgets('asset player game menu blocks rollback wheel input', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    "First."
+    "Second."
+''',
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('First.'));
+    await tester.tap(find.text('First.'));
+    await _pumpUntil(tester, find.text('Second.'));
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await _pumpUntil(tester, find.text('Game Menu'));
+    await tester.sendEventToBinding(
+      const PointerScrollEvent(
+        position: Offset(10, 10),
+        scrollDelta: Offset(0, -20),
+      ),
+    );
+    await tester.tap(find.text('Resume'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('First.'), findsNothing);
+    expect(find.text('Second.'), findsOneWidget);
+  });
+
   testWidgets('asset player supports a custom image layer', (tester) async {
     final bundle = _MemoryAssetBundle({
       'assets/game/script.rpy': '''
