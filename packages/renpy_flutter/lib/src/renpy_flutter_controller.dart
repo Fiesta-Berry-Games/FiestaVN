@@ -93,23 +93,31 @@ final class RenPyImageChange extends RenPyGameStatus {
 
 /// Emitted when a RenPy audio command is encountered.
 final class RenPyAudioChange extends RenPyGameStatus {
-  const RenPyAudioChange.play({required this.channel, required this.asset})
-    : action = RenPyAudioAction.play,
-      fadeout = null;
+  const RenPyAudioChange.play({
+    required this.channel,
+    required this.asset,
+    this.mixer,
+    this.loop,
+  }) : action = RenPyAudioAction.play,
+       fadeout = null;
 
   const RenPyAudioChange.stop({required this.channel, this.fadeout})
     : action = RenPyAudioAction.stop,
-      asset = null;
+      asset = null,
+      mixer = null,
+      loop = null;
 
   final RenPyAudioAction action;
   final String channel;
   final String? asset;
   final String? fadeout;
+  final String? mixer;
+  final bool? loop;
 
   @override
   String toString() {
     return 'RenPyAudioChange.$action(channel: $channel, asset: $asset, '
-        'fadeout: $fadeout)';
+        'fadeout: $fadeout, mixer: $mixer, loop: $loop)';
   }
 }
 
@@ -158,7 +166,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   RenPyVisualElementSnapshot? _sceneSnapshot;
   final Map<String, RenPyVisualElementSnapshot> _spriteSnapshots = {};
   final Map<String, RenPyImagePlacement> _spritePlacements = {};
-  final Map<String, String> _audioSnapshots = {};
+  final Map<String, RenPyAudioChannelSnapshot> _audioSnapshots = {};
 
   final List<RenPyRunnerSnapshot> _rollbackHistory = [];
 
@@ -456,7 +464,12 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
         final asset = event.asset;
         if (asset == null) return;
         _diagnoseAudioAsset(asset);
-        change = RenPyAudioChange.play(channel: event.channel, asset: asset);
+        change = RenPyAudioChange.play(
+          channel: event.channel,
+          asset: asset,
+          mixer: event.mixer,
+          loop: event.loop,
+        );
       case RenPyAudioAction.stop:
         change = RenPyAudioChange.stop(
           channel: event.channel,
@@ -489,10 +502,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
         sprites: _spriteSnapshots.values.toList(),
       ),
       audio: RenPyAudioSnapshot(
-        channels: _audioSnapshots.map(
-          (channel, asset) =>
-              MapEntry(channel, RenPyAudioChannelSnapshot(asset: asset)),
-        ),
+        channels: Map<String, RenPyAudioChannelSnapshot>.of(_audioSnapshots),
       ),
     );
   }
@@ -505,7 +515,9 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   }
 
   void _restorePresentation(RenPyPresentationSnapshot? presentation) {
-    final currentAudio = Map<String, String>.of(_audioSnapshots);
+    final currentAudio = Map<String, RenPyAudioChannelSnapshot>.of(
+      _audioSnapshots,
+    );
     _clearPresentationSnapshot();
 
     for (final channel in currentAudio.keys) {
@@ -538,6 +550,8 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       final change = RenPyAudioChange.play(
         channel: entry.key,
         asset: entry.value.asset,
+        mixer: entry.value.mixer,
+        loop: entry.value.loop,
       );
       _recordAudioChange(change);
       value = change;
@@ -629,7 +643,13 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     switch (change.action) {
       case RenPyAudioAction.play:
         final asset = change.asset;
-        if (asset != null) _audioSnapshots[change.channel] = asset;
+        if (asset != null) {
+          _audioSnapshots[change.channel] = RenPyAudioChannelSnapshot(
+            asset: asset,
+            mixer: change.mixer,
+            loop: change.loop,
+          );
+        }
       case RenPyAudioAction.stop:
         _audioSnapshots.remove(change.channel);
     }

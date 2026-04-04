@@ -34,6 +34,42 @@ void main() {
     ]);
   });
 
+  testWidgets('audio layer passes registered channel playback metadata', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    final playback = _RecordingAudioPlayback();
+    addTearDown(controller.dispose);
+    addTearDown(playback.dispose);
+
+    await tester.pumpWidget(
+      RenPyAudioLayer(
+        controller: controller,
+        gameRoot: 'game',
+        playback: playback,
+      ),
+    );
+
+    controller.value = const RenPyAudioChange.play(
+      channel: 'ME',
+      asset: '/ME/rain_2.wav',
+      mixer: 'sfx',
+      loop: false,
+    );
+    await tester.pump();
+
+    expect(playback.calls, [
+      const _PlaybackCall.mute(channel: 'music', muted: false),
+      const _PlaybackCall.play(
+        channel: 'ME',
+        asset: '/ME/rain_2.wav',
+        assetSourcePath: 'game/ME/rain_2.wav',
+        mixer: 'sfx',
+        loop: false,
+      ),
+    ]);
+  });
+
   testWidgets('audio layer stops RenPy audio channels', (tester) async {
     final controller = RenPyFlutterController();
     final playback = _RecordingAudioPlayback();
@@ -161,12 +197,16 @@ class _RecordingAudioPlayback implements RenPyAudioPlayback {
     required String channel,
     required String asset,
     required String assetSourcePath,
+    String? mixer,
+    bool? loop,
   }) async {
     calls.add(
       _PlaybackCall.play(
         channel: channel,
         asset: asset,
         assetSourcePath: assetSourcePath,
+        mixer: mixer,
+        loop: loop,
       ),
     );
   }
@@ -201,6 +241,8 @@ class _PlaybackCall {
     required this.channel,
     required this.asset,
     required this.assetSourcePath,
+    this.mixer,
+    this.loop,
   }) : action = 'play',
        fadeout = null,
        muted = null,
@@ -211,14 +253,18 @@ class _PlaybackCall {
       asset = null,
       assetSourcePath = null,
       muted = null,
-      volume = null;
+      volume = null,
+      mixer = null,
+      loop = null;
 
   const _PlaybackCall.mute({required this.channel, required this.muted})
     : action = 'mute',
       asset = null,
       assetSourcePath = null,
       fadeout = null,
-      volume = null;
+      volume = null,
+      mixer = null,
+      loop = null;
 
   final String action;
 
@@ -229,11 +275,15 @@ class _PlaybackCall {
   }) : action = 'mixer',
        asset = null,
        assetSourcePath = null,
-       fadeout = null;
+       fadeout = null,
+       mixer = null,
+       loop = null;
   final String channel;
   final String? asset;
   final String? assetSourcePath;
   final String? fadeout;
+  final String? mixer;
+  final bool? loop;
   final bool? muted;
 
   final double? volume;
@@ -247,7 +297,9 @@ class _PlaybackCall {
             assetSourcePath == other.assetSourcePath &&
             fadeout == other.fadeout &&
             muted == other.muted &&
-            volume == other.volume;
+            volume == other.volume &&
+            mixer == other.mixer &&
+            loop == other.loop;
   }
 
   @override
@@ -259,12 +311,14 @@ class _PlaybackCall {
     fadeout,
     muted,
     volume,
+    mixer,
+    loop,
   );
 
   @override
   String toString() {
     return '_PlaybackCall.$action(channel: $channel, asset: $asset, '
         'assetSourcePath: $assetSourcePath, fadeout: $fadeout, '
-        'muted: $muted, volume: $volume)';
+        'muted: $muted, volume: $volume, mixer: $mixer, loop: $loop)';
   }
 }

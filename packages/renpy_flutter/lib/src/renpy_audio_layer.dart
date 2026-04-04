@@ -108,6 +108,8 @@ class _RenPyAudioLayerState extends State<RenPyAudioLayer> {
               channel: status.channel,
               asset: asset,
               assetSourcePath: assetSourcePath,
+              mixer: status.mixer,
+              loop: status.loop,
             )
             .onError((error, stackTrace) {
               debugPrint('Failed to play RenPy audio $asset: $error');
@@ -170,6 +172,8 @@ abstract interface class RenPyAudioPlayback {
     required String channel,
     required String asset,
     required String assetSourcePath,
+    String? mixer,
+    bool? loop,
   });
 
   Future<void> stop({required String channel, String? fadeout});
@@ -190,17 +194,23 @@ class AudioplayersRenPyAudioPlayback implements RenPyAudioPlayback {
   final Map<String, audio.AudioPlayer> _players = {};
   final Map<String, bool> _muted = {};
   final Map<String, _AudioMixerState> _mixers = {};
+  final Map<String, String> _channelMixers = {};
 
   @override
   Future<void> play({
     required String channel,
     required String asset,
     required String assetSourcePath,
+    String? mixer,
+    bool? loop,
   }) async {
+    if (mixer != null) _channelMixers[channel] = mixer;
     final player = _players.putIfAbsent(channel, audio.AudioPlayer.new);
     await player.setVolume(_effectiveVolume(channel));
     await player.setReleaseMode(
-      channel == 'music' ? audio.ReleaseMode.loop : audio.ReleaseMode.release,
+      (loop ?? channel == 'music')
+          ? audio.ReleaseMode.loop
+          : audio.ReleaseMode.release,
     );
     await player.play(audio.AssetSource(assetSourcePath));
   }
@@ -216,6 +226,7 @@ class AudioplayersRenPyAudioPlayback implements RenPyAudioPlayback {
     }
 
     await player.stop();
+    _channelMixers.remove(channel);
     await player.dispose();
   }
 
@@ -260,7 +271,14 @@ class AudioplayersRenPyAudioPlayback implements RenPyAudioPlayback {
   }
 
   String _mixerForChannel(String channel) {
-    return channel == 'sound' ? RenPyPlayerPreferences.sfxMixer : channel;
+    final registeredMixer = _channelMixers[channel];
+    if (registeredMixer != null) return registeredMixer;
+    return switch (channel) {
+      'sound' => RenPyPlayerPreferences.sfxMixer,
+      'voice' => RenPyPlayerPreferences.voiceMixer,
+      'music' => RenPyPlayerPreferences.musicMixer,
+      _ => channel,
+    };
   }
 
   Future<void> _fadeOut(audio.AudioPlayer player, double seconds) async {
@@ -296,10 +314,13 @@ class RenPyBytesAudioPlayback implements RenPyAudioPlayback {
   final Map<String, audio.AudioPlayer> _players = {};
   final Map<String, bool> _muted = {};
   final Map<String, _AudioMixerState> _mixers = {};
+  final Map<String, String> _channelMixers = {};
 
   @override
   Future<void> play({
     required String channel,
+    String? mixer,
+    bool? loop,
     required String asset,
     required String assetSourcePath,
   }) async {
@@ -310,10 +331,13 @@ class RenPyBytesAudioPlayback implements RenPyAudioPlayback {
         _readAsset?.call(asset);
     if (bytes == null) return;
 
+    if (mixer != null) _channelMixers[channel] = mixer;
     final player = _players.putIfAbsent(channel, audio.AudioPlayer.new);
     await player.setVolume(_effectiveVolume(channel));
     await player.setReleaseMode(
-      channel == 'music' ? audio.ReleaseMode.loop : audio.ReleaseMode.release,
+      (loop ?? channel == 'music')
+          ? audio.ReleaseMode.loop
+          : audio.ReleaseMode.release,
     );
     await player.play(audio.BytesSource(bytes));
   }
@@ -324,6 +348,7 @@ class RenPyBytesAudioPlayback implements RenPyAudioPlayback {
     if (player == null) return;
     await player.stop();
     await player.dispose();
+    _channelMixers.remove(channel);
   }
 
   @override
@@ -367,7 +392,14 @@ class RenPyBytesAudioPlayback implements RenPyAudioPlayback {
   }
 
   String _mixerForChannel(String channel) {
-    return channel == 'sound' ? RenPyPlayerPreferences.sfxMixer : channel;
+    final registeredMixer = _channelMixers[channel];
+    if (registeredMixer != null) return registeredMixer;
+    return switch (channel) {
+      'sound' => RenPyPlayerPreferences.sfxMixer,
+      'voice' => RenPyPlayerPreferences.voiceMixer,
+      'music' => RenPyPlayerPreferences.musicMixer,
+      _ => channel,
+    };
   }
 
   @override
@@ -387,8 +419,9 @@ class RenPyNoOpAudioPlayback implements RenPyAudioPlayback {
     required String channel,
     required String asset,
     required String assetSourcePath,
+    String? mixer,
+    bool? loop,
   }) async {}
-
   @override
   Future<void> stop({required String channel, String? fadeout}) async {}
 
