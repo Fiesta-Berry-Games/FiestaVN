@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'package:renpy_core/renpy_core.dart' show RenPyAudioAction;
 
 import 'renpy_flutter_controller.dart';
+import 'renpy_preference_store.dart';
 
 /// Plays RenPy audio commands observed from a [RenPyFlutterController].
 class RenPyAudioLayer extends StatefulWidget {
@@ -15,12 +16,14 @@ class RenPyAudioLayer extends StatefulWidget {
     required this.gameRoot,
     this.playback,
     this.musicMuted = false,
+    this.preferences,
   });
 
   final RenPyFlutterController controller;
   final String gameRoot;
   final RenPyAudioPlayback? playback;
   final bool musicMuted;
+  final RenPyPlayerPreferences? preferences;
 
   @override
   State<RenPyAudioLayer> createState() => _RenPyAudioLayerState();
@@ -34,8 +37,8 @@ class _RenPyAudioLayerState extends State<RenPyAudioLayer> {
   void initState() {
     super.initState();
     _playback = widget.playback ?? AudioplayersRenPyAudioPlayback();
-    _applyMusicMuted();
     _ownsPlayback = widget.playback == null;
+    _applyPreferences();
     widget.controller.addListener(_onControllerChanged);
   }
 
@@ -56,18 +59,36 @@ class _RenPyAudioLayerState extends State<RenPyAudioLayer> {
     }
 
     if (oldWidget.musicMuted != widget.musicMuted ||
+        !identical(oldWidget.preferences, widget.preferences) ||
         !identical(oldWidget.playback, widget.playback)) {
-      _applyMusicMuted();
+      _applyPreferences();
     }
   }
 
-  void _applyMusicMuted() {
-    _playback.setMuted(channel: 'music', muted: widget.musicMuted).onError((
-      error,
-      stackTrace,
-    ) {
-      debugPrint('Failed to update RenPy music mute preference: $error');
-    });
+  void _applyPreferences() {
+    final preferences = widget.preferences;
+    if (preferences == null) {
+      _playback.setMuted(channel: 'music', muted: widget.musicMuted).onError((
+        error,
+        stackTrace,
+      ) {
+        debugPrint('Failed to update RenPy music mute preference: $error');
+      });
+      return;
+    }
+
+    for (final entry in preferences.mixers.entries) {
+      final mixer = entry.value;
+      _playback
+          .setMixer(
+            channel: entry.key,
+            volume: mixer.volume,
+            muted: mixer.muted,
+          )
+          .onError((error, stackTrace) {
+            debugPrint('Failed to update RenPy mixer ${entry.key}: $error');
+          });
+    }
   }
 
   void _onControllerChanged() {
@@ -155,6 +176,12 @@ abstract interface class RenPyAudioPlayback {
 
   Future<void> setMuted({required String channel, required bool muted});
 
+  Future<void> setMixer({
+    required String channel,
+    required double volume,
+    required bool muted,
+  });
+
   Future<void> dispose();
 }
 
@@ -162,6 +189,7 @@ abstract interface class RenPyAudioPlayback {
 class AudioplayersRenPyAudioPlayback implements RenPyAudioPlayback {
   final Map<String, audio.AudioPlayer> _players = {};
   final Map<String, bool> _muted = {};
+  final Map<String, _AudioMixerState> _mixers = {};
 
   @override
   Future<void> play({
@@ -170,7 +198,7 @@ class AudioplayersRenPyAudioPlayback implements RenPyAudioPlayback {
     required String assetSourcePath,
   }) async {
     final player = _players.putIfAbsent(channel, audio.AudioPlayer.new);
-    await player.setVolume(_muted[channel] ?? false ? 0 : 1);
+    await player.setVolume(_effectiveVolume(channel));
     await player.setReleaseMode(
       channel == 'music' ? audio.ReleaseMode.loop : audio.ReleaseMode.release,
     );
@@ -194,9 +222,45 @@ class AudioplayersRenPyAudioPlayback implements RenPyAudioPlayback {
   @override
   Future<void> setMuted({required String channel, required bool muted}) async {
     _muted[channel] = muted;
-    final player = _players[channel];
-    if (player == null) return;
-    await player.setVolume(muted ? 0 : 1);
+    await setMixer(
+      channel: channel,
+      volume: _mixers[channel]?.volume ?? 1,
+      muted: muted,
+    );
+  }
+
+  @override
+  Future<void> setMixer({
+    required String channel,
+    required double volume,
+    required bool muted,
+  }) async {
+    _mixers[channel] = _AudioMixerState(volume: volume, muted: muted);
+    await _applyMixerToPlayers(channel);
+  }
+
+  Future<void> _applyMixerToPlayers(String mixer) async {
+    final futures = <Future<void>>[];
+    for (final entry in _players.entries) {
+      if (mixer == RenPyPlayerPreferences.mainMixer ||
+          _mixerForChannel(entry.key) == mixer) {
+        futures.add(entry.value.setVolume(_effectiveVolume(entry.key)));
+      }
+    }
+    await Future.wait(futures);
+  }
+
+  double _effectiveVolume(String channel) {
+    final main =
+        _mixers[RenPyPlayerPreferences.mainMixer] ?? const _AudioMixerState();
+    final mixer =
+        _mixers[_mixerForChannel(channel)] ?? const _AudioMixerState();
+    if (main.muted || mixer.muted || (_muted[channel] ?? false)) return 0;
+    return main.volume * mixer.volume;
+  }
+
+  String _mixerForChannel(String channel) {
+    return channel == 'sound' ? RenPyPlayerPreferences.sfxMixer : channel;
   }
 
   Future<void> _fadeOut(audio.AudioPlayer player, double seconds) async {
@@ -231,6 +295,7 @@ class RenPyBytesAudioPlayback implements RenPyAudioPlayback {
   final Uint8List? Function(String assetPath)? _readAsset;
   final Map<String, audio.AudioPlayer> _players = {};
   final Map<String, bool> _muted = {};
+  final Map<String, _AudioMixerState> _mixers = {};
 
   @override
   Future<void> play({
@@ -246,7 +311,7 @@ class RenPyBytesAudioPlayback implements RenPyAudioPlayback {
     if (bytes == null) return;
 
     final player = _players.putIfAbsent(channel, audio.AudioPlayer.new);
-    await player.setVolume(_muted[channel] ?? false ? 0 : 1);
+    await player.setVolume(_effectiveVolume(channel));
     await player.setReleaseMode(
       channel == 'music' ? audio.ReleaseMode.loop : audio.ReleaseMode.release,
     );
@@ -264,9 +329,45 @@ class RenPyBytesAudioPlayback implements RenPyAudioPlayback {
   @override
   Future<void> setMuted({required String channel, required bool muted}) async {
     _muted[channel] = muted;
-    final player = _players[channel];
-    if (player == null) return;
-    await player.setVolume(muted ? 0 : 1);
+    await setMixer(
+      channel: channel,
+      volume: _mixers[channel]?.volume ?? 1,
+      muted: muted,
+    );
+  }
+
+  @override
+  Future<void> setMixer({
+    required String channel,
+    required double volume,
+    required bool muted,
+  }) async {
+    _mixers[channel] = _AudioMixerState(volume: volume, muted: muted);
+    await _applyMixerToPlayers(channel);
+  }
+
+  Future<void> _applyMixerToPlayers(String mixer) async {
+    final futures = <Future<void>>[];
+    for (final entry in _players.entries) {
+      if (mixer == RenPyPlayerPreferences.mainMixer ||
+          _mixerForChannel(entry.key) == mixer) {
+        futures.add(entry.value.setVolume(_effectiveVolume(entry.key)));
+      }
+    }
+    await Future.wait(futures);
+  }
+
+  double _effectiveVolume(String channel) {
+    final main =
+        _mixers[RenPyPlayerPreferences.mainMixer] ?? const _AudioMixerState();
+    final mixer =
+        _mixers[_mixerForChannel(channel)] ?? const _AudioMixerState();
+    if (main.muted || mixer.muted || (_muted[channel] ?? false)) return 0;
+    return main.volume * mixer.volume;
+  }
+
+  String _mixerForChannel(String channel) {
+    return channel == 'sound' ? RenPyPlayerPreferences.sfxMixer : channel;
   }
 
   @override
@@ -295,5 +396,19 @@ class RenPyNoOpAudioPlayback implements RenPyAudioPlayback {
   Future<void> setMuted({required String channel, required bool muted}) async {}
 
   @override
+  Future<void> setMixer({
+    required String channel,
+    required double volume,
+    required bool muted,
+  }) async {}
+
+  @override
   Future<void> dispose() async {}
+}
+
+final class _AudioMixerState {
+  const _AudioMixerState({this.volume = 1, this.muted = false});
+
+  final double volume;
+  final bool muted;
 }

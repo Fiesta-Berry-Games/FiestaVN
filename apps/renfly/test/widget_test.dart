@@ -378,6 +378,13 @@ class _RecordingAudioPlayback implements RenPyAudioPlayback {
   Future<void> stop({required String channel, String? fadeout}) async {}
 
   @override
+  Future<void> setMixer({
+    required String channel,
+    required double volume,
+    required bool muted,
+  }) async {}
+
+  @override
   Future<void> setMuted({required String channel, required bool muted}) async {}
 
   @override

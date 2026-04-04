@@ -124,6 +124,33 @@ void main() {
       const _PlaybackCall.mute(channel: 'music', muted: true),
     ]);
   });
+
+  testWidgets('audio layer applies RenPy mixer preferences', (tester) async {
+    final controller = RenPyFlutterController();
+    final playback = _RecordingAudioPlayback();
+    addTearDown(controller.dispose);
+    addTearDown(playback.dispose);
+
+    await tester.pumpWidget(
+      RenPyAudioLayer(
+        controller: controller,
+        gameRoot: 'game',
+        playback: playback,
+        preferences: const RenPyPlayerPreferences()
+            .setMixerVolume(RenPyPlayerPreferences.musicMixer, 0.75)
+            .setMixerMuted(RenPyPlayerPreferences.sfxMixer, true)
+            .setMixerVolume('ambience', 0.4),
+      ),
+    );
+
+    expect(playback.calls, [
+      const _PlaybackCall.mixer(channel: 'main', volume: 1, muted: false),
+      const _PlaybackCall.mixer(channel: 'music', volume: 0.75, muted: false),
+      const _PlaybackCall.mixer(channel: 'sfx', volume: 1, muted: true),
+      const _PlaybackCall.mixer(channel: 'voice', volume: 1, muted: false),
+      const _PlaybackCall.mixer(channel: 'ambience', volume: 0.4, muted: false),
+    ]);
+  });
 }
 
 class _RecordingAudioPlayback implements RenPyAudioPlayback {
@@ -155,6 +182,17 @@ class _RecordingAudioPlayback implements RenPyAudioPlayback {
   }
 
   @override
+  Future<void> setMixer({
+    required String channel,
+    required double volume,
+    required bool muted,
+  }) async {
+    calls.add(
+      _PlaybackCall.mixer(channel: channel, volume: volume, muted: muted),
+    );
+  }
+
+  @override
   Future<void> dispose() async {}
 }
 
@@ -165,27 +203,40 @@ class _PlaybackCall {
     required this.assetSourcePath,
   }) : action = 'play',
        fadeout = null,
-       muted = null;
+       muted = null,
+       volume = null;
 
   const _PlaybackCall.stop({required this.channel, this.fadeout})
     : action = 'stop',
       asset = null,
       assetSourcePath = null,
-      muted = null;
+      muted = null,
+      volume = null;
 
   const _PlaybackCall.mute({required this.channel, required this.muted})
     : action = 'mute',
       asset = null,
       assetSourcePath = null,
-      fadeout = null;
+      fadeout = null,
+      volume = null;
 
   final String action;
+
+  const _PlaybackCall.mixer({
+    required this.channel,
+    required this.volume,
+    required this.muted,
+  }) : action = 'mixer',
+       asset = null,
+       assetSourcePath = null,
+       fadeout = null;
   final String channel;
   final String? asset;
   final String? assetSourcePath;
   final String? fadeout;
   final bool? muted;
 
+  final double? volume;
   @override
   bool operator ==(Object other) {
     return identical(this, other) ||
@@ -195,17 +246,25 @@ class _PlaybackCall {
             asset == other.asset &&
             assetSourcePath == other.assetSourcePath &&
             fadeout == other.fadeout &&
-            muted == other.muted;
+            muted == other.muted &&
+            volume == other.volume;
   }
 
   @override
-  int get hashCode =>
-      Object.hash(action, channel, asset, assetSourcePath, fadeout, muted);
+  int get hashCode => Object.hash(
+    action,
+    channel,
+    asset,
+    assetSourcePath,
+    fadeout,
+    muted,
+    volume,
+  );
 
   @override
   String toString() {
     return '_PlaybackCall.$action(channel: $channel, asset: $asset, '
         'assetSourcePath: $assetSourcePath, fadeout: $fadeout, '
-        'muted: $muted)';
+        'muted: $muted, volume: $volume)';
   }
 }

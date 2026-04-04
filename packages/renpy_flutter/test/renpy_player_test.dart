@@ -412,8 +412,8 @@ label start:
     );
 
     await _pumpUntil(tester, find.text('First.'));
-    expect(playback.muteCalls, [
-      const _MuteCall(channel: 'music', muted: false),
+    expect(playback.mixerCalls.where((call) => call.channel == 'music'), [
+      const _MixerCall(channel: 'music', volume: 1, muted: false),
     ]);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.keyM);
@@ -421,10 +421,10 @@ label start:
     await tester.sendKeyEvent(LogicalKeyboardKey.keyM);
     await tester.pump();
 
-    expect(playback.muteCalls, [
-      const _MuteCall(channel: 'music', muted: false),
-      const _MuteCall(channel: 'music', muted: true),
-      const _MuteCall(channel: 'music', muted: false),
+    expect(playback.mixerCalls.where((call) => call.channel == 'music'), [
+      const _MixerCall(channel: 'music', volume: 1, muted: false),
+      const _MixerCall(channel: 'music', volume: 1, muted: true),
+      const _MixerCall(channel: 'music', volume: 1, muted: false),
     ]);
   });
 
@@ -464,8 +464,60 @@ label start:
     await tester.pump();
 
     expect(
-      playback.muteCalls.last,
-      const _MuteCall(channel: 'music', muted: true),
+      playback.mixerCalls.lastWhere((call) => call.channel == 'music'),
+      const _MixerCall(channel: 'music', volume: 1, muted: true),
+    );
+  });
+
+  testWidgets('asset player game menu preferences change music volume', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    play music "illurock.opus"
+    "First."
+''',
+    });
+    final playback = _RecordingAudioPlayback();
+    final preferenceStore = RenPyMemoryPreferenceStore();
+    addTearDown(playback.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+          audioPlayback: playback,
+          preferenceStore: preferenceStore,
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('First.'));
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await _pumpUntil(tester, find.text('Game Menu'));
+    await tester.tap(find.text('Preferences'));
+    await _pumpUntil(tester, find.text('Preferences'));
+
+    final musicSlider = find.byKey(
+      const ValueKey('renpy-preference-music-volume'),
+    );
+    expect(musicSlider, findsOneWidget);
+
+    final slider = tester.widget<Slider>(musicSlider);
+    slider.onChanged?.call(0.4);
+    await tester.pump();
+
+    expect(
+      playback.mixerCalls.lastWhere((call) => call.channel == 'music'),
+      const _MixerCall(channel: 'music', volume: 0.4, muted: false),
+    );
+    final restored = RenPyPlayerPreferences.fromJson(preferenceStore.load());
+    expect(
+      restored.mixerVolume(RenPyPlayerPreferences.musicMixer),
+      closeTo(0.4, 0.001),
     );
   });
 
@@ -514,8 +566,8 @@ label start:
     await _pumpUntil(tester, find.text('First.'));
 
     expect(
-      secondPlayback.muteCalls.first,
-      const _MuteCall(channel: 'music', muted: true),
+      secondPlayback.mixerCalls.firstWhere((call) => call.channel == 'music'),
+      const _MixerCall(channel: 'music', volume: 1, muted: true),
     );
   });
 
@@ -995,6 +1047,7 @@ class _MemoryAssetBundle extends CachingAssetBundle {
 class _RecordingAudioPlayback implements RenPyAudioPlayback {
   final List<_AudioCall> calls = [];
   final List<_MuteCall> muteCalls = [];
+  final List<_MixerCall> mixerCalls = [];
 
   @override
   Future<void> play({
@@ -1020,6 +1073,15 @@ class _RecordingAudioPlayback implements RenPyAudioPlayback {
   }
 
   @override
+  Future<void> setMixer({
+    required String channel,
+    required double volume,
+    required bool muted,
+  }) async {
+    mixerCalls.add(_MixerCall(channel: channel, volume: volume, muted: muted));
+  }
+
+  @override
   Future<void> dispose() async {}
 }
 
@@ -1040,6 +1102,34 @@ class _MuteCall {
 
   @override
   String toString() => '_MuteCall(channel: $channel, muted: $muted)';
+}
+
+class _MixerCall {
+  const _MixerCall({
+    required this.channel,
+    required this.volume,
+    required this.muted,
+  });
+
+  final String channel;
+  final double volume;
+  final bool muted;
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        other is _MixerCall &&
+            channel == other.channel &&
+            volume == other.volume &&
+            muted == other.muted;
+  }
+
+  @override
+  int get hashCode => Object.hash(channel, volume, muted);
+
+  @override
+  String toString() =>
+      '_MixerCall(channel: $channel, volume: $volume, muted: $muted)';
 }
 
 class _RecordingFontRegistrar {

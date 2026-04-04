@@ -30,7 +30,11 @@ void main() {
     SharedPreferences.setMockInitialValues({});
 
     final store = await RenPySharedPreferencesPreferenceStore.create(key: key);
-    store.save(const RenPyPlayerPreferences(musicMuted: true).toJson());
+    store.save(
+      const RenPyPlayerPreferences()
+          .setMixerMuted(RenPyPlayerPreferences.musicMixer, true)
+          .toJson(),
+    );
 
     final restored = await RenPySharedPreferencesPreferenceStore.create(
       key: key,

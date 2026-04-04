@@ -94,13 +94,19 @@ class RenPyPlayer extends StatelessWidget {
   Widget build(BuildContext context) {
     return _RenPyInputSurface(
       preferenceStore: preferenceStore,
-      gameMenuBuilder: (closeGameMenu, preferences, setMusicMuted) {
+      gameMenuBuilder: (
+        closeGameMenu,
+        preferences,
+        setMixerMuted,
+        setMixerVolume,
+      ) {
         return _RenPyGameMenu(
-          musicMuted: preferences.musicMuted,
+          preferences: preferences,
           canSaveLoad: controller.hasSnapshotStore,
           canRestart: showRestartButton && onRestart != null,
           onResume: closeGameMenu,
-          onMusicMutedChanged: setMusicMuted,
+          onMixerMutedChanged: setMixerMuted,
+          onMixerVolumeChanged: setMixerVolume,
           onSave: () => unawaited(_saveGame(context)),
           onLoad: () {
             closeGameMenu();
@@ -129,7 +135,7 @@ class RenPyPlayer extends StatelessWidget {
               controller: controller,
               gameRoot: gameRoot,
               playback: audioPlayback,
-              musicMuted: preferences.musicMuted,
+              preferences: preferences,
             ),
             RenPyPauseView(controller: controller),
             RenPyDialogueView(controller: controller),
@@ -196,6 +202,9 @@ class RenPyPlayer extends StatelessWidget {
   }
 }
 
+typedef _RenPyMixerMutedSetter = void Function(String mixer, bool muted);
+typedef _RenPyMixerVolumeSetter = void Function(String mixer, double volume);
+
 class _RenPyInputSurface extends StatefulWidget {
   const _RenPyInputSurface({
     required this.childBuilder,
@@ -209,7 +218,8 @@ class _RenPyInputSurface extends StatefulWidget {
   final Widget Function(
     VoidCallback closeGameMenu,
     RenPyPlayerPreferences preferences,
-    ValueChanged<bool> setMusicMuted,
+    _RenPyMixerMutedSetter setMixerMuted,
+    _RenPyMixerVolumeSetter setMixerVolume,
   )
   gameMenuBuilder;
   final KeyEventResult Function(KeyEvent event) onKeyEvent;
@@ -264,15 +274,31 @@ class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
     _requestFocus();
   }
 
-  void _setMusicMuted(bool muted) {
-    if (_preferences.musicMuted == muted) return;
+  void _setMixerMuted(String mixer, bool muted) {
+    if (_preferences.isMixerMuted(mixer) == muted) return;
     setState(() {
-      _preferences = _preferences.copyWith(musicMuted: muted);
+      _preferences = _preferences.setMixerMuted(mixer, muted);
     });
+    _savePreferences();
+  }
+
+  void _setMixerVolume(String mixer, double volume) {
+    final updated = _preferences.setMixerVolume(mixer, volume);
+    if (updated.mixerVolume(mixer) == _preferences.mixerVolume(mixer)) return;
+    setState(() {
+      _preferences = updated;
+    });
+    _savePreferences();
+  }
+
+  void _savePreferences() {
     widget.preferenceStore?.save(_preferences.toJson());
   }
 
-  void _toggleMusicMuted() => _setMusicMuted(!_preferences.musicMuted);
+  void _toggleMusicMuted() => _setMixerMuted(
+    RenPyPlayerPreferences.musicMixer,
+    !_preferences.musicMuted,
+  );
 
   KeyEventResult _handleKeyEvent(KeyEvent event) {
     if ((event is KeyDownEvent || event is KeyRepeatEvent) &&
@@ -322,7 +348,8 @@ class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
               widget.gameMenuBuilder(
                 _closeGameMenu,
                 _preferences,
-                _setMusicMuted,
+                _setMixerMuted,
+                _setMixerVolume,
               ),
           ],
         ),
@@ -333,21 +360,23 @@ class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
 
 class _RenPyGameMenu extends StatefulWidget {
   const _RenPyGameMenu({
-    required this.musicMuted,
+    required this.preferences,
     required this.canSaveLoad,
     required this.canRestart,
     required this.onResume,
-    required this.onMusicMutedChanged,
+    required this.onMixerMutedChanged,
+    required this.onMixerVolumeChanged,
     required this.onSave,
     required this.onLoad,
     required this.onRestart,
   });
 
-  final bool musicMuted;
+  final RenPyPlayerPreferences preferences;
   final bool canSaveLoad;
   final bool canRestart;
   final VoidCallback onResume;
-  final ValueChanged<bool> onMusicMutedChanged;
+  final _RenPyMixerMutedSetter onMixerMutedChanged;
+  final _RenPyMixerVolumeSetter onMixerVolumeChanged;
   final VoidCallback onSave;
   final VoidCallback onLoad;
   final VoidCallback onRestart;
@@ -448,17 +477,58 @@ class _RenPyGameMenuState extends State<_RenPyGameMenu> {
         CheckboxListTile(
           contentPadding: EdgeInsets.zero,
           title: const Text('Music Muted'),
-          value: widget.musicMuted,
+          value: widget.preferences.musicMuted,
           onChanged: (value) {
             if (value == null) return;
-            widget.onMusicMutedChanged(value);
+            widget.onMixerMutedChanged(
+              RenPyPlayerPreferences.musicMixer,
+              value,
+            );
           },
+        ),
+        const SizedBox(height: 8),
+        _buildMixerSlider(
+          label: 'Music Volume',
+          mixer: RenPyPlayerPreferences.musicMixer,
+          key: const ValueKey('renpy-preference-music-volume'),
+        ),
+        const SizedBox(height: 8),
+        _buildMixerSlider(
+          label: 'Sound Volume',
+          mixer: RenPyPlayerPreferences.sfxMixer,
+          key: const ValueKey('renpy-preference-sound-volume'),
+        ),
+        const SizedBox(height: 8),
+        _buildMixerSlider(
+          label: 'Voice Volume',
+          mixer: RenPyPlayerPreferences.voiceMixer,
+          key: const ValueKey('renpy-preference-voice-volume'),
         ),
         const SizedBox(height: 8),
         OutlinedButton.icon(
           onPressed: () => setState(() => _showPreferences = false),
           icon: const Icon(Icons.arrow_back),
           label: const Text('Back'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMixerSlider({
+    required String label,
+    required String mixer,
+    required Key key,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(label),
+        Slider(
+          key: key,
+          value: widget.preferences.mixerVolume(mixer),
+          onChanged: (value) {
+            widget.onMixerVolumeChanged(mixer, value);
+          },
         ),
       ],
     );
