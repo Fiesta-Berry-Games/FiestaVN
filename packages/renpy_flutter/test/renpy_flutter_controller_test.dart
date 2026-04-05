@@ -779,7 +779,7 @@ label start:
 
     controller.load('''
 label start:
-    play music "illurock.opus"
+    play music "illurock.opus" fadeout 1.0 fadein 2.0 volume 0.5 noloop if_changed
     "Welcome."
 ''');
 
@@ -788,6 +788,11 @@ label start:
     expect(audio, hasLength(1));
     expect(audio.single.channel, 'music');
     expect(audio.single.asset, 'illurock.opus');
+    expect(audio.single.fadein, '2.0');
+    expect(audio.single.fadeout, '1.0');
+    expect(audio.single.volume, '0.5');
+    expect(audio.single.ifChanged, true);
+    expect(audio.single.loop, false);
   });
 
   test('controller emits repeated identical audio commands', () async {

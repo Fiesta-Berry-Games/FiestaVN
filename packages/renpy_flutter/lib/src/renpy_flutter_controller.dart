@@ -96,28 +96,38 @@ final class RenPyAudioChange extends RenPyGameStatus {
   const RenPyAudioChange.play({
     required this.channel,
     required this.asset,
+    this.fadein,
     this.mixer,
+    this.fadeout,
+    this.volume,
+    this.ifChanged,
     this.loop,
-  }) : action = RenPyAudioAction.play,
-       fadeout = null;
+  }) : action = RenPyAudioAction.play;
 
   const RenPyAudioChange.stop({required this.channel, this.fadeout})
     : action = RenPyAudioAction.stop,
       asset = null,
+      fadein = null,
       mixer = null,
+      volume = null,
+      ifChanged = null,
       loop = null;
 
   final RenPyAudioAction action;
   final String channel;
   final String? asset;
+  final String? fadein;
   final String? fadeout;
   final String? mixer;
+  final String? volume;
+  final bool? ifChanged;
   final bool? loop;
 
   @override
   String toString() {
     return 'RenPyAudioChange.$action(channel: $channel, asset: $asset, '
-        'fadeout: $fadeout, mixer: $mixer, loop: $loop)';
+        'fadein: $fadein, fadeout: $fadeout, volume: $volume, '
+        'ifChanged: $ifChanged, mixer: $mixer, loop: $loop)';
   }
 }
 
@@ -467,6 +477,10 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
         change = RenPyAudioChange.play(
           channel: event.channel,
           asset: asset,
+          fadein: event.fadein,
+          fadeout: event.fadeout,
+          volume: event.volume,
+          ifChanged: event.ifChanged,
           mixer: event.mixer,
           loop: event.loop,
         );

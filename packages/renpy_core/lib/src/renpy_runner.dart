@@ -77,6 +77,34 @@ class _PythonAssignment {
   final String expression;
 }
 
+class _AudioPlayExpression {
+  const _AudioPlayExpression({
+    required this.asset,
+    this.fadein,
+    this.fadeout,
+    this.volume,
+    this.ifChanged,
+    this.loop,
+  });
+
+  final String asset;
+  final String? fadein;
+  final String? fadeout;
+  final String? volume;
+  final bool? ifChanged;
+  final bool? loop;
+}
+
+class _AudioExpressionParts {
+  const _AudioExpressionParts({
+    required this.assetExpression,
+    required this.modifiers,
+  });
+
+  final String assetExpression;
+  final List<String> modifiers;
+}
+
 /// Execution state of a RenPy script
 enum RenPyRunnerState {
   /// The script is ready to be executed
@@ -1074,12 +1102,17 @@ class RenPyRunner {
   /// Execute a play statement.
   void _executePlayStatement(RenPyPlayStatement stmt) {
     final registration = _audioChannels[stmt.channel];
+    final audio = _evaluateAudioPlayExpression(stmt.expression);
     onAudio?.call(
       RenPyAudioEvent.play(
+        fadeout: audio.fadeout,
+        volume: audio.volume,
+        ifChanged: audio.ifChanged,
         channel: stmt.channel,
-        asset: _evaluateAudioAsset(stmt.expression),
+        asset: audio.asset,
+        fadein: audio.fadein,
         mixer: registration?.mixer,
-        loop: registration?.loop,
+        loop: audio.loop ?? registration?.loop,
       ),
     );
     _position++;
@@ -1102,6 +1135,82 @@ class RenPyRunner {
     final value = _evaluateExpression(trimmed);
     final stringValue = value?.toString() ?? trimmed;
     return stringValue.split(RegExp(r'\s+')).first;
+  }
+
+  _AudioPlayExpression _evaluateAudioPlayExpression(String expression) {
+    final parts = _audioExpressionParts(expression);
+    return _AudioPlayExpression(
+      asset: _evaluateAudioAsset(parts.assetExpression),
+      fadein: _audioModifierValue(parts.modifiers, 'fadein'),
+      loop: _audioLoopModifier(parts.modifiers),
+      fadeout: _audioModifierValue(parts.modifiers, 'fadeout'),
+      volume: _audioModifierValue(parts.modifiers, 'volume'),
+      ifChanged: parts.modifiers.contains('if_changed') ? true : null,
+    );
+  }
+
+  _AudioExpressionParts _audioExpressionParts(String expression) {
+    final trimmed = expression.trim();
+    if (trimmed.isEmpty) {
+      return const _AudioExpressionParts(
+        assetExpression: '',
+        modifiers: <String>[],
+      );
+    }
+
+    final splitIndex = _audioAssetExpressionEnd(trimmed);
+    final assetExpression = trimmed.substring(0, splitIndex).trim();
+    final modifierText = trimmed.substring(splitIndex).trim();
+    return _AudioExpressionParts(
+      assetExpression: assetExpression,
+      modifiers:
+          modifierText.isEmpty
+              ? const <String>[]
+              : modifierText.split(RegExp(r'\s+')),
+    );
+  }
+
+  int _audioAssetExpressionEnd(String expression) {
+    final quote = expression[0];
+    if (quote == '"' || quote == "'") {
+      var escaped = false;
+      for (var index = 1; index < expression.length; index += 1) {
+        final character = expression[index];
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (character == r'\') {
+          escaped = true;
+          continue;
+        }
+        if (character == quote) return index + 1;
+      }
+      return expression.length;
+    }
+
+    final whitespace = RegExp(r'\s').firstMatch(expression);
+    return whitespace?.start ?? expression.length;
+  }
+
+  String? _audioModifierValue(List<String> modifiers, String name) {
+    for (var index = 0; index < modifiers.length - 1; index += 1) {
+      if (modifiers[index] == name) return modifiers[index + 1];
+    }
+    return null;
+  }
+
+  bool? _audioLoopModifier(List<String> modifiers) {
+    bool? loop;
+    for (final modifier in modifiers) {
+      switch (modifier) {
+        case 'loop':
+          loop = true;
+        case 'noloop':
+          loop = false;
+      }
+    }
+    return loop;
   }
 
   void _executeReturnStatement(RenPyReturnStatement stmt) {

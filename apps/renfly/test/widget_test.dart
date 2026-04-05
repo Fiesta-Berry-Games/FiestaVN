@@ -364,7 +364,10 @@ class _RecordingAudioPlayback implements RenPyAudioPlayback {
     required String channel,
     required String asset,
     required String assetSourcePath,
+    String? fadein,
     String? mixer,
+    String? fadeout,
+    String? volume,
     bool? loop,
   }) async {
     calls.add(

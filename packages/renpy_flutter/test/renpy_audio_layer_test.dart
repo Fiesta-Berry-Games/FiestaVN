@@ -53,7 +53,10 @@ void main() {
     controller.value = const RenPyAudioChange.play(
       channel: 'ME',
       asset: '/ME/rain_2.wav',
+      fadein: '2.0',
       mixer: 'sfx',
+      fadeout: '1.0',
+      volume: '0.5',
       loop: false,
     );
     await tester.pump();
@@ -64,7 +67,10 @@ void main() {
         channel: 'ME',
         asset: '/ME/rain_2.wav',
         assetSourcePath: 'game/ME/rain_2.wav',
+        fadein: '2.0',
         mixer: 'sfx',
+        fadeout: '1.0',
+        volume: '0.5',
         loop: false,
       ),
     ]);
@@ -124,6 +130,45 @@ void main() {
         channel: 'music',
         asset: '/music/She End.ogg',
         assetSourcePath: 'game/music/She End.ogg',
+      ),
+    ]);
+  });
+
+  testWidgets('audio layer skips unchanged if changed play commands', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    final playback = _RecordingAudioPlayback();
+    addTearDown(controller.dispose);
+    addTearDown(playback.dispose);
+
+    await tester.pumpWidget(
+      RenPyAudioLayer(
+        controller: controller,
+        gameRoot: 'game',
+        playback: playback,
+      ),
+    );
+
+    controller.value = const RenPyAudioChange.play(
+      channel: 'music',
+      asset: 'theme.ogg',
+    );
+    await tester.pump();
+
+    controller.value = const RenPyAudioChange.play(
+      channel: 'music',
+      asset: 'theme.ogg',
+      ifChanged: true,
+    );
+    await tester.pump();
+
+    expect(playback.calls, [
+      const _PlaybackCall.mute(channel: 'music', muted: false),
+      const _PlaybackCall.play(
+        channel: 'music',
+        asset: 'theme.ogg',
+        assetSourcePath: 'game/theme.ogg',
       ),
     ]);
   });
@@ -197,7 +242,10 @@ class _RecordingAudioPlayback implements RenPyAudioPlayback {
     required String channel,
     required String asset,
     required String assetSourcePath,
+    String? fadein,
     String? mixer,
+    String? fadeout,
+    String? volume,
     bool? loop,
   }) async {
     calls.add(
@@ -205,7 +253,10 @@ class _RecordingAudioPlayback implements RenPyAudioPlayback {
         channel: channel,
         asset: asset,
         assetSourcePath: assetSourcePath,
+        fadein: fadein,
         mixer: mixer,
+        fadeout: fadeout,
+        volume: volume,
         loop: loop,
       ),
     );
@@ -241,17 +292,19 @@ class _PlaybackCall {
     required this.channel,
     required this.asset,
     required this.assetSourcePath,
+    this.fadein,
+    this.fadeout,
+    this.volume,
     this.mixer,
     this.loop,
   }) : action = 'play',
-       fadeout = null,
-       muted = null,
-       volume = null;
+       muted = null;
 
   const _PlaybackCall.stop({required this.channel, this.fadeout})
     : action = 'stop',
       asset = null,
       assetSourcePath = null,
+      fadein = null,
       muted = null,
       volume = null,
       mixer = null,
@@ -262,6 +315,7 @@ class _PlaybackCall {
       asset = null,
       assetSourcePath = null,
       fadeout = null,
+      fadein = null,
       volume = null,
       mixer = null,
       loop = null;
@@ -276,17 +330,19 @@ class _PlaybackCall {
        asset = null,
        assetSourcePath = null,
        fadeout = null,
+       fadein = null,
        mixer = null,
        loop = null;
   final String channel;
   final String? asset;
   final String? assetSourcePath;
+  final String? fadein;
   final String? fadeout;
   final String? mixer;
   final bool? loop;
   final bool? muted;
 
-  final double? volume;
+  final Object? volume;
   @override
   bool operator ==(Object other) {
     return identical(this, other) ||
@@ -295,6 +351,7 @@ class _PlaybackCall {
             channel == other.channel &&
             asset == other.asset &&
             assetSourcePath == other.assetSourcePath &&
+            fadein == other.fadein &&
             fadeout == other.fadeout &&
             muted == other.muted &&
             volume == other.volume &&
@@ -308,6 +365,7 @@ class _PlaybackCall {
     channel,
     asset,
     assetSourcePath,
+    fadein,
     fadeout,
     muted,
     volume,
@@ -318,7 +376,8 @@ class _PlaybackCall {
   @override
   String toString() {
     return '_PlaybackCall.$action(channel: $channel, asset: $asset, '
-        'assetSourcePath: $assetSourcePath, fadeout: $fadeout, '
+        'assetSourcePath: $assetSourcePath, fadein: $fadein, '
+        'fadeout: $fadeout, '
         'muted: $muted, volume: $volume, mixer: $mixer, loop: $loop)';
   }
 }

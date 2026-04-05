@@ -51,11 +51,12 @@ label start:
     ]);
   });
 
-  test('runner strips play audio modifiers from filename expressions', () {
+  test('runner preserves play audio modifiers separately from filename', () {
     final script =
         RenPyParser().parse('''
 label start:
-    play music "/music/She End.ogg" fadein 2.0
+    play music "/music/She End.ogg" fadein 2.0 noloop
+    play sound "click.ogg" loop
 ''', 'audio.rpy').script;
     final runner = RenPyRunner(script);
     final audio = <RenPyAudioEvent>[];
@@ -66,7 +67,70 @@ label start:
     runner.run();
 
     expect(audio, [
-      const RenPyAudioEvent.play(channel: 'music', asset: '/music/She End.ogg'),
+      const RenPyAudioEvent.play(
+        channel: 'music',
+        asset: '/music/She End.ogg',
+        fadein: '2.0',
+        loop: false,
+      ),
+      const RenPyAudioEvent.play(
+        channel: 'sound',
+        asset: 'click.ogg',
+        loop: true,
+      ),
+    ]);
+  });
+
+  test('runner preserves play fadeout volume and if changed modifiers', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    play music "theme.ogg" fadeout 1.0 fadein 2.0 volume 0.5 if_changed
+''', 'audio.rpy').script;
+    final runner = RenPyRunner(script);
+    final audio = <RenPyAudioEvent>[];
+
+    runner.onAudio = audio.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(audio, [
+      const RenPyAudioEvent.play(
+        channel: 'music',
+        asset: 'theme.ogg',
+        fadeout: '1.0',
+        fadein: '2.0',
+        volume: '0.5',
+        ifChanged: true,
+      ),
+    ]);
+  });
+
+  test('play audio loop modifiers override registered channel defaults', () {
+    final script =
+        RenPyParser().parse('''
+init python:
+    renpy.music.register_channel("ambience", "music", loop=True)
+
+label start:
+    play ambience "rain.ogg" noloop
+''', 'audio.rpy').script;
+    final runner = RenPyRunner(script);
+    final audio = <RenPyAudioEvent>[];
+
+    runner.onAudio = audio.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(audio, [
+      const RenPyAudioEvent.play(
+        channel: 'ambience',
+        asset: 'rain.ogg',
+        mixer: 'music',
+        loop: false,
+      ),
     ]);
   });
 
