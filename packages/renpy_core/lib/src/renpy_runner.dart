@@ -77,6 +77,16 @@ class _PythonAssignment {
   final String expression;
 }
 
+class _PythonCallArguments {
+  const _PythonCallArguments({
+    required this.positional,
+    required this.keywords,
+  });
+
+  final List<String> positional;
+  final Map<String, String> keywords;
+}
+
 class _AudioPlayExpression {
   const _AudioPlayExpression({
     required this.asset,
@@ -961,21 +971,9 @@ class RenPyRunner {
     ).firstMatch(code.trim());
     if (match == null) return null;
 
-    final positional = <String>[];
-    final keywords = <String, String>{};
-    for (final argument in _splitPythonArguments(match.group(1)!)) {
-      final trimmed = argument.trim();
-      if (trimmed.isEmpty) continue;
-      final keyword = RegExp(
-        r'^([a-zA-Z_]\w*)\s*=\s*(.+)$',
-        dotAll: true,
-      ).firstMatch(trimmed);
-      if (keyword != null) {
-        keywords[keyword.group(1)!] = keyword.group(2)!.trim();
-      } else {
-        positional.add(trimmed);
-      }
-    }
+    final _PythonCallArguments(:positional, :keywords) = _pythonCallArguments(
+      match.group(1)!,
+    );
 
     final nameExpression =
         keywords['name'] ?? (positional.isNotEmpty ? positional[0] : null);
@@ -1016,7 +1014,113 @@ class RenPyRunner {
       );
     }
 
+    final musicPlay = RegExp(
+      r'''^renpy\.music\.play\s*\((.*)\)$''',
+      dotAll: true,
+    ).firstMatch(trimmed);
+    if (musicPlay != null) {
+      return _renpyAudioPlayHelperEvent(
+        musicPlay.group(1)!,
+        defaultChannel: 'music',
+      );
+    }
+
+    final musicStop = RegExp(
+      r'''^renpy\.music\.stop\s*\((.*)\)$''',
+      dotAll: true,
+    ).firstMatch(trimmed);
+    if (musicStop != null) {
+      return _renpyAudioStopHelperEvent(
+        musicStop.group(1)!,
+        defaultChannel: 'music',
+      );
+    }
+
+    final soundPlay = RegExp(
+      r'''^renpy\.sound\.play\s*\((.*)\)$''',
+      dotAll: true,
+    ).firstMatch(trimmed);
+    if (soundPlay != null) {
+      return _renpyAudioPlayHelperEvent(
+        soundPlay.group(1)!,
+        defaultChannel: 'sound',
+      );
+    }
+
+    final soundStop = RegExp(
+      r'''^renpy\.sound\.stop\s*\((.*)\)$''',
+      dotAll: true,
+    ).firstMatch(trimmed);
+    if (soundStop != null) {
+      return _renpyAudioStopHelperEvent(
+        soundStop.group(1)!,
+        defaultChannel: 'sound',
+      );
+    }
+
     return null;
+  }
+
+  RenPyAudioEvent? _renpyAudioPlayHelperEvent(
+    String arguments, {
+    required String defaultChannel,
+  }) {
+    final _PythonCallArguments(:positional, :keywords) = _pythonCallArguments(
+      arguments,
+    );
+    final assetExpression =
+        keywords['filenames'] ??
+        keywords['filename'] ??
+        (positional.isNotEmpty ? positional[0] : null);
+    if (assetExpression == null) return null;
+
+    final channel =
+        _pythonAudioString(
+          keywords['channel'] ?? (positional.length > 1 ? positional[1] : null),
+        ) ??
+        defaultChannel;
+    final registration = _audioChannels[channel];
+    return RenPyAudioEvent.play(
+      channel: channel,
+      asset: _evaluateAudioAsset(assetExpression),
+      fadeout: _pythonAudioString(keywords['fadeout']),
+      fadein: _pythonAudioString(keywords['fadein']),
+      volume: _pythonAudioString(
+        keywords['relative_volume'] ?? keywords['volume'],
+      ),
+      ifChanged: _pythonAudioBool(keywords['if_changed']) == true ? true : null,
+      mixer: registration?.mixer,
+      loop: _pythonAudioBool(keywords['loop']) ?? registration?.loop,
+    );
+  }
+
+  RenPyAudioEvent _renpyAudioStopHelperEvent(
+    String arguments, {
+    required String defaultChannel,
+  }) {
+    final _PythonCallArguments(:positional, :keywords) = _pythonCallArguments(
+      arguments,
+    );
+    final channel =
+        _pythonAudioString(
+          keywords['channel'] ?? (positional.isNotEmpty ? positional[0] : null),
+        ) ??
+        defaultChannel;
+    return RenPyAudioEvent.stop(
+      channel: channel,
+      fadeout: _pythonAudioString(keywords['fadeout']),
+    );
+  }
+
+  String? _pythonAudioString(String? expression) {
+    if (expression == null) return null;
+    final value = _evaluateExpression(expression);
+    return value?.toString();
+  }
+
+  bool? _pythonAudioBool(String? expression) {
+    if (expression == null) return null;
+    return _evaluateExpression(expression) == true;
   }
 
   RenPyPauseEvent? _renpyPauseEvent(String code) {
@@ -1037,17 +1141,69 @@ class RenPyRunner {
     return double.tryParse(positional);
   }
 
+  _PythonCallArguments _pythonCallArguments(String arguments) {
+    final positional = <String>[];
+    final keywords = <String, String>{};
+    for (final argument in _splitPythonArguments(arguments)) {
+      final trimmed = argument.trim();
+      if (trimmed.isEmpty) continue;
+      final keyword = RegExp(
+        r'^([a-zA-Z_]\w*)\s*=\s*(.+)$',
+        dotAll: true,
+      ).firstMatch(trimmed);
+      if (keyword != null) {
+        keywords[keyword.group(1)!] = keyword.group(2)!.trim();
+      } else {
+        positional.add(trimmed);
+      }
+    }
+    return _PythonCallArguments(positional: positional, keywords: keywords);
+  }
+
   List<String> _splitPythonArguments(String arguments) {
     final parts = <String>[];
     final current = StringBuffer();
+    String? quote;
+    var escaped = false;
+    var depth = 0;
     for (final codeUnit in arguments.codeUnits) {
       final character = String.fromCharCode(codeUnit);
-      if (character == ',') {
+      if (escaped) {
+        current.write(character);
+        escaped = false;
+        continue;
+      }
+      if (character == r'\') {
+        current.write(character);
+        escaped = true;
+        continue;
+      }
+      if (quote != null) {
+        current.write(character);
+        if (character == quote) quote = null;
+        continue;
+      }
+      if (character == '"' || character == "'") {
+        current.write(character);
+        quote = character;
+        continue;
+      }
+      if (character == '(' || character == '[' || character == '{') {
+        depth += 1;
+        current.write(character);
+        continue;
+      }
+      if (character == ')' || character == ']' || character == '}') {
+        if (depth > 0) depth -= 1;
+        current.write(character);
+        continue;
+      }
+      if (character == ',' && depth == 0) {
         parts.add(current.toString());
         current.clear();
-      } else {
-        current.write(character);
+        continue;
       }
+      current.write(character);
     }
     parts.add(current.toString());
     return parts;
