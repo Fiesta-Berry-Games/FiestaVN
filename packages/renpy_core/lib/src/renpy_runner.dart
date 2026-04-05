@@ -77,6 +77,14 @@ class _PythonAssignment {
   final String expression;
 }
 
+class _PythonAugmentedAssignment {
+  const _PythonAugmentedAssignment(this.name, this.operator, this.expression);
+
+  final String name;
+  final String operator;
+  final String expression;
+}
+
 class _PythonCallArguments {
   const _PythonCallArguments({
     required this.positional,
@@ -861,13 +869,15 @@ class RenPyRunner {
     final assignment = _pythonAssignment(stmt.code);
     if (assignment != null) {
       final value = _evaluateExpression(assignment.expression);
-      final persistentField = _persistentFieldName(assignment.name);
-      if (persistentField != null) {
-        _persistent[persistentField] = value;
-        _flushPersistent();
-      } else {
-        _variables[assignment.name] = value;
-      }
+      _setVariable(assignment.name, value);
+      _position++;
+      _executeNext();
+      return;
+    }
+
+    final augmentedAssignment = _pythonAugmentedAssignment(stmt.code);
+    if (augmentedAssignment != null) {
+      _applyAugmentedAssignment(augmentedAssignment);
       _position++;
       _executeNext();
       return;
@@ -897,6 +907,12 @@ class RenPyRunner {
       onPause?.call(pause);
       _state = RenPyRunnerState.waitingForInput;
       _position++;
+      return;
+    }
+
+    if (_isRecognizedNoOpPythonCall(stmt.code)) {
+      _position++;
+      _executeNext();
       return;
     }
 
@@ -934,11 +950,65 @@ class RenPyRunner {
 
   _PythonAssignment? _pythonAssignment(String code) {
     final match = RegExp(
-      r'^([a-zA-Z_]\w*|persistent\.[a-zA-Z_]\w*)\s*=\s*(.+)$',
+      r'^([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)\s*=\s*(.+)$',
       dotAll: true,
     ).firstMatch(code.trim());
     if (match == null) return null;
     return _PythonAssignment(match.group(1)!, match.group(2)!);
+  }
+
+  _PythonAugmentedAssignment? _pythonAugmentedAssignment(String code) {
+    final match = RegExp(
+      r'^([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)\s*([+\-])=\s*(.+)$',
+      dotAll: true,
+    ).firstMatch(code.trim());
+    if (match == null) return null;
+    return _PythonAugmentedAssignment(
+      match.group(1)!,
+      match.group(2)!,
+      match.group(3)!,
+    );
+  }
+
+  void _applyAugmentedAssignment(_PythonAugmentedAssignment assignment) {
+    final lookup = _lookupVariable(assignment.name);
+    final right = _evaluateExpression(assignment.expression);
+    final left = lookup.found ? lookup.value : _defaultAugmentedValue(right);
+    final value = _applyPythonOperator(left, assignment.operator, right);
+    _setVariable(assignment.name, value);
+  }
+
+  dynamic _defaultAugmentedValue(dynamic right) {
+    if (right is num) return 0;
+    if (right is String) return '';
+    return null;
+  }
+
+  dynamic _applyPythonOperator(dynamic left, String operator, dynamic right) {
+    return switch (operator) {
+      '+' when left is num && right is num => left + right,
+      '+' when left is String && right is String => left + right,
+      '-' when left is num && right is num => left - right,
+      _ => right,
+    };
+  }
+
+  void _setVariable(String name, dynamic value) {
+    final persistentField = _persistentFieldName(name);
+    if (persistentField != null) {
+      _persistent[persistentField] = value;
+      _flushPersistent();
+      return;
+    }
+
+    _variables[name] = value;
+  }
+
+  bool _isRecognizedNoOpPythonCall(String code) {
+    return RegExp(
+      r'^MasterClock\.AddTime\s*\((.*)\)$',
+      dotAll: true,
+    ).hasMatch(code.trim());
   }
 
   String? _renpyImagemapResult(String expression) {

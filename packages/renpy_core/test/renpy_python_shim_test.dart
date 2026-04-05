@@ -80,6 +80,92 @@ label start:
     );
   });
 
+  test(
+    'runner assigns dotted Python namespace fields for later conditions',
+    () {
+      final script =
+          RenPyParser().parse('''
+label start:
+    \$ AyyInfo.L = 2
+
+    if AyyInfo.L == 2:
+        "Assigned."
+    else:
+        "Missing."
+''', 'python_shim.rpy').script;
+      final runner = RenPyRunner(script);
+      final dialogue = <String>[];
+      final diagnostics = <RenPyDiagnostic>[];
+
+      runner.onDialogue = (character, text) => dialogue.add(text);
+      runner.onDiagnostic = diagnostics.add;
+
+      runner.jumpToLabel('start');
+      runner.run();
+
+      expect(dialogue, ['Assigned.']);
+      expect(
+        diagnostics.where((d) => d.code == RenPyDiagnosticCode.skippedPython),
+        isEmpty,
+      );
+    },
+  );
+
+  test(
+    'runner mutates dotted Python namespace fields for later conditions',
+    () {
+      final script =
+          RenPyParser().parse('''
+label start:
+    \$ AyyInfo.L += 1
+
+    if AyyInfo.L == 1:
+        "Incremented."
+    else:
+        "Missing."
+''', 'python_shim.rpy').script;
+      final runner = RenPyRunner(script);
+      final dialogue = <String>[];
+      final diagnostics = <RenPyDiagnostic>[];
+
+      runner.onDialogue = (character, text) => dialogue.add(text);
+      runner.onDiagnostic = diagnostics.add;
+
+      runner.jumpToLabel('start');
+      runner.run();
+
+      expect(dialogue, ['Incremented.']);
+      expect(
+        diagnostics.where((d) => d.code == RenPyDiagnosticCode.skippedPython),
+        isEmpty,
+      );
+    },
+  );
+
+  test('runner recognizes harmless dotted Python method calls', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    \$ MasterClock.AddTime(0, 0, 1)
+    "Continued."
+''', 'python_shim.rpy').script;
+    final runner = RenPyRunner(script);
+    final dialogue = <String>[];
+    final diagnostics = <RenPyDiagnostic>[];
+
+    runner.onDialogue = (character, text) => dialogue.add(text);
+    runner.onDiagnostic = diagnostics.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(dialogue, ['Continued.']);
+    expect(
+      diagnostics.where((d) => d.code == RenPyDiagnosticCode.skippedPython),
+      isEmpty,
+    );
+  });
+
   test('runner restores persistent assignments from a shared store', () {
     final store = RenPyMemoryPersistentStore();
     final firstScript =
