@@ -268,4 +268,38 @@ label start:
 
     expect(dialogue, ['Gte.', 'Lt.', 'Gt.']);
   });
+
+  test('runner compares parenthesized condition results', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    \$ AyyInfo.L = 2
+
+    if (AyyInfo.L > 1) == True:
+        "Nested true."
+    else:
+        "Nested false."
+
+    if (AyyInfo.L < 1) != True:
+        "Nested not true."
+    else:
+        "Nested wrong."
+    if (AyyInfo.L == 2) == True:
+        "Nested equality."
+    else:
+        "Nested equality wrong."
+
+''', 'python_shim.rpy').script;
+    final runner = RenPyRunner(script);
+    final dialogue = <String>[];
+
+    runner.onDialogue = (character, text) => dialogue.add(text);
+
+    runner.jumpToLabel('start');
+    runner.run();
+    runner.continueExecution();
+    runner.continueExecution();
+
+    expect(dialogue, ['Nested true.', 'Nested not true.', 'Nested equality.']);
+  });
 }

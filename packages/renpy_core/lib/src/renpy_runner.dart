@@ -387,6 +387,13 @@ class RenPyRunner {
 
   dynamic _evaluateComparable(String expression) {
     final value = expression.trim();
+    final parenthesized = _parenthesizedExpression(value);
+    if (parenthesized != null) {
+      if (_isConditionExpression(parenthesized)) {
+        return _evaluateCondition(parenthesized);
+      }
+      return _evaluateComparable(parenthesized);
+    }
     final variable = _lookupVariable(value);
     if (variable.found) return variable.value;
     return _evaluateExpression(value);
@@ -430,6 +437,30 @@ class RenPyRunner {
 
     final field = name.substring(prefix.length);
     return field.isEmpty ? null : field;
+  }
+
+  String? _parenthesizedExpression(String value) {
+    final current = value.trim();
+    if (!current.startsWith('(') || !current.endsWith(')')) return null;
+
+    final close = _matchingCloseParenthesis(current, 0);
+    if (close != current.length - 1) return null;
+    return current.substring(1, current.length - 1).trim();
+  }
+
+  bool _isConditionExpression(String value) {
+    final current = _stripOuterParentheses(value.trim());
+    if (current == 'True' || current == 'true') return true;
+    if (current == 'False' || current == 'false') return true;
+    if (current.startsWith('not ') || current.startsWith('!')) return true;
+    if (_splitBooleanExpression(current, 'or') != null) return true;
+    if (_splitBooleanExpression(current, 'and') != null) return true;
+
+    for (final operator in const ['==', '!=', '>=', '<=', '>', '<']) {
+      if (_splitComparison(current, operator) != null) return true;
+    }
+
+    return false;
   }
 
   String _stripOuterParentheses(String value) {
@@ -535,6 +566,7 @@ class RenPyRunner {
   _ConditionComparison? _splitComparison(String condition, String operator) {
     String? quote;
     var escaped = false;
+    var depth = 0;
 
     for (var index = 0; index <= condition.length - operator.length; index++) {
       final character = condition[index];
@@ -554,7 +586,15 @@ class RenPyRunner {
         quote = character;
         continue;
       }
-      if (condition.startsWith(operator, index)) {
+      if (character == '(' || character == '[' || character == '{') {
+        depth += 1;
+        continue;
+      }
+      if (character == ')' || character == ']' || character == '}') {
+        if (depth > 0) depth -= 1;
+        continue;
+      }
+      if (depth == 0 && condition.startsWith(operator, index)) {
         return _ConditionComparison(
           condition.substring(0, index),
           condition.substring(index + operator.length),
