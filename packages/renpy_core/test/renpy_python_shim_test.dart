@@ -199,4 +199,73 @@ label start:
     expect(secondRunner.persistent, {'confession_finished': true});
     expect(dialogue, ['Restored.']);
   });
+
+  test('runner evaluates boolean condition expressions', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    \$ AyyInfo.L = 2
+    \$ AyyNoticed1 = True
+
+    if AyyInfo.L == 2 and (AyyNoticed1 or persistent.missing_flag):
+        "Matched."
+    else:
+        "Missing."
+
+    if not (AyyInfo.L == 3 or False):
+        "Negated."
+    else:
+        "Wrong."
+
+    if not AyyNoticed1 or AyyInfo.L == 2:
+        "Python precedence."
+    else:
+        "Wrong precedence."
+''', 'python_shim.rpy').script;
+    final runner = RenPyRunner(script);
+    final dialogue = <String>[];
+
+    runner.onDialogue = (character, text) => dialogue.add(text);
+
+    runner.jumpToLabel('start');
+    runner.run();
+    runner.continueExecution();
+    runner.continueExecution();
+
+    expect(dialogue, ['Matched.', 'Negated.', 'Python precedence.']);
+  });
+
+  test('runner evaluates ordered comparison conditions', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    \$ AyyInfo.L = 2
+
+    if AyyInfo.L >= 2:
+        "Gte."
+    else:
+        "No gte."
+
+    if AyyInfo.L < 3:
+        "Lt."
+    else:
+        "No lt."
+
+    if AyyInfo.L <= 1:
+        "No lte."
+    else:
+        "Gt."
+''', 'python_shim.rpy').script;
+    final runner = RenPyRunner(script);
+    final dialogue = <String>[];
+
+    runner.onDialogue = (character, text) => dialogue.add(text);
+
+    runner.jumpToLabel('start');
+    runner.run();
+    runner.continueExecution();
+    runner.continueExecution();
+
+    expect(dialogue, ['Gte.', 'Lt.', 'Gt.']);
+  });
 }

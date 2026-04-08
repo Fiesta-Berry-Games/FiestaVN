@@ -336,9 +336,20 @@ class RenPyRunner {
   }
 
   bool _evaluateCondition(String condition) {
-    final value = condition.trim();
+    final value = _stripOuterParentheses(condition.trim());
     if (value == 'True' || value == 'true') return true;
     if (value == 'False' || value == 'false') return false;
+
+    final orParts = _splitBooleanExpression(value, 'or');
+    if (orParts != null) {
+      return orParts.any(_evaluateCondition);
+    }
+
+    final andParts = _splitBooleanExpression(value, 'and');
+    if (andParts != null) {
+      return andParts.every(_evaluateCondition);
+    }
+
     if (value.startsWith('not ')) {
       return !_evaluateCondition(value.substring(4));
     }
@@ -354,6 +365,13 @@ class RenPyRunner {
     if (inequality != null) {
       return _evaluateComparable(inequality.left) !=
           _evaluateComparable(inequality.right);
+    }
+
+    for (final operator in const ['>=', '<=', '>', '<']) {
+      final comparison = _splitComparison(value, operator);
+      if (comparison != null) {
+        return _evaluateOrderedComparison(comparison, operator);
+      }
     }
 
     final variable = _lookupVariable(value);
@@ -374,6 +392,26 @@ class RenPyRunner {
     return _evaluateExpression(value);
   }
 
+  bool _evaluateOrderedComparison(
+    _ConditionComparison comparison,
+    String operator,
+  ) {
+    final left = _evaluateComparable(comparison.left);
+    final right = _evaluateComparable(comparison.right);
+
+    if (left is num && right is num) {
+      return switch (operator) {
+        '>=' => left >= right,
+        '<=' => left <= right,
+        '>' => left > right,
+        '<' => left < right,
+        _ => false,
+      };
+    }
+
+    return false;
+  }
+
   _VariableLookup _lookupVariable(String name) {
     final persistentField = _persistentFieldName(name);
     if (persistentField != null) {
@@ -392,6 +430,106 @@ class RenPyRunner {
 
     final field = name.substring(prefix.length);
     return field.isEmpty ? null : field;
+  }
+
+  String _stripOuterParentheses(String value) {
+    var current = value.trim();
+    while (current.startsWith('(') && current.endsWith(')')) {
+      final close = _matchingCloseParenthesis(current, 0);
+      if (close != current.length - 1) return current;
+      current = current.substring(1, current.length - 1).trim();
+    }
+    return current;
+  }
+
+  int? _matchingCloseParenthesis(String value, int openIndex) {
+    String? quote;
+    var escaped = false;
+    var depth = 0;
+    for (var index = openIndex; index < value.length; index += 1) {
+      final character = value[index];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (character == r'\') {
+        escaped = true;
+        continue;
+      }
+      if (quote != null) {
+        if (character == quote) quote = null;
+        continue;
+      }
+      if (character == '"' || character == "'") {
+        quote = character;
+        continue;
+      }
+      if (character == '(') {
+        depth += 1;
+        continue;
+      }
+      if (character == ')') {
+        depth -= 1;
+        if (depth == 0) return index;
+      }
+    }
+    return null;
+  }
+
+  List<String>? _splitBooleanExpression(String value, String operator) {
+    final parts = <String>[];
+    var start = 0;
+    String? quote;
+    var escaped = false;
+    var depth = 0;
+    for (var index = 0; index < value.length; index += 1) {
+      final character = value[index];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (character == r'\') {
+        escaped = true;
+        continue;
+      }
+      if (quote != null) {
+        if (character == quote) quote = null;
+        continue;
+      }
+      if (character == '"' || character == "'") {
+        quote = character;
+        continue;
+      }
+      if (character == '(' || character == '[' || character == '{') {
+        depth += 1;
+        continue;
+      }
+      if (character == ')' || character == ']' || character == '}') {
+        if (depth > 0) depth -= 1;
+        continue;
+      }
+      if (depth == 0 && _isWordAt(value, operator, index)) {
+        parts.add(value.substring(start, index).trim());
+        start = index + operator.length;
+        index += operator.length - 1;
+      }
+    }
+
+    if (parts.isEmpty) return null;
+    parts.add(value.substring(start).trim());
+    return parts;
+  }
+
+  bool _isWordAt(String value, String word, int index) {
+    if (!value.startsWith(word, index)) return false;
+    final before = index == 0 ? null : value[index - 1];
+    final afterIndex = index + word.length;
+    final after = afterIndex >= value.length ? null : value[afterIndex];
+    return !_isIdentifierCharacter(before) && !_isIdentifierCharacter(after);
+  }
+
+  bool _isIdentifierCharacter(String? character) {
+    return character != null && RegExp(r'[A-Za-z0-9_]').hasMatch(character);
   }
 
   _ConditionComparison? _splitComparison(String condition, String operator) {
