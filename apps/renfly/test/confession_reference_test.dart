@@ -13,6 +13,8 @@ import 'package:renpy_flutter/renpy_flutter.dart';
 
 import 'support/renpy_golden_path_harness.dart';
 
+import 'support/renpy_project_player_harness.dart';
+
 void main() {
   final fixture = Directory('assets/games/Confession-1.03-pc/game');
   final skipReason =
@@ -346,17 +348,16 @@ void main() {
         ),
       );
 
-      await _pumpUntilText(tester, 'Please note.');
+      final harness = RenPyProjectPlayerHarness(tester);
+      await harness.pumpUntilText('Please note.');
       expect(find.textContaining('{i}'), findsNothing);
       expect(find.textContaining('{/i}'), findsNothing);
       expect(find.textContaining('{w}'), findsNothing);
-      _expectItalicSpan(tester, 'Confession of the Golden Witch');
+      harness.expectItalicSpan('Confession of the Golden Witch');
 
       await tester.tap(find.textContaining('Please note.'));
-      await _pumpUntilImages(tester);
-
-      final images = tester.widgetList<Image>(find.byType(Image));
-      expect(images.map((image) => image.image), contains(isA<MemoryImage>()));
+      await harness.pumpUntilImages();
+      expect(harness.imageProviders, contains(isA<MemoryImage>()));
     },
     skip: skipReason != null,
   );
@@ -375,13 +376,38 @@ void main() {
         ),
       );
 
-      await _pumpUntilTitleCard(tester);
+      final harness = RenPyProjectPlayerHarness(tester);
+      await harness.pumpUntilTitleCard();
 
-      expect(_stageColors(tester), contains(const Color(0xFFFF0000)));
+      expect(harness.stageColors, contains(const Color(0xFFFF0000)));
       expect(
         find.textContaining('Confession of the Golden Witch'),
         findsWidgets,
       );
+    },
+    skip: skipReason != null,
+  );
+
+  testWidgets(
+    'Confession project player renders chapter one background and placed sprites',
+    (tester) async {
+      final project = loadRenPyProjectFolder(fixture);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: RenPyProjectPlayer(
+            project: project,
+            audioPlayback: const RenPyNoOpAudioPlayback(),
+          ),
+        ),
+      );
+
+      final harness = RenPyProjectPlayerHarness(tester);
+      await harness.pumpUntilText('Ange chose to ignore Erika as she made tea');
+
+      expect(harness.memoryImageCount, greaterThanOrEqualTo(3));
+      harness.expectSpriteAlignment('eri', const Alignment(-0.6, 1));
+      harness.expectSpriteAlignment('enj', const Alignment(0.6, 1));
     },
     skip: skipReason != null,
   );
@@ -401,60 +427,4 @@ Future<void> _continueUntil(
   }
 
   fail('Controller did not reach expected state. Last: ${controller.value}');
-}
-
-Future<void> _pumpUntilText(WidgetTester tester, String text) async {
-  for (var i = 0; i < 50; i += 1) {
-    await tester.pump(const Duration(milliseconds: 50));
-    if (find.textContaining(text).evaluate().isNotEmpty) return;
-    if (find.byType(RenPyPauseView).evaluate().isNotEmpty) {
-      await tester.tap(find.byType(RenPyPauseView));
-    }
-  }
-
-  fail('Timed out waiting for text containing "$text".');
-}
-
-Future<void> _pumpUntilImages(WidgetTester tester) async {
-  for (var i = 0; i < 50; i += 1) {
-    await tester.pump(const Duration(milliseconds: 50));
-    if (find.byType(Image).evaluate().isNotEmpty) return;
-    await tester.tapAt(tester.getCenter(find.byType(RenPyProjectPlayer)));
-  }
-
-  fail('Timed out waiting for archived images.');
-}
-
-Future<void> _pumpUntilTitleCard(WidgetTester tester) async {
-  for (var i = 0; i < 700; i += 1) {
-    await tester.pump(const Duration(milliseconds: 50));
-    final titleVisible =
-        find.textContaining('Confession of the Golden Witch').evaluate().length;
-    if (titleVisible >= 1 &&
-        _stageColors(tester).contains(const Color(0xFFFF0000))) {
-      return;
-    }
-
-    await tester.tapAt(tester.getCenter(find.byType(RenPyProjectPlayer)));
-  }
-
-  fail('Timed out waiting for the red title card.');
-}
-
-void _expectItalicSpan(WidgetTester tester, String text) {
-  final renderedText = tester.widget<Text>(
-    find.descendant(of: find.byType(RenPyText), matching: find.byType(Text)),
-  );
-  final rootSpan = renderedText.textSpan! as TextSpan;
-  final spans = rootSpan.children!.cast<TextSpan>();
-  expect(
-    spans.singleWhere((span) => span.text == text).style?.fontStyle,
-    FontStyle.italic,
-  );
-}
-
-List<Color> _stageColors(WidgetTester tester) {
-  final stage = find.byKey(const ValueKey('renpy-stage-color'));
-  if (stage.evaluate().isEmpty) return const [];
-  return tester.widgetList<ColoredBox>(stage).map((box) => box.color).toList();
 }
