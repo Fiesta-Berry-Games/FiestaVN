@@ -7,6 +7,8 @@ import 'package:renfly/project_picker.dart';
 import 'package:renpy_flutter/renpy_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/renpy_golden_path_harness.dart';
+
 void main() {
   final confessionFixture = Directory('assets/games/Confession-1.03-pc/game');
   final confessionFixtureMissing = !confessionFixture.existsSync();
@@ -168,7 +170,7 @@ label start:
     await _pumpFreshApp(
       tester,
       projectPicker: _FakeProjectPicker(
-        _loadProjectFolder(Directory('assets/games/the_question')),
+        loadRenPyProjectFolder(Directory('assets/games/the_question')),
       ),
     );
 
@@ -191,7 +193,7 @@ label start:
         tester,
         audioPlayback: playback,
         projectPicker: _FakeProjectPicker(
-          _loadProjectFolder(confessionFixture),
+          loadRenPyProjectFolder(confessionFixture),
         ),
         onGameControllerCreated: driver.attach,
       );
@@ -253,7 +255,7 @@ label start:
         tester,
         audioPlayback: playback,
         projectPicker: _FakeProjectPicker(
-          _loadProjectFolder(confessionFixture),
+          loadRenPyProjectFolder(confessionFixture),
         ),
         onGameControllerCreated: driver.attach,
       );
@@ -346,14 +348,6 @@ final class _FakeProjectPicker implements RenPyProjectPicker {
 
   @override
   Future<RenPyGameProject?> pickProject() async => project;
-}
-
-RenPyGameProject _loadProjectFolder(Directory directory) {
-  final files = directory
-      .listSync(recursive: true)
-      .whereType<File>()
-      .map((file) => RenPyProjectFile(file.path, file.readAsBytesSync()));
-  return RenPyGameProject.fromFiles(files);
 }
 
 class _RecordingAudioPlayback implements RenPyAudioPlayback {

@@ -11,6 +11,8 @@ import 'package:renpy_core/renpy_core.dart'
         RenPyStyledText;
 import 'package:renpy_flutter/renpy_flutter.dart';
 
+import 'support/renpy_golden_path_harness.dart';
+
 void main() {
   final fixture = Directory('assets/games/Confession-1.03-pc/game');
   final skipReason =
@@ -19,7 +21,7 @@ void main() {
           : 'Local Confession of the Golden Witch fixture is not present.';
 
   test('loads Confession scripts from RPA archives', () {
-    final project = _loadProjectFolder(fixture);
+    final project = loadRenPyProjectFolder(fixture);
 
     expect(project.name, 'Confession-1.03-pc');
     expect(project.scriptPath, endsWith('/game/script.rpy'));
@@ -42,7 +44,7 @@ void main() {
   }, skip: skipReason);
 
   test('Confession reaches the first dialogue beat', () async {
-    final project = _loadProjectFolder(fixture);
+    final project = loadRenPyProjectFolder(fixture);
     final controller = RenPyFlutterController();
     addTearDown(controller.dispose);
 
@@ -63,7 +65,7 @@ void main() {
   }, skip: skipReason);
 
   test('Confession resolves first archived image and music assets', () async {
-    final project = _loadProjectFolder(fixture);
+    final project = loadRenPyProjectFolder(fixture);
     final controller = RenPyFlutterController();
     final images = <RenPyImageChange>[];
     final audio = <RenPyAudioChange>[];
@@ -110,7 +112,7 @@ void main() {
   }, skip: skipReason);
 
   test('Confession resolves wrapper aliases and case-varied audio', () async {
-    final project = _loadProjectFolder(fixture);
+    final project = loadRenPyProjectFolder(fixture);
     final controller = RenPyFlutterController();
     final images = <RenPyImageChange>[];
     final audio = <RenPyAudioChange>[];
@@ -233,7 +235,7 @@ void main() {
   }, skip: skipReason);
 
   test('Confession emits the title card show text displayable', () async {
-    final project = _loadProjectFolder(fixture);
+    final project = loadRenPyProjectFolder(fixture);
     final controller = RenPyFlutterController();
     final images = <RenPyImageChange>[];
     addTearDown(controller.dispose);
@@ -289,7 +291,7 @@ void main() {
   }, skip: skipReason);
 
   test('Confession continues from the title card into chapter one', () async {
-    final project = _loadProjectFolder(fixture);
+    final project = loadRenPyProjectFolder(fixture);
     final controller = RenPyFlutterController();
     final images = <RenPyImageChange>[];
     addTearDown(controller.dispose);
@@ -333,7 +335,7 @@ void main() {
   testWidgets(
     'Confession project player renders an archived background',
     (tester) async {
-      final project = _loadProjectFolder(fixture);
+      final project = loadRenPyProjectFolder(fixture);
 
       await tester.pumpWidget(
         MaterialApp(
@@ -362,7 +364,7 @@ void main() {
   testWidgets(
     'Confession project player renders the red title card',
     (tester) async {
-      final project = _loadProjectFolder(fixture);
+      final project = loadRenPyProjectFolder(fixture);
 
       await tester.pumpWidget(
         MaterialApp(
@@ -383,14 +385,6 @@ void main() {
     },
     skip: skipReason != null,
   );
-}
-
-RenPyGameProject _loadProjectFolder(Directory directory) {
-  final files = directory
-      .listSync(recursive: true)
-      .whereType<File>()
-      .map((file) => RenPyProjectFile(file.path, file.readAsBytesSync()));
-  return RenPyGameProject.fromFiles(files);
 }
 
 Future<void> _continueUntil(
