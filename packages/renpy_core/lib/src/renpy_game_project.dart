@@ -90,25 +90,25 @@ final class RenPyGameProject {
         scriptPath == null ? null : _normalizePath(scriptPath);
     final selectedScriptPath =
         normalizedScriptPath ?? _chooseScriptPath(byPath.keys);
-    final scriptBytes = byPath[selectedScriptPath];
-    if (scriptBytes == null) {
+    if (!byPath.containsKey(selectedScriptPath)) {
       throw StateError('RenPy project script not found: $selectedScriptPath');
     }
 
     final gameRoot = path.posix.dirname(selectedScriptPath);
+    final normalizedGameRoot = gameRoot == '.' ? '' : gameRoot;
     return RenPyGameProject._(
       name: _projectName(selectedScriptPath),
       scriptPath: selectedScriptPath,
-      gameRoot: gameRoot == '.' ? '' : gameRoot,
-      scriptSource: utf8.decode(scriptBytes),
+      gameRoot: normalizedGameRoot,
+      scriptSource: _scriptSource(
+        byPath,
+        selectedScriptPath,
+        normalizedGameRoot,
+      ),
       assets: byPath,
       archives: archives,
-      fontAssets: _fontAssets(
-        byPath.keys,
-        archives,
-        gameRoot == '.' ? '' : gameRoot,
-      ),
-      screenSize: _screenSize(byPath, gameRoot == '.' ? '' : gameRoot),
+      fontAssets: _fontAssets(byPath.keys, archives, normalizedGameRoot),
+      screenSize: _screenSize(byPath, normalizedGameRoot),
     );
   }
 
@@ -155,6 +155,40 @@ final class RenPyGameProject {
     if (scripts.isNotEmpty) return scripts.first;
 
     throw StateError('RenPy project folder does not contain script.rpy');
+  }
+
+  static String _scriptSource(
+    Map<String, Uint8List> assets,
+    String selectedScriptPath,
+    String gameRoot,
+  ) {
+    final scripts = _scriptFiles(assets, gameRoot);
+    if (scripts.length <= 1) {
+      return utf8.decode(assets[selectedScriptPath]!, allowMalformed: true);
+    }
+
+    scripts.sort((a, b) {
+      if (a.key == selectedScriptPath) return -1;
+      if (b.key == selectedScriptPath) return 1;
+      return a.key.compareTo(b.key);
+    });
+
+    return scripts
+        .map((script) => utf8.decode(script.value, allowMalformed: true))
+        .join('\n\n');
+  }
+
+  static List<MapEntry<String, Uint8List>> _scriptFiles(
+    Map<String, Uint8List> assets,
+    String gameRoot,
+  ) {
+    return assets.entries
+        .where(
+          (entry) =>
+              entry.key.toLowerCase().endsWith('.rpy') &&
+              (gameRoot.isEmpty || entry.key.startsWith('$gameRoot/')),
+        )
+        .toList();
   }
 
   static String _projectName(String scriptPath) {

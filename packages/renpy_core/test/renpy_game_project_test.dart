@@ -38,6 +38,52 @@ label start:
     );
   });
 
+  test('combines all RenPy scripts under the game root', () {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('split/game/script.rpy', '''
+label start:
+    "From script."
+    jump chapter_two
+'''),
+      RenPyProjectFile.text('split/game/chapter_two.rpy', '''
+define e = Character("Extra", color="#fff")
+
+label chapter_two:
+    e "From chapter two."
+'''),
+      RenPyProjectFile.text('split/game/sub/side_story.rpy', '''
+label side_story:
+    "Side story."
+'''),
+      RenPyProjectFile.text('split/other/script.rpy', '''
+label start:
+    "Wrong root."
+'''),
+    ]);
+
+    expect(project.scriptPath, 'split/game/script.rpy');
+    expect(project.scriptSource, contains('label start:'));
+    expect(project.scriptSource, contains('label chapter_two:'));
+    expect(project.scriptSource, contains('label side_story:'));
+    expect(project.scriptSource, isNot(contains('Wrong root.')));
+
+    final script =
+        RenPyParser().parse(project.scriptSource, project.scriptPath).script;
+    final runner = RenPyRunner(script);
+    final dialogue = <RenPyDialogueEvent>[];
+    runner.onDialogueEvent = dialogue.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+    runner.continueExecution();
+
+    expect(dialogue.map((event) => event.text), [
+      'From script.',
+      'From chapter two.',
+    ]);
+
+    expect(dialogue.last.displayName, 'Extra');
+  });
   test('rejects folders without a script.rpy', () {
     expect(
       () => RenPyGameProject.fromFiles([
