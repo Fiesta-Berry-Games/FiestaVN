@@ -393,19 +393,21 @@ class _RenPyDisplayableSprite extends StatelessWidget {
               translation: resolved.anchorTranslation,
               child: Transform.translate(
                 offset: resolved.anchorOffset,
-                child:
-                    sprite.text == null
-                        ? _RenPySpriteImage(
-                          image: sprite.image!,
-                          imageProvider: imageProvider,
-                        )
-                        : ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxWidth: constraints.maxWidth * 0.9,
-                            maxHeight: constraints.maxHeight * 0.9,
-                          ),
-                          child: _RenPyTextDisplayable(text: sprite.text!),
+                child: _scaleDisplayable(
+                  sprite.placement,
+                  sprite.text == null
+                      ? _RenPySpriteImage(
+                        image: sprite.image!,
+                        imageProvider: imageProvider,
+                      )
+                      : ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: constraints.maxWidth * 0.9,
+                          maxHeight: constraints.maxHeight * 0.9,
                         ),
+                        child: _RenPyTextDisplayable(text: sprite.text!),
+                      ),
+                ),
               ),
             );
           },
@@ -413,6 +415,20 @@ class _RenPyDisplayableSprite extends StatelessWidget {
       ),
     );
   }
+}
+
+Widget _scaleDisplayable(RenPyImagePlacement placement, Widget child) {
+  final zoom = placement.zoom ?? 1;
+  final xScale = zoom * (placement.xzoom ?? 1);
+  final yScale = zoom * (placement.yzoom ?? 1);
+  if (xScale == 1 && yScale == 1) return child;
+
+  return Transform.scale(
+    scaleX: xScale,
+    scaleY: yScale,
+    alignment: Alignment.center,
+    child: child,
+  );
 }
 
 class _RenPySpriteImage extends StatelessWidget {

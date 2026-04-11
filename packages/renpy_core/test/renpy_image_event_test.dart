@@ -115,6 +115,25 @@ label start:
       ),
     );
   });
+  test('runner preserves Transform scale placement intent', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    show sylvie green normal at Transform(zoom = 1.5, xzoom = 1.2, yzoom = 0.75)
+''', 'image_transform_scale.rpy').script;
+    final runner = RenPyRunner(script);
+    final events = <RenPyImageEvent>[];
+
+    runner.onImageEvent = events.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(
+      events.single.placement,
+      const RenPyImagePlacement.position(zoom: 1.5, xzoom: 1.2, yzoom: 0.75),
+    );
+  });
 
   test('runner emits onlayer metadata separately from image names', () {
     final script =

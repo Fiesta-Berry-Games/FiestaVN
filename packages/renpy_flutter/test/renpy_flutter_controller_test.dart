@@ -28,11 +28,14 @@ label start:
       expect(
         controller.diagnostics.map((diagnostic) => diagnostic.code),
         containsAll([
-          RenPyDiagnosticCode.unsupportedPlacement,
           RenPyDiagnosticCode.unsupportedTransition,
           RenPyDiagnosticCode.unresolvedImageAsset,
           RenPyDiagnosticCode.unresolvedAudioAsset,
         ]),
+      );
+      expect(
+        controller.diagnostics.map((diagnostic) => diagnostic.code),
+        isNot(contains(RenPyDiagnosticCode.unsupportedPlacement)),
       );
       expect(
         controller.diagnostics.where(

@@ -9,6 +9,9 @@ class RenPyImagePlacement {
     this.yalign,
     this.xposIsPixel = false,
     this.yposIsPixel = false,
+    this.zoom,
+    this.xzoom,
+    this.yzoom,
     this.xanchorIsPixel = false,
     this.yanchorIsPixel = false,
   }) : expression = null;
@@ -23,8 +26,10 @@ class RenPyImagePlacement {
       xposIsPixel = false,
       yposIsPixel = false,
       xanchorIsPixel = false,
-      yanchorIsPixel = false;
-
+      yanchorIsPixel = false,
+      zoom = null,
+      xzoom = null,
+      yzoom = null;
   final double? xpos;
   final double? ypos;
   final double? xanchor;
@@ -32,6 +37,9 @@ class RenPyImagePlacement {
   final double? xalign;
   final double? yalign;
   final bool xposIsPixel;
+  final double? zoom;
+  final double? xzoom;
+  final double? yzoom;
   final bool yposIsPixel;
   final bool xanchorIsPixel;
   final bool yanchorIsPixel;
@@ -51,22 +59,15 @@ class RenPyImagePlacement {
     ).firstMatch(value);
     if (position != null) {
       final args = _parseNamedArguments(position.group(1)!);
-      final xpos = _positionValue(args['xpos']);
-      final ypos = _positionValue(args['ypos']);
-      final xanchor = _anchorValue(args['xanchor']);
-      final yanchor = _anchorValue(args['yanchor']);
-      return RenPyImagePlacement.position(
-        xpos: xpos?.value,
-        ypos: ypos?.value,
-        xanchor: xanchor?.value,
-        yanchor: yanchor?.value,
-        xalign: _positionValue(args['xalign'])?.value,
-        yalign: _positionValue(args['yalign'])?.value,
-        xposIsPixel: xpos?.isPixel ?? false,
-        yposIsPixel: ypos?.isPixel ?? false,
-        xanchorIsPixel: xanchor?.isPixel ?? false,
-        yanchorIsPixel: yanchor?.isPixel ?? false,
-      );
+      return _placementFromArguments(args);
+    }
+
+    final transform = RegExp(
+      r'^Transform\s*\((.*)\)(?:\s+behind\s+.+)?$',
+    ).firstMatch(value);
+    if (transform != null) {
+      final args = _parseNamedArguments(transform.group(1)!);
+      return _placementFromArguments(args);
     }
 
     return RenPyImagePlacement.unsupported(value);
@@ -83,6 +84,9 @@ class RenPyImagePlacement {
             xalign == other.xalign &&
             yalign == other.yalign &&
             xposIsPixel == other.xposIsPixel &&
+            zoom == other.zoom &&
+            xzoom == other.xzoom &&
+            yzoom == other.yzoom &&
             yposIsPixel == other.yposIsPixel &&
             xanchorIsPixel == other.xanchorIsPixel &&
             yanchorIsPixel == other.yanchorIsPixel &&
@@ -103,6 +107,9 @@ class RenPyImagePlacement {
       xanchorIsPixel,
       yanchorIsPixel,
       expression,
+      zoom,
+      xzoom,
+      yzoom,
     );
   }
 
@@ -115,9 +122,31 @@ class RenPyImagePlacement {
         'xpos: $xpos, ypos: $ypos, xanchor: $xanchor, '
         'yanchor: $yanchor, xalign: $xalign, yalign: $yalign, '
         'xposIsPixel: $xposIsPixel, yposIsPixel: $yposIsPixel, '
-        'xanchorIsPixel: $xanchorIsPixel, '
-        'yanchorIsPixel: $yanchorIsPixel)';
+        'xanchorIsPixel: $xanchorIsPixel, yanchorIsPixel: $yanchorIsPixel, '
+        'zoom: $zoom, xzoom: $xzoom, yzoom: $yzoom)';
   }
+}
+
+RenPyImagePlacement _placementFromArguments(Map<String, String> args) {
+  final xpos = _positionValue(args['xpos']);
+  final ypos = _positionValue(args['ypos']);
+  final xanchor = _anchorValue(args['xanchor']);
+  final yanchor = _anchorValue(args['yanchor']);
+  return RenPyImagePlacement.position(
+    xpos: xpos?.value,
+    ypos: ypos?.value,
+    xanchor: xanchor?.value,
+    yanchor: yanchor?.value,
+    xalign: _positionValue(args['xalign'])?.value,
+    yalign: _positionValue(args['yalign'])?.value,
+    xposIsPixel: xpos?.isPixel ?? false,
+    yposIsPixel: ypos?.isPixel ?? false,
+    xanchorIsPixel: xanchor?.isPixel ?? false,
+    yanchorIsPixel: yanchor?.isPixel ?? false,
+    zoom: _positionValue(args['zoom'])?.value,
+    xzoom: _positionValue(args['xzoom'])?.value,
+    yzoom: _positionValue(args['yzoom'])?.value,
+  );
 }
 
 const _namedPlacements = {

@@ -22,10 +22,11 @@ label start:
 
     expect(
       diagnostics.map((diagnostic) => diagnostic.code),
-      containsAll([
-        RenPyDiagnosticCode.unsupportedPlacement,
-        RenPyDiagnosticCode.unsupportedTransition,
-      ]),
+      contains(RenPyDiagnosticCode.unsupportedTransition),
+    );
+    expect(
+      diagnostics.map((diagnostic) => diagnostic.code),
+      isNot(contains(RenPyDiagnosticCode.unsupportedPlacement)),
     );
     expect(
       diagnostics.where(

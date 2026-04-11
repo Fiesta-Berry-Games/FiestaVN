@@ -388,6 +388,55 @@ void main() {
 
     expect(tester.getSize(find.byType(Image)), const Size(500, 300));
   });
+  testWidgets('image layer applies Transform scale intent to image sprites', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+    final spriteImage = await _createTestImage(200, 100);
+    addTearDown(spriteImage.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 800,
+          height: 600,
+          child: RenPyImageLayer(
+            controller: controller,
+            imageProvider:
+                (_) => _FixedSizeImageProvider('sprite.png', spriteImage),
+          ),
+        ),
+      ),
+    );
+
+    controller.value = RenPyImageChange(
+      show: 'sylvie green normal',
+      showAsset: 'assets/game/images/sylvie green normal.png',
+      showPlacement: const RenPyImagePlacement.position(
+        xpos: 0.5,
+        ypos: 0.5,
+        xanchor: 0.5,
+        yanchor: 0.5,
+        zoom: 2,
+        xzoom: 1.5,
+        yzoom: 0.5,
+      ),
+    );
+    await tester.pump();
+
+    final scaleTransforms = tester.widgetList<Transform>(
+      find.ancestor(of: find.byType(Image), matching: find.byType(Transform)),
+    );
+    expect(
+      scaleTransforms.any(
+        (transform) =>
+            transform.transform.storage[0] == 3 &&
+            transform.transform.storage[5] == 1,
+      ),
+      isTrue,
+    );
+  });
 
   testWidgets('image layer preserves placement across sprite swaps', (
     tester,
@@ -498,6 +547,8 @@ void main() {
         xanchor: 0.5,
         ypos: 0.5,
         yanchor: 0.5,
+        zoom: 1.5,
+        yzoom: 2,
       ),
     );
     await tester.pump();
@@ -518,6 +569,21 @@ void main() {
       (span) => span.text == 'Confession',
     );
     expect(confession.style?.color, Colors.white);
+
+    final scaleTransforms = tester.widgetList<Transform>(
+      find.ancestor(
+        of: find.byType(RenPyText),
+        matching: find.byType(Transform),
+      ),
+    );
+    expect(
+      scaleTransforms.any(
+        (transform) =>
+            transform.transform.storage[0] == 1.5 &&
+            transform.transform.storage[5] == 3,
+      ),
+      isTrue,
+    );
   });
 }
 
