@@ -393,22 +393,19 @@ class _RenPyDisplayableSprite extends StatelessWidget {
               translation: resolved.anchorTranslation,
               child: Transform.translate(
                 offset: resolved.anchorOffset,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth:
-                        sprite.text == null
-                            ? (constraints.maxWidth * 0.45).clamp(160, 420)
-                            : constraints.maxWidth * 0.9,
-                    maxHeight: constraints.maxHeight * 0.9,
-                  ),
-                  child:
-                      sprite.text == null
-                          ? _RenPySpriteImage(
-                            image: sprite.image!,
-                            imageProvider: imageProvider,
-                          )
-                          : _RenPyTextDisplayable(text: sprite.text!),
-                ),
+                child:
+                    sprite.text == null
+                        ? _RenPySpriteImage(
+                          image: sprite.image!,
+                          imageProvider: imageProvider,
+                        )
+                        : ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: constraints.maxWidth * 0.9,
+                            maxHeight: constraints.maxHeight * 0.9,
+                          ),
+                          child: _RenPyTextDisplayable(text: sprite.text!),
+                        ),
               ),
             );
           },

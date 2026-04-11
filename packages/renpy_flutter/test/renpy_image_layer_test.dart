@@ -1,3 +1,6 @@
+import 'dart:ui' as ui;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:renpy_flutter/renpy_flutter.dart';
@@ -349,6 +352,43 @@ void main() {
     },
   );
 
+  testWidgets('image layer renders image sprites at native image size', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+    final spriteImage = await _createTestImage(500, 300);
+    addTearDown(spriteImage.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 800,
+          height: 600,
+          child: RenPyImageLayer(
+            controller: controller,
+            imageProvider:
+                (_) => _FixedSizeImageProvider('sprite.png', spriteImage),
+          ),
+        ),
+      ),
+    );
+
+    controller.value = RenPyImageChange(
+      show: 'sylvie green normal',
+      showAsset: 'assets/game/images/sylvie green normal.png',
+      showPlacement: const RenPyImagePlacement.position(
+        xpos: 0.5,
+        ypos: 0.5,
+        xanchor: 0.5,
+        yanchor: 0.5,
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.getSize(find.byType(Image)), const Size(500, 300));
+  });
+
   testWidgets('image layer preserves placement across sprite swaps', (
     tester,
   ) async {
@@ -504,4 +544,49 @@ Color _stageColor(WidgetTester tester) {
   return tester
       .widget<ColoredBox>(find.byKey(const ValueKey('renpy-stage-color')))
       .color;
+}
+
+Future<ui.Image> _createTestImage(int width, int height) {
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  canvas.drawRect(
+    Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+    Paint()..color = Colors.white,
+  );
+  return recorder.endRecording().toImage(width, height);
+}
+
+class _FixedSizeImageProvider extends ImageProvider<_FixedSizeImageProvider> {
+  const _FixedSizeImageProvider(this.assetPath, this.image);
+
+  final String assetPath;
+  final ui.Image image;
+
+  @override
+  Future<_FixedSizeImageProvider> obtainKey(ImageConfiguration configuration) {
+    return SynchronousFuture<_FixedSizeImageProvider>(this);
+  }
+
+  @override
+  ImageStreamCompleter loadImage(
+    _FixedSizeImageProvider key,
+    ImageDecoderCallback decode,
+  ) {
+    return OneFrameImageStreamCompleter(
+      SynchronousFuture<ImageInfo>(ImageInfo(image: image)),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is _FixedSizeImageProvider &&
+        other.assetPath == assetPath &&
+        other.image == image;
+  }
+
+  @override
+  int get hashCode => Object.hash(assetPath, image);
+
+  @override
+  String toString() => '_FixedSizeImageProvider($assetPath)';
 }
