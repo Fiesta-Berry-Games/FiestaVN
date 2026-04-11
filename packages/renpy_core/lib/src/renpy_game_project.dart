@@ -5,6 +5,36 @@ import 'package:path/path.dart' as path;
 
 import 'renpy_rpa_archive.dart';
 
+/// The configured virtual screen size of a RenPy project.
+final class RenPyScreenSize {
+  const RenPyScreenSize({required this.width, required this.height});
+
+  final int width;
+  final int height;
+
+  double get aspectRatio => width / height;
+
+  static RenPyScreenSize? fromScriptSource(String source) {
+    return _screenSizeFromSources([source]);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        other is RenPyScreenSize &&
+            width == other.width &&
+            height == other.height;
+  }
+
+  @override
+  int get hashCode => Object.hash(width, height);
+
+  @override
+  String toString() {
+    return 'RenPyScreenSize(width: $width, height: $height)';
+  }
+}
+
 /// A file selected from a RenPy project folder.
 final class RenPyProjectFile {
   RenPyProjectFile(String path, Uint8List bytes)
@@ -28,6 +58,7 @@ final class RenPyGameProject {
     required Map<String, Uint8List> assets,
     required Map<String, RenPyRpaArchive> archives,
     required Map<String, String> fontAssets,
+    required this.screenSize,
   }) : _assets = Map.unmodifiable(assets),
        _assetsByLowerPath = Map.unmodifiable(
          _caseInsensitiveIndex(assets.keys),
@@ -77,6 +108,7 @@ final class RenPyGameProject {
         archives,
         gameRoot == '.' ? '' : gameRoot,
       ),
+      screenSize: _screenSize(byPath, gameRoot == '.' ? '' : gameRoot),
     );
   }
 
@@ -85,6 +117,7 @@ final class RenPyGameProject {
   final String gameRoot;
   final String scriptSource;
   final Set<String> availableAssets;
+  final RenPyScreenSize? screenSize;
   final Map<String, String> fontAssets;
   final Map<String, Uint8List> _assets;
   final Map<String, String> _assetsByLowerPath;
@@ -200,6 +233,44 @@ final class RenPyGameProject {
 
     return fonts;
   }
+
+  static RenPyScreenSize? _screenSize(
+    Map<String, Uint8List> assets,
+    String gameRoot,
+  ) {
+    final scriptSources = <String>[];
+    final scripts =
+        assets.entries
+            .where(
+              (entry) =>
+                  entry.key.toLowerCase().endsWith('.rpy') &&
+                  (gameRoot.isEmpty || entry.key.startsWith('$gameRoot/')),
+            )
+            .toList()
+          ..sort((a, b) => a.key.compareTo(b.key));
+
+    for (final script in scripts) {
+      scriptSources.add(utf8.decode(script.value, allowMalformed: true));
+    }
+
+    return _screenSizeFromSources(scriptSources);
+  }
+}
+
+RenPyScreenSize? _screenSizeFromSources(Iterable<String> sources) {
+  int? width;
+  int? height;
+  final pattern = RegExp(r'config\.screen_(width|height)\s*=\s*(\d+)');
+  for (final source in sources) {
+    for (final match in pattern.allMatches(source)) {
+      final value = int.parse(match.group(2)!);
+      if (match.group(1) == 'width') width = value;
+      if (match.group(1) == 'height') height = value;
+    }
+  }
+
+  if (width == null || height == null || width <= 0 || height <= 0) return null;
+  return RenPyScreenSize(width: width, height: height);
 }
 
 String _normalizePath(String value) {

@@ -742,6 +742,38 @@ label start:
     ]);
   });
 
+  testWidgets('project player preserves configured RenPy aspect ratio', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 600));
+    addTearDown(() async => tester.binding.setSurfaceSize(null));
+
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('wide/game/options.rpy', '''
+define config.screen_width = 800
+define config.screen_height = 600
+'''),
+      RenPyProjectFile.text('wide/game/script.rpy', '''
+label start:
+    scene black
+    "Aspect locked."
+'''),
+    ]);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyProjectPlayer(project: project, showRestartButton: false),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('Aspect locked.'));
+
+    final stage = find.byKey(const ValueKey('renpy-player-stage'));
+    expect(stage, findsOneWidget);
+    expect(tester.getSize(stage), const Size(800, 600));
+    expect(tester.getCenter(stage), const Offset(600, 300));
+  });
+
   testWidgets('project player exposes its controller for harnesses', (
     tester,
   ) async {

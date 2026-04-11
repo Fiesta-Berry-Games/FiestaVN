@@ -29,6 +29,7 @@ class RenPyPlayer extends StatelessWidget {
     this.onRestart,
     this.imageLayerBuilder,
     this.gameRoot = '',
+    this.screenSize,
     this.audioPlayback,
     this.preferenceStore,
   });
@@ -39,6 +40,7 @@ class RenPyPlayer extends StatelessWidget {
   final VoidCallback? onRestart;
   final RenPyLayerBuilder? imageLayerBuilder;
   final String gameRoot;
+  final RenPyScreenSize? screenSize;
   final RenPyAudioPlayback? audioPlayback;
   final RenPyPreferenceStore? preferenceStore;
 
@@ -90,6 +92,100 @@ class RenPyPlayer extends StatelessWidget {
     messenger.showSnackBar(SnackBar(content: Text(message)));
   }
 
+  Widget _buildStageBox(Widget child) {
+    const stageKey = ValueKey('renpy-player-stage');
+    final size = screenSize;
+    if (size == null) {
+      return SizedBox.expand(key: stageKey, child: child);
+    }
+
+    return Center(
+      child: AspectRatio(
+        key: stageKey,
+        aspectRatio: size.aspectRatio,
+        child: child,
+      ),
+    );
+  }
+
+  Widget _buildGameStage(
+    BuildContext context,
+    RenPyPlayerPreferences preferences,
+  ) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (imageLayerBuilder != null)
+          imageLayerBuilder!(context, controller)
+        else
+          RenPyImageLayer(controller: controller),
+        RenPyAudioLayer(
+          controller: controller,
+          gameRoot: gameRoot,
+          playback: audioPlayback,
+          preferences: preferences,
+        ),
+        RenPyPauseView(controller: controller),
+        RenPyDialogueView(controller: controller),
+        RenPyMenuSelector(controller: controller),
+        ValueListenableBuilder<RenPyGameStatus>(
+          valueListenable: controller,
+          builder: (context, status, child) {
+            final hasRestart = showRestartButton && onRestart != null;
+            final hasActions =
+                controller.canRollback ||
+                controller.hasSnapshotStore ||
+                hasRestart;
+            if (!hasActions) return const SizedBox.shrink();
+
+            return PositionedDirectional(
+              end: 16,
+              bottom: 16,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (controller.canRollback) ...[
+                    FloatingActionButton.small(
+                      tooltip: 'Rollback',
+                      heroTag: null,
+                      onPressed: () => _rollbackGame(context),
+                      child: const Icon(Icons.undo),
+                    ),
+                  ],
+                  if (controller.hasSnapshotStore) ...[
+                    if (controller.canRollback) const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      tooltip: 'Save',
+                      heroTag: null,
+                      onPressed: () => unawaited(_saveGame(context)),
+                      child: const Icon(Icons.save),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      tooltip: 'Load',
+                      heroTag: null,
+                      onPressed: () => unawaited(_loadGame(context)),
+                      child: const Icon(Icons.folder_open),
+                    ),
+                  ],
+                  if (hasRestart) ...[
+                    if (controller.canRollback || controller.hasSnapshotStore)
+                      const SizedBox(height: 8),
+                    FloatingActionButton(
+                      tooltip: 'Restart',
+                      onPressed: onRestart,
+                      child: const Icon(Icons.refresh),
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return _RenPyInputSurface(
@@ -127,74 +223,7 @@ class RenPyPlayer extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             ColoredBox(color: backgroundColor),
-            if (imageLayerBuilder != null)
-              imageLayerBuilder!(context, controller)
-            else
-              RenPyImageLayer(controller: controller),
-            RenPyAudioLayer(
-              controller: controller,
-              gameRoot: gameRoot,
-              playback: audioPlayback,
-              preferences: preferences,
-            ),
-            RenPyPauseView(controller: controller),
-            RenPyDialogueView(controller: controller),
-            RenPyMenuSelector(controller: controller),
-            ValueListenableBuilder<RenPyGameStatus>(
-              valueListenable: controller,
-              builder: (context, status, child) {
-                final hasRestart = showRestartButton && onRestart != null;
-                final hasActions =
-                    controller.canRollback ||
-                    controller.hasSnapshotStore ||
-                    hasRestart;
-                if (!hasActions) return const SizedBox.shrink();
-
-                return PositionedDirectional(
-                  end: 16,
-                  bottom: 16,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (controller.canRollback) ...[
-                        FloatingActionButton.small(
-                          tooltip: 'Rollback',
-                          heroTag: null,
-                          onPressed: () => _rollbackGame(context),
-                          child: const Icon(Icons.undo),
-                        ),
-                      ],
-                      if (controller.hasSnapshotStore) ...[
-                        if (controller.canRollback) const SizedBox(height: 8),
-                        FloatingActionButton.small(
-                          tooltip: 'Save',
-                          heroTag: null,
-                          onPressed: () => unawaited(_saveGame(context)),
-                          child: const Icon(Icons.save),
-                        ),
-                        const SizedBox(height: 8),
-                        FloatingActionButton.small(
-                          tooltip: 'Load',
-                          heroTag: null,
-                          onPressed: () => unawaited(_loadGame(context)),
-                          child: const Icon(Icons.folder_open),
-                        ),
-                      ],
-                      if (hasRestart) ...[
-                        if (controller.canRollback ||
-                            controller.hasSnapshotStore)
-                          const SizedBox(height: 8),
-                        FloatingActionButton(
-                          tooltip: 'Restart',
-                          onPressed: onRestart,
-                          child: const Icon(Icons.refresh),
-                        ),
-                      ],
-                    ],
-                  ),
-                );
-              },
-            ),
+            _buildStageBox(_buildGameStage(context, preferences)),
           ],
         );
       },
@@ -711,6 +740,7 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
             );
           },
       gameRoot: widget.project.gameRoot,
+      screenSize: widget.project.screenSize,
       audioPlayback: widget.audioPlayback ?? _ownedAudioPlayback,
       preferenceStore: widget.preferenceStore,
     );
@@ -798,7 +828,6 @@ class _RenPyAssetPlayerState extends State<RenPyAssetPlayer> {
       _loadStackTrace = null;
       _availableAssets = widget.availableAssets ?? const {};
     });
-
     try {
       final source = await bundle.loadString(widget.scriptAsset);
       final availableAssets =
@@ -877,6 +906,7 @@ class _RenPyAssetPlayerState extends State<RenPyAssetPlayer> {
       onRestart: _loadController,
       imageLayerBuilder: widget.imageLayerBuilder,
       gameRoot: _gameRoot,
+      screenSize: RenPyScreenSize.fromScriptSource(_source!),
       audioPlayback: widget.audioPlayback,
       preferenceStore: widget.preferenceStore,
     );

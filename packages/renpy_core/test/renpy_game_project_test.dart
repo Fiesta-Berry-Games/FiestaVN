@@ -118,6 +118,22 @@ label start:
     expect(project.readAsset('confession/game/music/rose.ogg'), [7, 8, 9]);
   });
 
+  test('discovers configured screen size from project scripts', () {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('wide/game/options.rpy', '''
+define config.name = "Wide Game"
+define config.screen_width = 1280
+define config.screen_height = 720
+'''),
+      RenPyProjectFile.text('wide/game/script.rpy', '''
+label start:
+    "Wide."
+'''),
+    ]);
+
+    expect(project.screenSize, const RenPyScreenSize(width: 1280, height: 720));
+  });
+
   test('discovers project font assets with RenPy font tag aliases', () {
     final project = RenPyGameProject.fromFiles([
       RenPyProjectFile.text('confession/game/script.rpy', '''
