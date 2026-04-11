@@ -163,6 +163,10 @@ Map<String, Object?> _placementToJson(RenPyImagePlacement placement) => {
   if (placement.xalign != null) 'xalign': placement.xalign,
   if (placement.yalign != null) 'yalign': placement.yalign,
   if (placement.expression != null) 'expression': placement.expression,
+  if (placement.xposIsPixel) 'xposIsPixel': true,
+  if (placement.yposIsPixel) 'yposIsPixel': true,
+  if (placement.xanchorIsPixel) 'xanchorIsPixel': true,
+  if (placement.yanchorIsPixel) 'yanchorIsPixel': true,
 };
 
 RenPyImagePlacement _placementFromJson(Map<String, Object?> json) {
@@ -175,6 +179,10 @@ RenPyImagePlacement _placementFromJson(Map<String, Object?> json) {
     yanchor: (json['yanchor'] as num?)?.toDouble(),
     xalign: (json['xalign'] as num?)?.toDouble(),
     yalign: (json['yalign'] as num?)?.toDouble(),
+    xposIsPixel: json['xposIsPixel'] == true,
+    yposIsPixel: json['yposIsPixel'] == true,
+    xanchorIsPixel: json['xanchorIsPixel'] == true,
+    yanchorIsPixel: json['yanchorIsPixel'] == true,
   );
 }
 

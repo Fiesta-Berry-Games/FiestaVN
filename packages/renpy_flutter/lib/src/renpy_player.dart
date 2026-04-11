@@ -118,7 +118,7 @@ class RenPyPlayer extends StatelessWidget {
         if (imageLayerBuilder != null)
           imageLayerBuilder!(context, controller)
         else
-          RenPyImageLayer(controller: controller),
+          RenPyImageLayer(controller: controller, screenSize: screenSize),
         RenPyAudioLayer(
           controller: controller,
           gameRoot: gameRoot,
@@ -737,6 +737,7 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
             return RenPyImageLayer(
               controller: controller,
               imageProvider: _imageProvider,
+              screenSize: widget.project.screenSize,
             );
           },
       gameRoot: widget.project.gameRoot,

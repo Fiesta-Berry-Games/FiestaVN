@@ -143,7 +143,11 @@ label start:
               tag: 'sylvie',
               imageName: 'sylvie green smile',
               assetPath: 'assets/game/images/sylvie green smile.png',
-              placement: RenPyImagePlacement.position(xpos: 0, xanchor: 0),
+              placement: RenPyImagePlacement.position(
+                xpos: 400,
+                xanchor: 0.5,
+                xposIsPixel: true,
+              ),
             ),
           ],
         ),

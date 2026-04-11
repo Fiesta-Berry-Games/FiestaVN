@@ -89,6 +89,33 @@ label start:
     expect(events[3].behind, 'enj');
   });
 
+  test('runner preserves pixel units in Position placement intent', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    show title at Position(xpos = 400, ypos = 300, xanchor = 0.5, yanchor = 0.5)
+''', 'image_pixel_position.rpy').script;
+    final runner = RenPyRunner(script);
+    final events = <RenPyImageEvent>[];
+
+    runner.onImageEvent = events.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(
+      events.single.placement,
+      const RenPyImagePlacement.position(
+        xpos: 400,
+        ypos: 300,
+        xanchor: 0.5,
+        yanchor: 0.5,
+        xposIsPixel: true,
+        yposIsPixel: true,
+      ),
+    );
+  });
+
   test('runner emits onlayer metadata separately from image names', () {
     final script =
         RenPyParser().parse('''

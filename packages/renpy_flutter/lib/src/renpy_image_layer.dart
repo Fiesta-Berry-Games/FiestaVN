@@ -5,6 +5,7 @@ import 'package:renpy_core/renpy_core.dart'
         RenPyImageOperationType,
         RenPyImagePlacement,
         RenPyResolvedImage,
+        RenPyScreenSize,
         RenPyTransitionIntent,
         RenPyTransitionType;
 
@@ -20,10 +21,12 @@ class RenPyImageLayer extends StatefulWidget {
     super.key,
     required this.controller,
     this.imageProvider,
+    this.screenSize,
   });
 
   final RenPyFlutterController controller;
   final RenPyImageProviderFactory? imageProvider;
+  final RenPyScreenSize? screenSize;
 
   @override
   State<RenPyImageLayer> createState() => _RenPyImageLayerState();
@@ -168,6 +171,7 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
     final currentFrame = _RenPyVisualFrame(
       state: current,
       imageProvider: widget.imageProvider ?? _defaultImageProvider,
+      screenSize: widget.screenSize,
     );
     final isPunch =
         _transitionActive &&
@@ -209,6 +213,7 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
             child: _RenPyVisualFrame(
               state: previous,
               imageProvider: widget.imageProvider ?? _defaultImageProvider,
+              screenSize: widget.screenSize,
             ),
           ),
       ],
@@ -322,10 +327,15 @@ const _defaultSpritePlacement = RenPyImagePlacement.position(
 );
 
 class _RenPyVisualFrame extends StatelessWidget {
-  const _RenPyVisualFrame({required this.state, required this.imageProvider});
+  const _RenPyVisualFrame({
+    required this.state,
+    required this.imageProvider,
+    required this.screenSize,
+  });
 
   final _RenPyVisualState state;
   final RenPyImageProviderFactory imageProvider;
+  final RenPyScreenSize? screenSize;
 
   @override
   Widget build(BuildContext context) {
@@ -350,6 +360,7 @@ class _RenPyVisualFrame extends StatelessWidget {
             key: ValueKey(entry.key),
             sprite: entry.value,
             imageProvider: imageProvider,
+            screenSize: screenSize,
           ),
       ],
     );
@@ -361,14 +372,18 @@ class _RenPyDisplayableSprite extends StatelessWidget {
     super.key,
     required this.sprite,
     required this.imageProvider,
+    required this.screenSize,
   });
 
   final _RenPySpriteState sprite;
   final RenPyImageProviderFactory imageProvider;
-
+  final RenPyScreenSize? screenSize;
   @override
   Widget build(BuildContext context) {
-    final resolved = _ResolvedSpritePlacement.from(sprite.placement);
+    final resolved = _ResolvedSpritePlacement.from(
+      sprite.placement,
+      screenSize: screenSize,
+    );
     return Positioned.fill(
       child: Align(
         alignment: resolved.alignment,
@@ -376,21 +391,24 @@ class _RenPyDisplayableSprite extends StatelessWidget {
           builder: (context, constraints) {
             return FractionalTranslation(
               translation: resolved.anchorTranslation,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth:
+              child: Transform.translate(
+                offset: resolved.anchorOffset,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth:
+                        sprite.text == null
+                            ? (constraints.maxWidth * 0.45).clamp(160, 420)
+                            : constraints.maxWidth * 0.9,
+                    maxHeight: constraints.maxHeight * 0.9,
+                  ),
+                  child:
                       sprite.text == null
-                          ? (constraints.maxWidth * 0.45).clamp(160, 420)
-                          : constraints.maxWidth * 0.9,
-                  maxHeight: constraints.maxHeight * 0.9,
+                          ? _RenPySpriteImage(
+                            image: sprite.image!,
+                            imageProvider: imageProvider,
+                          )
+                          : _RenPyTextDisplayable(text: sprite.text!),
                 ),
-                child:
-                    sprite.text == null
-                        ? _RenPySpriteImage(
-                          image: sprite.image!,
-                          imageProvider: imageProvider,
-                        )
-                        : _RenPyTextDisplayable(text: sprite.text!),
               ),
             );
           },
@@ -475,22 +493,63 @@ class _ResolvedSpritePlacement {
   const _ResolvedSpritePlacement({
     required this.alignment,
     required this.anchorTranslation,
+    required this.anchorOffset,
   });
 
-  factory _ResolvedSpritePlacement.from(RenPyImagePlacement placement) {
-    final xpos = placement.xalign ?? placement.xpos ?? 0.5;
-    final ypos = placement.yalign ?? placement.ypos ?? 1.0;
+  factory _ResolvedSpritePlacement.from(
+    RenPyImagePlacement placement, {
+    RenPyScreenSize? screenSize,
+  }) {
+    final stageWidth = screenSize?.width.toDouble();
+    final stageHeight = screenSize?.height.toDouble();
+    final xpos =
+        placement.xalign ??
+        _positionFraction(
+          placement.xpos,
+          placement.xposIsPixel,
+          stageWidth,
+          0.5,
+        );
+    final ypos =
+        placement.yalign ??
+        _positionFraction(
+          placement.ypos,
+          placement.yposIsPixel,
+          stageHeight,
+          1.0,
+        );
     final xanchor = placement.xalign ?? placement.xanchor ?? 0.5;
     final yanchor = placement.yalign ?? placement.yanchor ?? 1.0;
+    final xanchorIsPixel = placement.xalign == null && placement.xanchorIsPixel;
+    final yanchorIsPixel = placement.yalign == null && placement.yanchorIsPixel;
 
     return _ResolvedSpritePlacement(
       alignment: Alignment((xpos * 2) - 1, (ypos * 2) - 1),
-      anchorTranslation: Offset(0.5 - xanchor, 0.5 - yanchor),
+      anchorTranslation: Offset(
+        xanchorIsPixel ? 0.5 : 0.5 - xanchor,
+        yanchorIsPixel ? 0.5 : 0.5 - yanchor,
+      ),
+      anchorOffset: Offset(
+        xanchorIsPixel ? -xanchor : 0,
+        yanchorIsPixel ? -yanchor : 0,
+      ),
     );
   }
 
   final Alignment alignment;
   final Offset anchorTranslation;
+  final Offset anchorOffset;
+}
+
+double _positionFraction(
+  double? value,
+  bool isPixel,
+  double? axisSize,
+  double fallback,
+) {
+  if (value == null) return fallback;
+  if (!isPixel || axisSize == null || axisSize <= 0) return value;
+  return value / axisSize;
 }
 
 class _RenPyRenderedImageWidget extends StatelessWidget {

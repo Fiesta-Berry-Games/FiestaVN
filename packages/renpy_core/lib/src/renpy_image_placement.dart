@@ -7,6 +7,10 @@ class RenPyImagePlacement {
     this.yanchor,
     this.xalign,
     this.yalign,
+    this.xposIsPixel = false,
+    this.yposIsPixel = false,
+    this.xanchorIsPixel = false,
+    this.yanchorIsPixel = false,
   }) : expression = null;
 
   const RenPyImagePlacement.unsupported(this.expression)
@@ -15,7 +19,11 @@ class RenPyImagePlacement {
       xanchor = null,
       yanchor = null,
       xalign = null,
-      yalign = null;
+      yalign = null,
+      xposIsPixel = false,
+      yposIsPixel = false,
+      xanchorIsPixel = false,
+      yanchorIsPixel = false;
 
   final double? xpos;
   final double? ypos;
@@ -23,6 +31,10 @@ class RenPyImagePlacement {
   final double? yanchor;
   final double? xalign;
   final double? yalign;
+  final bool xposIsPixel;
+  final bool yposIsPixel;
+  final bool xanchorIsPixel;
+  final bool yanchorIsPixel;
   final String? expression;
 
   bool get isSupported => expression == null;
@@ -39,13 +51,21 @@ class RenPyImagePlacement {
     ).firstMatch(value);
     if (position != null) {
       final args = _parseNamedArguments(position.group(1)!);
+      final xpos = _positionValue(args['xpos']);
+      final ypos = _positionValue(args['ypos']);
+      final xanchor = _anchorValue(args['xanchor']);
+      final yanchor = _anchorValue(args['yanchor']);
       return RenPyImagePlacement.position(
-        xpos: _positionValue(args['xpos']),
-        ypos: _positionValue(args['ypos']),
-        xanchor: _anchorValue(args['xanchor']),
-        yanchor: _anchorValue(args['yanchor']),
-        xalign: _positionValue(args['xalign']),
-        yalign: _positionValue(args['yalign']),
+        xpos: xpos?.value,
+        ypos: ypos?.value,
+        xanchor: xanchor?.value,
+        yanchor: yanchor?.value,
+        xalign: _positionValue(args['xalign'])?.value,
+        yalign: _positionValue(args['yalign'])?.value,
+        xposIsPixel: xpos?.isPixel ?? false,
+        yposIsPixel: ypos?.isPixel ?? false,
+        xanchorIsPixel: xanchor?.isPixel ?? false,
+        yanchorIsPixel: yanchor?.isPixel ?? false,
       );
     }
 
@@ -62,6 +82,10 @@ class RenPyImagePlacement {
             yanchor == other.yanchor &&
             xalign == other.xalign &&
             yalign == other.yalign &&
+            xposIsPixel == other.xposIsPixel &&
+            yposIsPixel == other.yposIsPixel &&
+            xanchorIsPixel == other.xanchorIsPixel &&
+            yanchorIsPixel == other.yanchorIsPixel &&
             expression == other.expression;
   }
 
@@ -74,6 +98,10 @@ class RenPyImagePlacement {
       yanchor,
       xalign,
       yalign,
+      xposIsPixel,
+      yposIsPixel,
+      xanchorIsPixel,
+      yanchorIsPixel,
       expression,
     );
   }
@@ -85,7 +113,10 @@ class RenPyImagePlacement {
     }
     return 'RenPyImagePlacement.position('
         'xpos: $xpos, ypos: $ypos, xanchor: $xanchor, '
-        'yanchor: $yanchor, xalign: $xalign, yalign: $yalign)';
+        'yanchor: $yanchor, xalign: $xalign, yalign: $yalign, '
+        'xposIsPixel: $xposIsPixel, yposIsPixel: $yposIsPixel, '
+        'xanchorIsPixel: $xanchorIsPixel, '
+        'yanchorIsPixel: $yanchorIsPixel)';
   }
 }
 
@@ -187,19 +218,33 @@ List<String> _splitTopLevel(String source) {
   return parts;
 }
 
-double? _positionValue(String? value) {
+_PlacementValue? _positionValue(String? value) {
   if (value == null) return null;
   final clean = value.trim();
-  return double.tryParse(clean.startsWith('.') ? '0$clean' : clean);
+  final normalized = clean.startsWith('.') ? '0$clean' : clean;
+  final parsed = double.tryParse(normalized);
+  if (parsed == null) return null;
+  return _PlacementValue(parsed, _isIntegerLiteral(clean));
 }
 
-double? _anchorValue(String? value) {
+_PlacementValue? _anchorValue(String? value) {
   final clean = value?.trim();
   if (clean == null) return null;
   return switch (clean.replaceAll('"', "'")) {
-    "'left'" || "'top'" => 0,
-    "'center'" || "'truecenter'" => 0.5,
-    "'right'" || "'bottom'" => 1,
+    "'left'" || "'top'" => const _PlacementValue(0, false),
+    "'center'" || "'truecenter'" => const _PlacementValue(0.5, false),
+    "'right'" || "'bottom'" => const _PlacementValue(1, false),
     _ => _positionValue(clean),
   };
+}
+
+bool _isIntegerLiteral(String value) {
+  return RegExp(r'^[-+]?\d+$').hasMatch(value.trim());
+}
+
+class _PlacementValue {
+  const _PlacementValue(this.value, this.isPixel);
+
+  final double value;
+  final bool isPixel;
 }

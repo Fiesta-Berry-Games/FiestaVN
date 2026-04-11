@@ -312,6 +312,43 @@ void main() {
     expect(_spriteAlignment(tester, 'eri'), const Alignment(-0.6, 1));
   });
 
+  testWidgets(
+    'image layer resolves pixel Position placement against screen size',
+    (tester) async {
+      final controller = RenPyFlutterController();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SizedBox(
+            width: 800,
+            height: 600,
+            child: RenPyImageLayer(
+              controller: controller,
+              screenSize: const RenPyScreenSize(width: 800, height: 600),
+            ),
+          ),
+        ),
+      );
+
+      controller.value = RenPyImageChange(
+        show: 'title',
+        showText: 'Centered',
+        showPlacement: RenPyImagePlacement.position(
+          xpos: 400,
+          ypos: 300,
+          xanchor: 0.5,
+          yanchor: 0.5,
+          xposIsPixel: true,
+          yposIsPixel: true,
+        ),
+      );
+      await tester.pump();
+
+      expect(_spriteAlignment(tester, 'title'), Alignment.center);
+    },
+  );
+
   testWidgets('image layer preserves placement across sprite swaps', (
     tester,
   ) async {
