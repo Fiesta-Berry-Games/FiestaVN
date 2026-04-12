@@ -72,20 +72,24 @@ final class RenPyProjectPlayerHarness {
     fail('Timed out waiting for $description.');
   }
 
-  Alignment spriteAlignment(String tag) {
-    final aligns = tester.widgetList<Align>(
+  Offset spriteAnchor(String tag) {
+    final positioned = tester.widgetList<Positioned>(
       find.descendant(
         of: find.byKey(ValueKey(tag)),
-        matching: find.byType(Align),
+        matching: find.byType(Positioned),
       ),
     );
-    return aligns.last.alignment as Alignment;
+    final anchor = positioned.lastWhere(
+      (widget) =>
+          widget.left != null && widget.top != null && widget.right == null,
+    );
+    return Offset(anchor.left!, anchor.top!);
   }
 
-  void expectSpriteAlignment(String tag, Alignment expected) {
-    final actual = spriteAlignment(tag);
-    expect(actual.x, closeTo(expected.x, 0.0001));
-    expect(actual.y, closeTo(expected.y, 0.0001));
+  void expectSpriteAnchor(String tag, Offset expected) {
+    final actual = spriteAnchor(tag);
+    expect(actual.dx, closeTo(expected.dx, 0.0001));
+    expect(actual.dy, closeTo(expected.dy, 0.0001));
   }
 
   void expectItalicSpan(String text) {

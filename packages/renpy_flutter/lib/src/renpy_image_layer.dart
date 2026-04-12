@@ -382,43 +382,61 @@ class _RenPyDisplayableSprite extends StatelessWidget {
   final RenPyScreenSize? screenSize;
   @override
   Widget build(BuildContext context) {
-    final resolved = _ResolvedSpritePlacement.from(
-      sprite.placement,
-      screenSize: screenSize,
-    );
     return Positioned.fill(
-      child: Align(
-        alignment: resolved.alignment,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final screenScale = _screenScale(screenSize, constraints.biggest);
-            return FractionalTranslation(
-              translation: resolved.anchorTranslation,
-              child: Transform.translate(
-                offset: resolved.anchorOffset,
-                child: _scaleDisplayable(
-                  sprite.placement,
-                  screenScale,
-                  sprite.text == null
-                      ? _RenPySpriteImage(
-                        image: sprite.image!,
-                        imageProvider: imageProvider,
-                      )
-                      : ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxWidth: constraints.maxWidth * 0.9,
-                          maxHeight: constraints.maxHeight * 0.9,
-                        ),
-                        child: _RenPyTextDisplayable(text: sprite.text!),
-                      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final stageSize = constraints.biggest;
+          final screenScale = _screenScale(screenSize, stageSize);
+          final resolved = _ResolvedSpritePlacement.from(
+            sprite.placement,
+            stageSize: stageSize,
+            screenScale: screenScale,
+          );
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned(
+                left: resolved.position.dx,
+                top: resolved.position.dy,
+                child: _positionDisplayable(
+                  placement: sprite.placement,
+                  resolved: resolved,
+                  screenScale: screenScale,
+                  child:
+                      sprite.text == null
+                          ? _RenPySpriteImage(
+                            image: sprite.image!,
+                            imageProvider: imageProvider,
+                          )
+                          : ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: constraints.maxWidth * 0.9,
+                              maxHeight: constraints.maxHeight * 0.9,
+                            ),
+                            child: _RenPyTextDisplayable(text: sprite.text!),
+                          ),
                 ),
               ),
-            );
-          },
-        ),
+            ],
+          );
+        },
       ),
     );
   }
+}
+
+Widget _positionDisplayable({
+  required RenPyImagePlacement placement,
+  required _ResolvedSpritePlacement resolved,
+  required double screenScale,
+  required Widget child,
+}) {
+  final anchored = FractionalTranslation(
+    translation: resolved.anchorTranslation,
+    child: Transform.translate(offset: resolved.anchorOffset, child: child),
+  );
+
+  return _scaleDisplayable(placement, screenScale, anchored);
 }
 
 Widget _scaleDisplayable(
@@ -434,7 +452,7 @@ Widget _scaleDisplayable(
   return Transform.scale(
     scaleX: xScale,
     scaleY: yScale,
-    alignment: _scaleAlignmentFor(placement),
+    alignment: Alignment.topLeft,
     child: child,
   );
 }
@@ -448,12 +466,6 @@ double _screenScale(RenPyScreenSize? screenSize, Size stageSize) {
     stageSize.width / screenSize.width,
     stageSize.height / screenSize.height,
   );
-}
-
-Alignment _scaleAlignmentFor(RenPyImagePlacement placement) {
-  final xanchor = placement.xalign ?? placement.xanchor ?? 0.5;
-  final yanchor = placement.yalign ?? placement.yanchor ?? 1.0;
-  return Alignment((xanchor * 2) - 1, (yanchor * 2) - 1);
 }
 
 class _RenPySpriteImage extends StatelessWidget {
@@ -529,43 +541,43 @@ class _RenPyTextDisplayable extends StatelessWidget {
 
 class _ResolvedSpritePlacement {
   const _ResolvedSpritePlacement({
-    required this.alignment,
+    required this.position,
     required this.anchorTranslation,
     required this.anchorOffset,
   });
 
   factory _ResolvedSpritePlacement.from(
     RenPyImagePlacement placement, {
-    RenPyScreenSize? screenSize,
+    required Size stageSize,
+    required double screenScale,
   }) {
-    final stageWidth = screenSize?.width.toDouble();
-    final stageHeight = screenSize?.height.toDouble();
-    final xpos =
-        placement.xalign ??
-        _positionFraction(
-          placement.xpos,
-          placement.xposIsPixel,
-          stageWidth,
-          0.5,
-        );
-    final ypos =
-        placement.yalign ??
-        _positionFraction(
-          placement.ypos,
-          placement.yposIsPixel,
-          stageHeight,
-          1.0,
-        );
+    final xpos = placement.xalign ?? placement.xpos;
+    final ypos = placement.yalign ?? placement.ypos;
     final xanchor = placement.xalign ?? placement.xanchor ?? 0.5;
     final yanchor = placement.yalign ?? placement.yanchor ?? 1.0;
     final xanchorIsPixel = placement.xalign == null && placement.xanchorIsPixel;
     final yanchorIsPixel = placement.yalign == null && placement.yanchorIsPixel;
 
     return _ResolvedSpritePlacement(
-      alignment: Alignment((xpos * 2) - 1, (ypos * 2) - 1),
+      position: Offset(
+        _positionPixels(
+          xpos,
+          placement.xposIsPixel,
+          stageSize.width,
+          screenScale,
+          0.5,
+        ),
+        _positionPixels(
+          ypos,
+          placement.yposIsPixel,
+          stageSize.height,
+          screenScale,
+          1.0,
+        ),
+      ),
       anchorTranslation: Offset(
-        xanchorIsPixel ? 0.5 : 0.5 - xanchor,
-        yanchorIsPixel ? 0.5 : 0.5 - yanchor,
+        xanchorIsPixel ? 0 : -xanchor,
+        yanchorIsPixel ? 0 : -yanchor,
       ),
       anchorOffset: Offset(
         xanchorIsPixel ? -xanchor : 0,
@@ -574,20 +586,21 @@ class _ResolvedSpritePlacement {
     );
   }
 
-  final Alignment alignment;
+  final Offset position;
   final Offset anchorTranslation;
   final Offset anchorOffset;
 }
 
-double _positionFraction(
+double _positionPixels(
   double? value,
   bool isPixel,
-  double? axisSize,
+  double stageAxisSize,
+  double screenScale,
   double fallback,
 ) {
-  if (value == null) return fallback;
-  if (!isPixel || axisSize == null || axisSize <= 0) return value;
-  return value / axisSize;
+  if (value == null) return fallback * stageAxisSize;
+  if (isPixel) return value * screenScale;
+  return value * stageAxisSize;
 }
 
 class _RenPyRenderedImageWidget extends StatelessWidget {

@@ -407,8 +407,8 @@ void main() {
       await harness.pumpUntilText('Ange chose to ignore Erika as she made tea');
 
       expect(harness.memoryImageCount, greaterThanOrEqualTo(3));
-      harness.expectSpriteAlignment('eri', const Alignment(-0.6, 1));
-      harness.expectSpriteAlignment('enj', const Alignment(0.6, 1));
+      harness.expectSpriteAnchor('eri', const Offset(160, 600));
+      harness.expectSpriteAnchor('enj', const Offset(640, 600));
     },
     skip: skipReason != null,
   );

@@ -265,7 +265,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(_spriteAlignment(tester, 'sylvie'), Alignment.bottomCenter);
+    expect(_spriteAnchor(tester, 'sylvie'), const Offset(400, 600));
   });
 
   testWidgets('image layer honors explicit sprite placement', (tester) async {
@@ -290,8 +290,8 @@ void main() {
     );
     await tester.pump();
 
-    expect(_spriteAlignment(tester, 'sylvie'), Alignment.bottomLeft);
-    expect(_spriteAlignment(tester, 'eileen'), Alignment.bottomRight);
+    expect(_spriteAnchor(tester, 'sylvie'), const Offset(0, 600));
+    expect(_spriteAnchor(tester, 'eileen'), const Offset(800, 600));
   });
 
   testWidgets('image layer honors fractional Position placement', (
@@ -312,7 +312,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(_spriteAlignment(tester, 'eri'), const Alignment(-0.6, 1));
+    expect(_spriteAnchor(tester, 'eri'), const Offset(160, 600));
   });
 
   testWidgets(
@@ -348,7 +348,7 @@ void main() {
       );
       await tester.pump();
 
-      expect(_spriteAlignment(tester, 'title'), Alignment.center);
+      expect(_spriteAnchor(tester, 'title'), const Offset(400, 300));
     },
   );
 
@@ -427,7 +427,52 @@ void main() {
     );
 
     expect(screenScale.transform.storage[5], 0.625);
-    expect(screenScale.alignment, Alignment.bottomCenter);
+    expect(screenScale.alignment, Alignment.topLeft);
+    expect(_spriteAnchor(tester, 'eri'), const Offset(160, 600));
+  });
+
+  testWidgets('image layer positions scaled sprites across the stage', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+    final spriteImage = await _createTestImage(320, 960);
+    addTearDown(spriteImage.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 800,
+          height: 600,
+          child: RenPyImageLayer(
+            controller: controller,
+            screenSize: const RenPyScreenSize(width: 1280, height: 960),
+            imageProvider:
+                (_) => _FixedSizeImageProvider('sprite.png', spriteImage),
+          ),
+        ),
+      ),
+    );
+
+    controller.value = RenPyImageChange(
+      show: 'eri defa2',
+      showAsset: 'assets/game/images/eri defa2.png',
+      showPlacement: const RenPyImagePlacement.position(xpos: 0.2),
+    );
+    await tester.pump();
+    controller.value = RenPyImageChange(
+      show: 'enj fumana2',
+      showAsset: 'assets/game/images/enj fumana2.png',
+      showPlacement: const RenPyImagePlacement.position(xpos: 0.8),
+    );
+    await tester.pump();
+
+    final eri = _spriteImageRect(tester, 'eri');
+    final enj = _spriteImageRect(tester, 'enj');
+    expect(eri.center.dx, moreOrLessEquals(160));
+    expect(enj.center.dx, moreOrLessEquals(640));
+    expect(eri.top, moreOrLessEquals(0));
+    expect(eri.bottom, moreOrLessEquals(600));
   });
 
   testWidgets('image layer applies Transform scale intent to image sprites', (
@@ -503,7 +548,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(_spriteAlignment(tester, 'sylvie'), Alignment.bottomLeft);
+    expect(_spriteAnchor(tester, 'sylvie'), const Offset(0, 600));
     expect(_assetNames(tester), ['assets/game/images/sylvie green smile.png']);
   });
 
@@ -601,7 +646,7 @@ void main() {
       tester.widget<RenPyText>(find.byType(RenPyText)).text,
       contains('Confession'),
     );
-    expect(_spriteAlignment(tester, 'text'), Alignment.center);
+    expect(_spriteAnchor(tester, 'text'), const Offset(400, 300));
 
     final renderedText = tester.widget<Text>(
       find.descendant(of: find.byType(RenPyText), matching: find.byType(Text)),
@@ -636,22 +681,33 @@ List<String> _assetNames(WidgetTester tester) {
   }).toList();
 }
 
-Alignment _spriteAlignment(WidgetTester tester, String tag) {
-  return tester
-          .widget<Align>(
-            find.descendant(
-              of: find.byKey(ValueKey(tag)),
-              matching: find.byType(Align),
-            ),
-          )
-          .alignment
-      as Alignment;
+Offset _spriteAnchor(WidgetTester tester, String tag) {
+  final positioned = tester.widgetList<Positioned>(
+    find.descendant(
+      of: find.byKey(ValueKey(tag)),
+      matching: find.byType(Positioned),
+    ),
+  );
+  final anchor = positioned.lastWhere(
+    (widget) =>
+        widget.left != null && widget.top != null && widget.right == null,
+  );
+  return Offset(anchor.left!, anchor.top!);
 }
 
 Color _stageColor(WidgetTester tester) {
   return tester
       .widget<ColoredBox>(find.byKey(const ValueKey('renpy-stage-color')))
       .color;
+}
+
+Rect _spriteImageRect(WidgetTester tester, String tag) {
+  return tester.getRect(
+    find.descendant(
+      of: find.byKey(ValueKey(tag)),
+      matching: find.byType(Image),
+    ),
+  );
 }
 
 Future<ui.Image> _createTestImage(int width, int height) {
