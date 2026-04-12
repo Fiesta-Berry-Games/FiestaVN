@@ -26,6 +26,7 @@ void main() {
     final project = loadRenPyProjectFolder(fixture);
 
     expect(project.name, 'Confession-1.03-pc');
+    expect(project.screenSize, const RenPyScreenSize(width: 1280, height: 960));
     expect(project.scriptPath, endsWith('/game/script.rpy'));
     expect(project.scriptSource, contains('label start:'));
     expect(project.scriptSource, contains('jump prologue'));

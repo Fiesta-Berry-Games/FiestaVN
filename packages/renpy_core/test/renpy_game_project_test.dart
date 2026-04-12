@@ -180,6 +180,21 @@ label start:
     expect(project.screenSize, const RenPyScreenSize(width: 1280, height: 720));
   });
 
+  test('discovers configured screen size from gui init calls', () {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('confession/game/options.rpy', '''
+init python:
+    gui.init(1280, 960)
+'''),
+      RenPyProjectFile.text('confession/game/script.rpy', '''
+label start:
+    "Classic."
+'''),
+    ]);
+
+    expect(project.screenSize, const RenPyScreenSize(width: 1280, height: 960));
+  });
+
   test('discovers project font assets with RenPy font tag aliases', () {
     final project = RenPyGameProject.fromFiles([
       RenPyProjectFile.text('confession/game/script.rpy', '''

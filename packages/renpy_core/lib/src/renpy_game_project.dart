@@ -294,12 +294,19 @@ final class RenPyGameProject {
 RenPyScreenSize? _screenSizeFromSources(Iterable<String> sources) {
   int? width;
   int? height;
-  final pattern = RegExp(r'config\.screen_(width|height)\s*=\s*(\d+)');
+  final configPattern = RegExp(r'config\.screen_(width|height)\s*=\s*(\d+)');
+  final guiInitPattern = RegExp(r'gui\.init\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)');
   for (final source in sources) {
-    for (final match in pattern.allMatches(source)) {
+    for (final match in configPattern.allMatches(source)) {
       final value = int.parse(match.group(2)!);
       if (match.group(1) == 'width') width = value;
       if (match.group(1) == 'height') height = value;
+    }
+
+    final guiInit = guiInitPattern.firstMatch(source);
+    if (guiInit != null) {
+      width = int.parse(guiInit.group(1)!);
+      height = int.parse(guiInit.group(2)!);
     }
   }
 

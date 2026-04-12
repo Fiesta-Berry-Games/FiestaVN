@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:renpy_core/renpy_core.dart'
     show
@@ -389,12 +391,14 @@ class _RenPyDisplayableSprite extends StatelessWidget {
         alignment: resolved.alignment,
         child: LayoutBuilder(
           builder: (context, constraints) {
+            final screenScale = _screenScale(screenSize, constraints.biggest);
             return FractionalTranslation(
               translation: resolved.anchorTranslation,
               child: Transform.translate(
                 offset: resolved.anchorOffset,
                 child: _scaleDisplayable(
                   sprite.placement,
+                  screenScale,
                   sprite.text == null
                       ? _RenPySpriteImage(
                         image: sprite.image!,
@@ -417,18 +421,39 @@ class _RenPyDisplayableSprite extends StatelessWidget {
   }
 }
 
-Widget _scaleDisplayable(RenPyImagePlacement placement, Widget child) {
+Widget _scaleDisplayable(
+  RenPyImagePlacement placement,
+  double screenScale,
+  Widget child,
+) {
   final zoom = placement.zoom ?? 1;
-  final xScale = zoom * (placement.xzoom ?? 1);
-  final yScale = zoom * (placement.yzoom ?? 1);
+  final xScale = screenScale * zoom * (placement.xzoom ?? 1);
+  final yScale = screenScale * zoom * (placement.yzoom ?? 1);
   if (xScale == 1 && yScale == 1) return child;
 
   return Transform.scale(
     scaleX: xScale,
     scaleY: yScale,
-    alignment: Alignment.center,
+    alignment: _scaleAlignmentFor(placement),
     child: child,
   );
+}
+
+double _screenScale(RenPyScreenSize? screenSize, Size stageSize) {
+  if (screenSize == null || stageSize.width <= 0 || stageSize.height <= 0) {
+    return 1;
+  }
+
+  return math.min(
+    stageSize.width / screenSize.width,
+    stageSize.height / screenSize.height,
+  );
+}
+
+Alignment _scaleAlignmentFor(RenPyImagePlacement placement) {
+  final xanchor = placement.xalign ?? placement.xanchor ?? 0.5;
+  final yanchor = placement.yalign ?? placement.yanchor ?? 1.0;
+  return Alignment((xanchor * 2) - 1, (yanchor * 2) - 1);
 }
 
 class _RenPySpriteImage extends StatelessWidget {

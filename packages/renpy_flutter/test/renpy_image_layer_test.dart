@@ -388,6 +388,48 @@ void main() {
 
     expect(tester.getSize(find.byType(Image)), const Size(500, 300));
   });
+
+  testWidgets('image layer scales sprites from RenPy screen coordinates', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+    final spriteImage = await _createTestImage(1154, 960);
+    addTearDown(spriteImage.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 800,
+          height: 600,
+          child: RenPyImageLayer(
+            controller: controller,
+            screenSize: const RenPyScreenSize(width: 1280, height: 960),
+            imageProvider:
+                (_) => _FixedSizeImageProvider('sprite.png', spriteImage),
+          ),
+        ),
+      ),
+    );
+
+    controller.value = RenPyImageChange(
+      show: 'eri defa2',
+      showAsset: 'assets/game/images/eri defa2.png',
+      showPlacement: const RenPyImagePlacement.position(xpos: 0.2),
+    );
+    await tester.pump();
+
+    final scaleTransforms = tester.widgetList<Transform>(
+      find.ancestor(of: find.byType(Image), matching: find.byType(Transform)),
+    );
+    final screenScale = scaleTransforms.singleWhere(
+      (transform) => transform.transform.storage[0] == 0.625,
+    );
+
+    expect(screenScale.transform.storage[5], 0.625);
+    expect(screenScale.alignment, Alignment.bottomCenter);
+  });
+
   testWidgets('image layer applies Transform scale intent to image sprites', (
     tester,
   ) async {
