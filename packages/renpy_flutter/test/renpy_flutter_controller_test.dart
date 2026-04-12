@@ -434,6 +434,115 @@ label start:
     );
   });
 
+  test('controller rollback does not replay one-shot sound effects', () async {
+    final controller = RenPyFlutterController();
+    final restoredEvents = <RenPyGameStatus>[];
+    addTearDown(controller.dispose);
+    controller.addListener(() {
+      restoredEvents.add(controller.value);
+    });
+
+    controller.load(
+      '''
+label start:
+    scene bg hallway
+    play sound "glass.ogg"
+    "First."
+    "Second."
+    "Third."
+''',
+      gameRoot: 'assets/game',
+      availableAssets: const {
+        'assets/game/images/bg hallway.png',
+        'assets/game/glass.ogg',
+      },
+    );
+
+    await _continueUntil(
+      controller,
+      (status) => status is RenPyDialogue && status.text == 'First.',
+    );
+    restoredEvents.clear();
+    controller.continueGame();
+    await _continueUntil(
+      controller,
+      (status) => status is RenPyDialogue && status.text == 'Second.',
+    );
+    restoredEvents.clear();
+    controller.continueGame();
+    await _continueUntil(
+      controller,
+      (status) => status is RenPyDialogue && status.text == 'Third.',
+    );
+    restoredEvents.clear();
+
+    expect(controller.rollback(), isTrue);
+    expect((controller.value as RenPyDialogue).text, 'Second.');
+    expect(restoredEvents.whereType<RenPyAudioChange>(), isEmpty);
+  });
+
+  test(
+    'controller rollback replays one-shot sound effects for their boundary',
+    () async {
+      final controller = RenPyFlutterController();
+      final restoredEvents = <RenPyGameStatus>[];
+      addTearDown(controller.dispose);
+      controller.addListener(() {
+        restoredEvents.add(controller.value);
+      });
+
+      controller.load(
+        '''
+label start:
+    "Before."
+    play sound "glass.ogg"
+    "Break.{w} After."
+''',
+        gameRoot: 'assets/game',
+        availableAssets: const {'assets/game/glass.ogg'},
+      );
+
+      await _continueUntil(
+        controller,
+        (status) => status is RenPyDialogue && status.text == 'Break.{w}',
+      );
+      restoredEvents.clear();
+      controller.continueGame();
+      await _continueUntil(
+        controller,
+        (status) =>
+            status is RenPyDialogue && status.text == 'Break.{w} After.',
+      );
+      restoredEvents.clear();
+
+      expect(controller.rollback(), isTrue);
+      expect((controller.value as RenPyDialogue).text, 'Break.{w}');
+      expect(
+        restoredEvents.whereType<RenPyAudioChange>().map(
+          (event) => event.asset,
+        ),
+        contains('glass.ogg'),
+      );
+
+      restoredEvents.clear();
+      controller.continueGame();
+      await _continueUntil(
+        controller,
+        (status) =>
+            status is RenPyDialogue && status.text == 'Break.{w} After.',
+      );
+      restoredEvents.clear();
+
+      expect(controller.rollback(), isTrue);
+      expect(
+        restoredEvents.whereType<RenPyAudioChange>().map(
+          (event) => event.asset,
+        ),
+        contains('glass.ogg'),
+      );
+    },
+  );
+
   test('controller treats available audio assets case-insensitively', () async {
     final controller = RenPyFlutterController();
     addTearDown(controller.dispose);

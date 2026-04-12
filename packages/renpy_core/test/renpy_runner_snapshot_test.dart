@@ -162,6 +162,18 @@ label start:
               loop: false,
             ),
           },
+          transient: [
+            RenPyTransientAudioSnapshot(
+              channel: 'sound',
+              asset: 'glass.ogg',
+              fadein: '0.1',
+              fadeout: '0.2',
+              mixer: 'sfx',
+              volume: '0.5',
+              ifChanged: true,
+              loop: false,
+            ),
+          ],
         ),
       ),
     );

@@ -177,6 +177,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   final Map<String, RenPyVisualElementSnapshot> _spriteSnapshots = {};
   final Map<String, RenPyImagePlacement> _spritePlacements = {};
   final Map<String, RenPyAudioChannelSnapshot> _audioSnapshots = {};
+  final List<RenPyTransientAudioSnapshot> _pendingTransientAudio = [];
 
   final List<RenPyRunnerSnapshot> _rollbackHistory = [];
 
@@ -253,6 +254,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       _pauseTimer?.cancel();
       _pauseTimer = null;
       _recordRollbackBoundary(runner);
+      _pendingTransientAudio.clear();
       runner.continueExecution();
       _ticker?.resume();
     }
@@ -265,7 +267,9 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     if (runner.state != RenPyRunnerState.waitingForInput) return false;
 
     await store.save(
-      runner.snapshot().withPresentation(_presentationSnapshot()),
+      runner.snapshot().withPresentation(
+        _presentationSnapshot(includeTransientAudio: false),
+      ),
     );
     return true;
   }
@@ -391,7 +395,10 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     value = RenPyMenu(choices, (i) {
       debugPrint('Menu choice selected: ${choices[i]}');
       final runner = _runner;
-      if (runner != null) _recordRollbackBoundary(runner);
+      if (runner != null) {
+        _recordRollbackBoundary(runner);
+        _pendingTransientAudio.clear();
+      }
       onChoice(i);
       _ticker?.resume();
     }, caption: caption);
@@ -509,7 +516,9 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     }
   }
 
-  RenPyPresentationSnapshot _presentationSnapshot() {
+  RenPyPresentationSnapshot _presentationSnapshot({
+    bool includeTransientAudio = true,
+  }) {
     return RenPyPresentationSnapshot(
       visual: RenPyVisualSnapshot(
         scene: _sceneSnapshot,
@@ -517,6 +526,8 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       ),
       audio: RenPyAudioSnapshot(
         channels: Map<String, RenPyAudioChannelSnapshot>.of(_audioSnapshots),
+        transient:
+            includeTransientAudio ? List.of(_pendingTransientAudio) : const [],
       ),
     );
   }
@@ -526,6 +537,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     _spriteSnapshots.clear();
     _spritePlacements.clear();
     _audioSnapshots.clear();
+    _pendingTransientAudio.clear();
   }
 
   void _restorePresentation(RenPyPresentationSnapshot? presentation) {
@@ -561,6 +573,8 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     for (final entry
         in presentation.audio?.channels.entries ??
             const <MapEntry<String, RenPyAudioChannelSnapshot>>[]) {
+      if (!_shouldRestoreAudioChannel(entry.key, entry.value)) continue;
+
       final change = RenPyAudioChange.play(
         channel: entry.key,
         asset: entry.value.asset,
@@ -570,6 +584,16 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       _recordAudioChange(change);
       value = change;
     }
+
+    final transientAudio =
+        presentation.audio?.transient ?? const <RenPyTransientAudioSnapshot>[];
+    for (final transient in transientAudio) {
+      value = _audioChangeForTransient(transient);
+    }
+
+    _pendingTransientAudio
+      ..clear()
+      ..addAll(transientAudio);
   }
 
   RenPyImageChange _imageChangeForScene(RenPyVisualElementSnapshot snapshot) {
@@ -657,16 +681,68 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     switch (change.action) {
       case RenPyAudioAction.play:
         final asset = change.asset;
-        if (asset != null) {
+        if (asset != null && _shouldRecordAudioChange(change)) {
           _audioSnapshots[change.channel] = RenPyAudioChannelSnapshot(
             asset: asset,
             mixer: change.mixer,
             loop: change.loop,
           );
+        } else if (asset != null) {
+          _pendingTransientAudio.add(_transientAudioForChange(change));
         }
       case RenPyAudioAction.stop:
         _audioSnapshots.remove(change.channel);
     }
+  }
+
+  bool _shouldRecordAudioChange(RenPyAudioChange change) {
+    return _shouldRestoreAudioChannel(
+      change.channel,
+      RenPyAudioChannelSnapshot(
+        asset: change.asset!,
+        mixer: change.mixer,
+        loop: change.loop,
+      ),
+    );
+  }
+
+  bool _shouldRestoreAudioChannel(
+    String channel,
+    RenPyAudioChannelSnapshot snapshot,
+  ) {
+    return channel == 'music' ||
+        snapshot.mixer == 'music' ||
+        snapshot.loop == true;
+  }
+
+  RenPyTransientAudioSnapshot _transientAudioForChange(
+    RenPyAudioChange change,
+  ) {
+    return RenPyTransientAudioSnapshot(
+      channel: change.channel,
+      asset: change.asset!,
+      fadein: change.fadein,
+      fadeout: change.fadeout,
+      mixer: change.mixer,
+      volume: change.volume,
+      ifChanged: change.ifChanged,
+      loop: change.loop,
+    );
+  }
+
+  RenPyAudioChange _audioChangeForTransient(
+    RenPyTransientAudioSnapshot transient,
+  ) {
+    return RenPyAudioChange.play(
+      channel: transient.channel,
+      asset: transient.asset,
+      fadein: transient.fadein,
+      fadeout: transient.fadeout,
+      mixer: transient.mixer,
+      volume: transient.volume,
+      ifChanged: transient.ifChanged,
+      loop: transient.loop,
+    );
   }
 
   String _imageTag(String imageName) {

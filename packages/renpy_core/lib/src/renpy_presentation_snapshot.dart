@@ -111,14 +111,20 @@ final class RenPyVisualElementSnapshot {
 }
 
 final class RenPyAudioSnapshot {
-  const RenPyAudioSnapshot({this.channels = const {}});
+  const RenPyAudioSnapshot({
+    this.channels = const {},
+    this.transient = const [],
+  });
 
   final Map<String, RenPyAudioChannelSnapshot> channels;
+  final List<RenPyTransientAudioSnapshot> transient;
 
   Map<String, Object?> toJson() => {
     'channels': channels.map(
       (name, channel) => MapEntry(name, channel.toJson()),
     ),
+    if (transient.isNotEmpty)
+      'transient': transient.map((audio) => audio.toJson()).toList(),
   };
 
   factory RenPyAudioSnapshot.fromJson(Map<String, Object?> json) {
@@ -129,6 +135,61 @@ final class RenPyAudioSnapshot {
           RenPyAudioChannelSnapshot.fromJson(_mapFromJson(value)),
         ),
       ),
+      transient:
+          (json['transient'] == null
+                  ? const <Object?>[]
+                  : _listFromJson(json['transient']))
+              .map(
+                (item) =>
+                    RenPyTransientAudioSnapshot.fromJson(_mapFromJson(item)),
+              )
+              .toList(),
+    );
+  }
+}
+
+final class RenPyTransientAudioSnapshot {
+  const RenPyTransientAudioSnapshot({
+    required this.channel,
+    required this.asset,
+    this.fadein,
+    this.fadeout,
+    this.mixer,
+    this.volume,
+    this.ifChanged,
+    this.loop,
+  });
+
+  final String channel;
+  final String asset;
+  final String? fadein;
+  final String? fadeout;
+  final String? mixer;
+  final String? volume;
+  final bool? ifChanged;
+  final bool? loop;
+
+  Map<String, Object?> toJson() => {
+    'channel': channel,
+    'asset': asset,
+    if (fadein != null) 'fadein': fadein,
+    if (fadeout != null) 'fadeout': fadeout,
+    if (mixer != null) 'mixer': mixer,
+    if (volume != null) 'volume': volume,
+    if (ifChanged != null) 'ifChanged': ifChanged,
+    if (loop != null) 'loop': loop,
+  };
+
+  factory RenPyTransientAudioSnapshot.fromJson(Map<String, Object?> json) {
+    return RenPyTransientAudioSnapshot(
+      channel: json['channel']! as String,
+      asset: json['asset']! as String,
+      fadein: json['fadein'] as String?,
+      fadeout: json['fadeout'] as String?,
+      mixer: json['mixer'] as String?,
+      volume: json['volume'] as String?,
+      ifChanged: json['ifChanged'] as bool?,
+      loop: json['loop'] as bool?,
     );
   }
 }
