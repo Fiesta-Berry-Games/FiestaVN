@@ -237,6 +237,77 @@ void main() {
     );
   }, skip: skipReason);
 
+  test('Confession rollback replays the bottle shatter boundary', () async {
+    final project = loadRenPyProjectFolder(fixture);
+    final controller = RenPyFlutterController();
+    final restoredEvents = <RenPyGameStatus>[];
+    addTearDown(controller.dispose);
+
+    controller.addListener(() {
+      restoredEvents.add(controller.value);
+    });
+
+    controller.load(
+      project.scriptSource,
+      filename: project.scriptPath,
+      gameRoot: project.gameRoot,
+      availableAssets: project.availableAssets,
+    );
+
+    await _continueUntil(
+      controller,
+      (status) =>
+          status is RenPyDialogue &&
+          status.text.contains('leaving behind nothing but') &&
+          status.text.contains('Right...'),
+      maxSteps: 200,
+    );
+    restoredEvents.clear();
+
+    expect(controller.rollback(), isTrue);
+
+    final restoredDialogue = controller.value as RenPyDialogue;
+    expect(restoredDialogue.text, contains('The bottle shattered'));
+    expect(restoredDialogue.text, contains('crimson red Fragment.{w}'));
+    expect(restoredDialogue.text, isNot(contains('Right...')));
+    expect(
+      restoredEvents.whereType<RenPyAudioChange>().map((event) => event.asset),
+      contains('/se/ZS4.wav'),
+    );
+
+    final scene = restoredEvents.whereType<RenPyImageChange>().firstWhere(
+      (event) => event.scene == 'fea_l2',
+    );
+    expect(scene.sceneAsset, endsWith('/game/images/bg/fea_l2.jpg'));
+
+    final ange = restoredEvents.whereType<RenPyImageChange>().firstWhere(
+      (event) => event.show == 'enj fumana1',
+    );
+    expect(ange.showPlacement, const RenPyImagePlacement.position(xpos: 0.7));
+    expect(
+      ange.showAsset,
+      endsWith('/game/images/characters/enj/1/enj fumana1.png'),
+    );
+
+    restoredEvents.clear();
+    controller.continueGame();
+    await _continueUntil(
+      controller,
+      (status) =>
+          status is RenPyDialogue &&
+          status.text.contains('leaving behind nothing but') &&
+          status.text.contains('Right...'),
+      maxSteps: 20,
+    );
+    restoredEvents.clear();
+
+    expect(controller.rollback(), isTrue);
+    expect(
+      restoredEvents.whereType<RenPyAudioChange>().map((event) => event.asset),
+      contains('/se/ZS4.wav'),
+    );
+  }, skip: skipReason);
+
   test('Confession emits the title card show text displayable', () async {
     final project = loadRenPyProjectFolder(fixture);
     final controller = RenPyFlutterController();
