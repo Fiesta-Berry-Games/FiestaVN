@@ -142,6 +142,28 @@ void main() {
     expect(textTop, greaterThan(350));
   });
 
+  testWidgets('launcher does not add an app transition over RenPy scripts', (
+    tester,
+  ) async {
+    await _pumpFreshApp(tester);
+
+    await tester.tap(find.byKey(const ValueKey('demo_game_The Question')));
+    await tester.pump();
+
+    expect(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.text('The Question'),
+      ),
+      findsOneWidget,
+    );
+    await tester.pump(const Duration(milliseconds: 1));
+
+    final route = ModalRoute.of(tester.element(find.byType(GameScreen)));
+    expect(route?.transitionDuration, Duration.zero);
+    expect(route?.reverseTransitionDuration, Duration.zero);
+  });
+
   testWidgets('launcher opens an external RenPy project folder', (
     tester,
   ) async {

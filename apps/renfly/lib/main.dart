@@ -47,7 +47,7 @@ class _LauncherScreen extends StatelessWidget {
   // Convenience helper
   void _startGame(BuildContext ctx, String title, String assetPath) {
     Navigator.of(ctx).push(
-      MaterialPageRoute(
+      _renPyGameRoute(
         builder:
             (_) => GameScreen(
               title: title,
@@ -65,7 +65,7 @@ class _LauncherScreen extends StatelessWidget {
       if (project == null || !context.mounted) return;
 
       Navigator.of(context).push(
-        MaterialPageRoute(
+        _renPyGameRoute(
           builder:
               (_) => ExternalGameScreen(
                 project: project,
@@ -120,6 +120,14 @@ class _LauncherScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+PageRoute<T> _renPyGameRoute<T>({required WidgetBuilder builder}) {
+  return PageRouteBuilder<T>(
+    pageBuilder: (context, animation, secondaryAnimation) => builder(context),
+    transitionDuration: Duration.zero,
+    reverseTransitionDuration: Duration.zero,
+  );
 }
 
 class ExternalGameScreen extends StatelessWidget {
