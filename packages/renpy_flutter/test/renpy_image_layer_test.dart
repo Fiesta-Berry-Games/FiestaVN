@@ -141,6 +141,38 @@ void main() {
     expect(_assetNames(tester), ['assets/game/images/bg uni.jpg']);
   });
 
+  testWidgets('image layer starts same-frame fades from previous state', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(
+      scene: 'bg lecturehall',
+      sceneAsset: 'assets/game/images/bg lecturehall.jpg',
+    );
+    controller.value = const RenPyTransitionChange(
+      'fade',
+      intent: RenPyTransitionIntent.fade(
+        outTime: 0.5,
+        holdTime: 0,
+        inTime: 0.5,
+      ),
+    );
+
+    await tester.pump();
+
+    final previousStateOpacity = tester
+        .widgetList<Opacity>(find.byType(Opacity))
+        .map((opacity) => opacity.opacity);
+    expect(previousStateOpacity, contains(1.0));
+    expect(find.byType(TweenAnimationBuilder<double>), findsOneWidget);
+  });
+
   testWidgets('image layer uses transition intent duration', (tester) async {
     final controller = RenPyFlutterController();
     addTearDown(controller.dispose);

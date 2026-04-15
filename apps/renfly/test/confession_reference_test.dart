@@ -67,6 +67,49 @@ void main() {
     expect(dialogue.displayText, isNot(contains('{w}')));
   }, skip: skipReason);
 
+  test(
+    'Confession starts with an untimed pause before visual content',
+    () async {
+      final project = loadRenPyProjectFolder(fixture);
+      final controller = RenPyFlutterController();
+      final images = <RenPyImageChange>[];
+      final audio = <RenPyAudioChange>[];
+      addTearDown(controller.dispose);
+
+      controller.addListener(() {
+        final status = controller.value;
+        if (status is RenPyImageChange) images.add(status);
+        if (status is RenPyAudioChange) audio.add(status);
+      });
+
+      controller.load(
+        project.scriptSource,
+        filename: project.scriptPath,
+        gameRoot: project.gameRoot,
+        availableAssets: project.availableAssets,
+      );
+
+      await _continueUntil(controller, (status) => status is RenPyPause);
+
+      final pause = controller.value as RenPyPause;
+      expect(pause.duration, isNull);
+      expect(images, isEmpty);
+      expect(audio, [
+        isA<RenPyAudioChange>()
+            .having((change) => change.action, 'action', RenPyAudioAction.stop)
+            .having((change) => change.channel, 'channel', 'music'),
+      ]);
+
+      controller.continueGame();
+      await _continueUntil(controller, (status) => status is RenPyDialogue);
+      expect(
+        (controller.value as RenPyDialogue).displayText,
+        startsWith('Please note.'),
+      );
+    },
+    skip: skipReason,
+  );
+
   test('Confession resolves first archived image and music assets', () async {
     final project = loadRenPyProjectFolder(fixture);
     final controller = RenPyFlutterController();
