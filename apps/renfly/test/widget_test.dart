@@ -129,6 +129,7 @@ void main() {
       ),
       findsOneWidget,
     );
+    await tester.pump(const Duration(milliseconds: 750));
     expect(find.byType(Image), findsWidgets);
 
     final textTop =

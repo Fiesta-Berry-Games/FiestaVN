@@ -166,11 +166,11 @@ void main() {
 
     await tester.pump();
 
-    final previousStateOpacity = tester
-        .widgetList<Opacity>(find.byType(Opacity))
-        .map((opacity) => opacity.opacity);
-    expect(previousStateOpacity, contains(1.0));
+    expect(find.byType(Image), findsNothing);
     expect(find.byType(TweenAnimationBuilder<double>), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 750));
+    expect(_assetNames(tester), ['assets/game/images/bg lecturehall.jpg']);
   });
 
   testWidgets('image layer uses transition intent duration', (tester) async {

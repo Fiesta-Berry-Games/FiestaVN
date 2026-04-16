@@ -175,9 +175,21 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
       imageProvider: widget.imageProvider ?? _defaultImageProvider,
       screenSize: widget.screenSize,
     );
+    final previousFrame =
+        previous == null
+            ? null
+            : _RenPyVisualFrame(
+              state: previous,
+              imageProvider: widget.imageProvider ?? _defaultImageProvider,
+              screenSize: widget.screenSize,
+            );
     final isPunch =
         _transitionActive &&
         transitionIntent?.type == RenPyTransitionType.punch;
+    final isFade =
+        _transitionActive &&
+        previous != null &&
+        transitionIntent?.type == RenPyTransitionType.fade;
 
     return Stack(
       fit: StackFit.expand,
@@ -197,9 +209,24 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
             },
             child: currentFrame,
           )
+        else if (isFade)
+          TweenAnimationBuilder<double>(
+            key: ValueKey(_transitionGeneration),
+            tween: Tween(begin: 1, end: 0),
+            duration: _durationFor(transitionIntent),
+            onEnd: _clearTransition,
+            builder: (context, remaining, child) {
+              return _RenPyFadeTransition(
+                remaining: remaining,
+                intent: transitionIntent!,
+                previous: previousFrame!,
+                current: currentFrame,
+              );
+            },
+          )
         else
           currentFrame,
-        if (previous != null && !isPunch)
+        if (previous != null && !isPunch && !isFade)
           TweenAnimationBuilder<double>(
             key: ValueKey(_transitionGeneration),
             tween: Tween(begin: 1, end: 0),
@@ -212,11 +239,7 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
                 child: child!,
               );
             },
-            child: _RenPyVisualFrame(
-              state: previous,
-              imageProvider: widget.imageProvider ?? _defaultImageProvider,
-              screenSize: widget.screenSize,
-            ),
+            child: previousFrame!,
           ),
       ],
     );
@@ -695,6 +718,57 @@ class _RenPyTransitionOverlay extends StatelessWidget {
     }
 
     return Opacity(opacity: remaining, child: child);
+  }
+}
+
+class _RenPyFadeTransition extends StatelessWidget {
+  const _RenPyFadeTransition({
+    required this.remaining,
+    required this.intent,
+    required this.previous,
+    required this.current,
+  });
+
+  final double remaining;
+  final RenPyTransitionIntent intent;
+  final Widget previous;
+  final Widget current;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = (1 - remaining).clamp(0.0, 1.0);
+    final outFraction = _fraction(intent.outTime, intent.totalDuration);
+    final holdFraction = _fraction(intent.holdTime, intent.totalDuration);
+    final inStart = outFraction + holdFraction;
+    final color = _colorForFade(intent);
+
+    if (progress < outFraction) {
+      final colorOpacity = _ratio(progress, outFraction);
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          previous,
+          if (colorOpacity > 0)
+            ColoredBox(color: color.withValues(alpha: colorOpacity)),
+        ],
+      );
+    }
+
+    if (progress < inStart) {
+      return ColoredBox(color: color);
+    }
+
+    final inFraction = (1 - inStart).clamp(0.0, 1.0);
+    final colorOpacity =
+        (1 - _ratio(progress - inStart, inFraction)).clamp(0.0, 1.0);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        current,
+        if (colorOpacity > 0)
+          ColoredBox(color: color.withValues(alpha: colorOpacity)),
+      ],
+    );
   }
 }
 
