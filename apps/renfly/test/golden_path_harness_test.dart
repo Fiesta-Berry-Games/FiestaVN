@@ -45,6 +45,68 @@ void main() {
       },
     );
 
+    test(
+      'records Reference Game 4 synthesized Confession sampler without compatibility gaps',
+      () async {
+        final project = loadRenPyProjectFolder(
+          Directory('assets/games/4/game'),
+        );
+
+        final result = await RenPyGoldenPathHarness(
+          project,
+        ).runUntilComplete(maxSteps: 200);
+
+        expect(result.complete, isTrue);
+        expect(result.error, isNull);
+        expect(result.problematicDiagnostics, isEmpty);
+        expect(
+          result.dialogue.map((line) => line.displayText),
+          containsAll([
+            contains('Reference Game 4 begins.'),
+            'NVL context reset. Extended clause.',
+            '{b}Reference Game 4 Complete{/b}.',
+          ]),
+        );
+        expect(result.menus.single.caption, 'Which Confession feature bucket?');
+        expect(result.menus.single.selectedChoice, 'Transitions and staging.');
+        expect(
+          result.sceneNames,
+          containsAll(['black', 'archive bg', 'flashback bg', 'red', 'white']),
+        );
+        expect(
+          result.showTextDisplayables.single,
+          contains('Reference Game 4'),
+        );
+        expect(
+          result.audioAssets,
+          containsAll([
+            '/music/She End.opus',
+            '/SE/Z1.opus',
+            '/ME/rain_2.opus',
+            '/se/ZS4.opus',
+          ]),
+        );
+        expect(
+          result.transitionNames,
+          containsAll([
+            'openfade',
+            'longfade',
+            'longdissolve',
+            'longerdissolve',
+            'quickgradientwiperight',
+            'quickgradientcirclefade',
+            'gradientcirclefade',
+            'doorfade',
+            'flash',
+            'vpunch',
+          ]),
+        );
+        expect(result.summary.dialogueCount, greaterThanOrEqualTo(8));
+        expect(result.summary.imageChangeCount, greaterThanOrEqualTo(12));
+        expect(result.summary.audioChangeCount, greaterThanOrEqualTo(7));
+      },
+    );
+
     final confessionFixture = Directory('assets/games/Confession-1.03-pc/game');
     final confessionSkipReason =
         confessionFixture.existsSync()

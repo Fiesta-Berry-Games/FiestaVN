@@ -106,5 +106,15 @@ flutter:
     - assets/games/2/game/images/
     - assets/games/3/game/script.rpy
     - assets/games/the_question/game/script.rpy
+    - assets/games/4/game/script.rpy
+    - assets/games/4/game/images/bg/
+    - assets/games/4/game/images/characters/enj/
+    - assets/games/4/game/images/characters/eri/
+    - assets/games/4/game/images/characters/sha/
+    - assets/games/4/game/masks/
+    - assets/games/4/game/music/
+    - assets/games/4/game/ME/
+    - assets/games/4/game/SE/
+    - assets/games/4/game/se/
     - assets/games/the_question/game/illurock.opus
     - assets/games/the_question/game/images/

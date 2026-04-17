@@ -88,6 +88,7 @@ class _LauncherScreen extends StatelessWidget {
       ('Reference Game 1', 'assets/games/1/game/script.rpy', Icons.looks_one),
       ('Reference Game 2', 'assets/games/2/game/script.rpy', Icons.looks_two),
       ('Reference Game 3', 'assets/games/3/game/script.rpy', Icons.looks_3),
+      ('Reference Game 4', 'assets/games/4/game/script.rpy', Icons.looks_4),
       (
         'The Question',
         'assets/games/the_question/game/script.rpy',

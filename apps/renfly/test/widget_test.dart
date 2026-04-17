@@ -19,6 +19,7 @@ void main() {
     expect(find.text('Choose a demo game'), findsOneWidget);
     expect(find.text('Reference Game 3'), findsOneWidget);
     expect(find.text('The Question'), findsOneWidget);
+    expect(find.text('Reference Game 4'), findsOneWidget);
   });
 
   testWidgets('launcher can auto-play Reference Game 3 to completion', (
@@ -105,6 +106,67 @@ void main() {
           assetSourcePath: 'games/3/game/18005551212.wav',
         ),
       ),
+    );
+  });
+
+  testWidgets('launcher can auto-play Reference Game 4 to completion', (
+    tester,
+  ) async {
+    final driver = _ReferenceGame4AutoPlayer();
+    final playback = _RecordingAudioPlayback();
+    addTearDown(driver.dispose);
+    addTearDown(playback.dispose);
+
+    await _pumpFreshApp(
+      tester,
+      audioPlayback: playback,
+      onGameControllerCreated: driver.attach,
+    );
+
+    final referenceGame4 = find.byKey(
+      const ValueKey('demo_game_Reference Game 4'),
+    );
+    expect(referenceGame4, findsOneWidget);
+
+    await tester.tap(referenceGame4);
+    await _pumpUntil(
+      tester,
+      () => driver.complete,
+      description: 'Reference Game 4 completion',
+      attempts: 300,
+    );
+
+    expect(driver.error, isNull);
+    expect(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.text('Reference Game 4'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      driver.dialogue.map((line) => line.displayText),
+      contains('{b}Reference Game 4 Complete{/b}.'),
+    );
+    expect(driver.menus.single, contains('Transitions and staging.'));
+    expect(driver.selectedChoices.single, 'Transitions and staging.');
+    expect(driver.scenes, containsAll(['archive bg', 'flashback bg', 'white']));
+    expect(driver.showTextDisplayables.single, contains('Reference Game 4'));
+    expect(driver.problematicDiagnosticSummaries, isEmpty);
+    expect(
+      playback.calls,
+      containsAll([
+        const _AudioCall(
+          channel: 'sound',
+          asset: '/SE/Z1.opus',
+          assetSourcePath: 'games/4/game/SE/Z1.opus',
+        ),
+        const _AudioCall(
+          channel: 'music',
+          asset: '/music/She End.opus',
+          assetSourcePath: 'games/4/game/music/She End.opus',
+        ),
+      ]),
     );
   });
 
@@ -201,6 +263,7 @@ label start:
     await _pumpUntilFirstLine(tester);
 
     expect(find.text('the_question'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 750));
     expect(find.byType(Image), findsWidgets);
   });
 
@@ -497,6 +560,79 @@ class _ReferenceGame3AutoPlayer {
     }
     if (choices.contains("I think I've heard enough.")) {
       return "I think I've heard enough.";
+    }
+    return choices.first;
+  }
+}
+
+class _ReferenceGame4AutoPlayer {
+  final dialogue = <RenPyDialogue>[];
+  final menus = <List<String>>[];
+  final selectedChoices = <String>[];
+  final scenes = <String>[];
+  final showTextDisplayables = <String>[];
+
+  RenPyFlutterController? _controller;
+  bool complete = false;
+  String? error;
+
+  List<RenPyDiagnostic> get problematicDiagnostics {
+    return [
+      for (final diagnostic in _controller?.diagnostics ?? const [])
+        if (_problematicDiagnosticCodes.contains(diagnostic.code)) diagnostic,
+    ];
+  }
+
+  List<String> get problematicDiagnosticSummaries {
+    return [
+      for (final diagnostic in problematicDiagnostics)
+        '${diagnostic.code}: ${diagnostic.detail}',
+    ];
+  }
+
+  void attach(RenPyFlutterController controller) {
+    _controller?.removeListener(_onStatusChanged);
+    _controller = controller..addListener(_onStatusChanged);
+  }
+
+  void dispose() {
+    _controller?.removeListener(_onStatusChanged);
+    _controller = null;
+  }
+
+  void _onStatusChanged() {
+    final controller = _controller;
+    if (controller == null) return;
+
+    switch (controller.value) {
+      case final RenPyDialogue line:
+        dialogue.add(line);
+        Future<void>.delayed(Duration.zero, controller.continueGame);
+      case RenPyPause():
+        Future<void>.delayed(Duration.zero, controller.continueGame);
+      case RenPyMenu(:final choices, :final onChoice):
+        menus.add(choices);
+        final choice = _choiceFor(choices);
+        selectedChoices.add(choice);
+        Future<void>.delayed(
+          Duration.zero,
+          () => onChoice(choices.indexOf(choice)),
+        );
+      case RenPyImageChange(:final scene, :final showText):
+        if (scene != null) scenes.add(scene);
+        if (showText != null) showTextDisplayables.add(showText);
+      case RenPyComplete():
+        complete = true;
+      case RenPyError(:final message):
+        error = message;
+      case _:
+        break;
+    }
+  }
+
+  String _choiceFor(List<String> choices) {
+    if (choices.contains('Transitions and staging.')) {
+      return 'Transitions and staging.';
     }
     return choices.first;
   }
