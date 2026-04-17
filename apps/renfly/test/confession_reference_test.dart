@@ -519,10 +519,22 @@ void main() {
 
       final harness = RenPyProjectPlayerHarness(tester);
       await harness.pumpUntilText('Ange chose to ignore Erika as she made tea');
+      await harness.pumpPastTransition();
 
       expect(harness.memoryImageCount, greaterThanOrEqualTo(3));
       harness.expectSpriteAnchor('eri', const Offset(160, 600));
       harness.expectSpriteAnchor('enj', const Offset(640, 600));
+
+      final stage = harness.stageRect;
+      final erika = harness.spriteImageRect('eri');
+      final ange = harness.spriteImageRect('enj');
+      expect(erika.top, greaterThanOrEqualTo(stage.top));
+      expect(ange.top, greaterThanOrEqualTo(stage.top));
+      expect(erika.bottom, lessThanOrEqualTo(stage.bottom));
+      expect(ange.bottom, lessThanOrEqualTo(stage.bottom));
+      expect(erika.center.dx, lessThan(stage.center.dx));
+      expect(ange.center.dx, greaterThan(stage.center.dx));
+      expect(erika.overlaps(ange), isFalse);
     },
     skip: skipReason != null,
   );

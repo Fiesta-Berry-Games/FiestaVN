@@ -34,6 +34,28 @@ final class RenPyProjectPlayerHarness {
     );
   }
 
+  Future<void> pumpUntilTextGone(String text, {int attempts = 50}) async {
+    await pumpUntil(
+      () => find.textContaining(text).evaluate().isEmpty,
+      attempts: attempts,
+      description: 'text containing "$text" to disappear',
+    );
+  }
+
+  Future<void> pumpUntilSprite(String tag, {int attempts = 50}) async {
+    await pumpUntil(
+      () => find.byKey(ValueKey(tag)).evaluate().isNotEmpty,
+      attempts: attempts,
+      description: 'sprite "$tag"',
+    );
+  }
+
+  Future<void> pumpPastTransition([
+    Duration duration = const Duration(seconds: 3),
+  ]) async {
+    await tester.pump(duration);
+  }
+
   Future<void> pumpUntilImages({int attempts = 50}) async {
     await pumpUntil(
       () => find.byType(Image).evaluate().isNotEmpty,
@@ -86,6 +108,23 @@ final class RenPyProjectPlayerHarness {
     return Offset(anchor.left!, anchor.top!);
   }
 
+  int spriteCount(String tag) {
+    return find.byKey(ValueKey(tag)).evaluate().length;
+  }
+
+  Rect spriteImageRect(String tag) {
+    return tester.getRect(
+      find.descendant(
+        of: find.byKey(ValueKey(tag)),
+        matching: find.byType(Image),
+      ),
+    );
+  }
+
+  Rect get stageRect {
+    return tester.getRect(find.byType(RenPyProjectPlayer));
+  }
+
   void expectSpriteAnchor(String tag, Offset expected) {
     final actual = spriteAnchor(tag);
     expect(actual.dx, closeTo(expected.dx, 0.0001));
@@ -105,6 +144,12 @@ final class RenPyProjectPlayerHarness {
   }
 
   Future<void> _advanceIfWaiting() async {
+    final firstMenuChoice = find.byKey(const ValueKey('menu_choice_0'));
+    if (firstMenuChoice.evaluate().isNotEmpty) {
+      await tester.tap(firstMenuChoice);
+      return;
+    }
+
     if (find.byType(RenPyPauseView).evaluate().isNotEmpty) {
       await tester.tap(find.byType(RenPyPauseView), warnIfMissed: false);
       return;
