@@ -105,6 +105,7 @@ flutter:
     - assets/games/2/game/script.rpy
     - assets/games/2/game/images/
     - assets/games/3/game/script.rpy
+    - assets/games/3/game/images/
     - assets/games/the_question/game/script.rpy
     - assets/games/4/game/script.rpy
     - assets/games/4/game/images/bg/
