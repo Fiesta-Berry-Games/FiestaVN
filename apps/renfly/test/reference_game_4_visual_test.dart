@@ -113,59 +113,141 @@ void main() {
   testWidgets('Reference Game 4 renders deterministic calibration colors', (
     tester,
   ) async {
-    final project = loadRenPyProjectFolder(Directory('assets/games/4/game'));
-    final captureKey = GlobalKey();
-    final background = await _createSolidImage(16, 16, Colors.black);
-    final sprite = await _createSolidImage(160, 160, const Color(0xFFFF0000));
-    final controller = RenPyFlutterController();
+    final harness = await _pumpReferenceGame4ImageLayer(tester);
+    await harness.pumpToDialogue('Reference Game 4 begins.');
+    await _settleVisualTransition(tester);
 
-    addTearDown(() {
-      background.dispose();
-      sprite.dispose();
-      controller.dispose();
-    });
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SizedBox(
-          width: 800,
-          height: 600,
-          child: RepaintBoundary(
-            key: captureKey,
-            child: RenPyImageLayer(
-              controller: controller,
-              screenSize: project.screenSize,
-              imageProvider: (assetPath) {
-                return _FixedSizeImageProvider(
-                  assetPath,
-                  assetPath.contains('/characters/') ? sprite : background,
-                );
-              },
-            ),
-          ),
-        ),
-      ),
-    );
-
-    controller.load(
-      project.scriptSource,
-      filename: project.scriptPath,
-      gameRoot: project.gameRoot,
-      availableAssets: project.availableAssets,
-    );
-    await _pumpControllerUntil(tester, controller, (status) {
-      return status is RenPyDialogue &&
-          status.displayText.contains('Reference Game 4 begins.');
-    });
-    await tester.pump(const Duration(seconds: 3));
-    await tester.pumpAndSettle(const Duration(milliseconds: 50));
-
-    final frame = await _capture(tester, captureKey);
+    final frame = await harness.capture();
     expect(frame.pixelAt(160, 550), _nearColor(const Color(0xFFFF0000)));
     expect(frame.pixelAt(640, 550), _nearColor(const Color(0xFFFF0000)));
     expect(frame.pixelAt(400, 550), _nearColor(Colors.black));
     expect(frame.pixelAt(400, 200), _nearColor(Colors.black));
   });
+
+  testWidgets('Reference Game 4 checkpoints retain calibrated final pixels', (
+    tester,
+  ) async {
+    final harness = await _pumpReferenceGame4ImageLayer(tester);
+    await harness.pumpToDialogue(
+      'Grayscale flashbacks, multiple characters, and layered placement are active.',
+    );
+    await _settleVisualTransition(tester);
+    var frame = await harness.capture();
+    expect(frame.pixelAt(120, 550), _nearColor(const Color(0xFFFF0000)));
+    expect(frame.pixelAt(680, 550), _nearColor(const Color(0xFFFF0000)));
+    expect(frame.pixelAt(400, 550), _nearColor(Colors.black));
+
+    await harness.pumpToDialogue(
+      'A one-shot sound should fire only on its own statement.',
+    );
+    await _settleVisualTransition(tester);
+    frame = await harness.capture();
+    expect(frame.pixelAt(120, 550), _nearColor(const Color(0xFFFF0000)));
+    expect(frame.pixelAt(680, 550), _nearColor(const Color(0xFFFF0000)));
+    expect(frame.pixelAt(400, 550), _nearColor(Colors.black));
+
+    await harness.pumpToDialogue('Image dissolves can use named mask files.');
+    await _settleVisualTransition(tester);
+    frame = await harness.capture();
+    expect(frame.pixelAt(400, 300), _nearColor(Colors.black));
+    expect(frame.pixelAt(120, 550), _nearColor(Colors.black));
+    expect(frame.pixelAt(680, 550), _nearColor(Colors.black));
+
+    await harness.pumpToDialogue(
+      'Solid color scenes stand in for full-screen RenPy effects.',
+    );
+    await _settleVisualTransition(tester);
+    frame = await harness.capture();
+    expect(frame.pixelAt(400, 300), _nearColor(const Color(0xFFFF0000)));
+
+    await harness.pumpToDialogue(
+      'Reverse and forward gradient fades both resolve.',
+    );
+    await _settleVisualTransition(tester);
+    frame = await harness.capture();
+    expect(frame.pixelAt(400, 300), _nearColor(Colors.white));
+
+    await harness.pumpToDialogue(
+      'Characters return to separate positions after full scene replacement.',
+    );
+    await _settleVisualTransition(tester);
+    frame = await harness.capture();
+    expect(frame.pixelAt(200, 550), _nearColor(const Color(0xFFFF0000)));
+    expect(frame.pixelAt(600, 550), _nearColor(const Color(0xFFFF0000)));
+    expect(frame.pixelAt(400, 550), _nearColor(Colors.black));
+  });
+}
+
+Future<_ReferenceGame4ImageLayerHarness> _pumpReferenceGame4ImageLayer(
+  WidgetTester tester,
+) async {
+  final project = loadRenPyProjectFolder(Directory('assets/games/4/game'));
+  final captureKey = GlobalKey();
+  final background = await _createSolidImage(16, 16, Colors.black);
+  final sprite = await _createSolidImage(160, 160, const Color(0xFFFF0000));
+  final controller = RenPyFlutterController();
+
+  addTearDown(() {
+    background.dispose();
+    sprite.dispose();
+    controller.dispose();
+  });
+
+  await tester.pumpWidget(
+    MaterialApp(
+      home: SizedBox(
+        width: 800,
+        height: 600,
+        child: RepaintBoundary(
+          key: captureKey,
+          child: RenPyImageLayer(
+            controller: controller,
+            screenSize: project.screenSize,
+            imageProvider: (assetPath) {
+              return _FixedSizeImageProvider(
+                assetPath,
+                assetPath.contains('/characters/') ? sprite : background,
+              );
+            },
+          ),
+        ),
+      ),
+    ),
+  );
+
+  controller.load(
+    project.scriptSource,
+    filename: project.scriptPath,
+    gameRoot: project.gameRoot,
+    availableAssets: project.availableAssets,
+  );
+
+  return _ReferenceGame4ImageLayerHarness(tester, controller, captureKey);
+}
+
+final class _ReferenceGame4ImageLayerHarness {
+  const _ReferenceGame4ImageLayerHarness(
+    this.tester,
+    this.controller,
+    this.captureKey,
+  );
+
+  final WidgetTester tester;
+  final RenPyFlutterController controller;
+  final GlobalKey captureKey;
+
+  Future<void> pumpToDialogue(String text) {
+    return _pumpControllerUntil(tester, controller, (status) {
+      return status is RenPyDialogue && status.displayText.contains(text);
+    }, attempts: 200);
+  }
+
+  Future<_CapturedFrame> capture() => _capture(tester, captureKey);
+}
+
+Future<void> _settleVisualTransition(WidgetTester tester) async {
+  await tester.pump(const Duration(seconds: 3));
+  await tester.pumpAndSettle(const Duration(milliseconds: 50));
 }
 
 Future<void> _pumpControllerUntil(
