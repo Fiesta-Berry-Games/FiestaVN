@@ -111,6 +111,10 @@ void main() {
   for (final asset in assets) {
     asset.write();
   }
+
+  File('apps/renfly/assets/games/3/game/sun-flower-slow-drag.mid')
+    ..parent.createSync(recursive: true)
+    ..writeAsBytesSync(_emptyMidi());
 }
 
 _Rgba _game2Color(String name) {
@@ -207,4 +211,37 @@ int _crc32(List<int> bytes) {
     }
   }
   return (crc ^ 0xffffffff) & 0xffffffff;
+}
+
+List<int> _emptyMidi() {
+  return [
+    // Header chunk: format 0, one track, 96 ticks per quarter note.
+    0x4d,
+    0x54,
+    0x68,
+    0x64,
+    0x00,
+    0x00,
+    0x00,
+    0x06,
+    0x00,
+    0x00,
+    0x00,
+    0x01,
+    0x00,
+    0x60,
+    // Track chunk: immediate end-of-track meta event.
+    0x4d,
+    0x54,
+    0x72,
+    0x6b,
+    0x00,
+    0x00,
+    0x00,
+    0x04,
+    0x00,
+    0xff,
+    0x2f,
+    0x00,
+  ];
 }
