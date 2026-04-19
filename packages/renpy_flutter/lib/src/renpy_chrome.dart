@@ -1,13 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:renpy_core/renpy_core.dart' show RenPyScreenSize;
 
 import 'renpy_flutter_controller.dart';
 import 'renpy_text.dart';
 
 /// Displays RenPy dialogue and errors over the current scene.
 class RenPyDialogueView extends StatelessWidget {
-  const RenPyDialogueView({super.key, required this.controller});
+  const RenPyDialogueView({
+    super.key,
+    required this.controller,
+    this.dialogueStyle,
+    this.screenSize,
+  });
 
   final RenPyFlutterController controller;
+  final TextStyle? dialogueStyle;
+  final RenPyScreenSize? screenSize;
 
   @override
   Widget build(BuildContext context) {
@@ -15,51 +23,68 @@ class RenPyDialogueView extends StatelessWidget {
       valueListenable: controller,
       builder: (context, status, _) {
         if (status is RenPyDialogue) {
+          final theme = Theme.of(context);
           final who = status.character;
           final whoColor =
               _RenPyDialogueColor.parse(status.color) ?? Colors.white;
-          return GestureDetector(
-            onTap: controller.continueGame,
-            behavior: HitTestBehavior.opaque,
-            child: Align(
-              alignment: Alignment.bottomCenter,
-              child: SafeArea(
-                minimum: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                child: Container(
-                  width: double.infinity,
-                  constraints: const BoxConstraints(minHeight: 112),
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.72),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.16),
-                    ),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (who != null) ...[
-                        Text(
-                          who,
-                          style: Theme.of(
-                            context,
-                          ).textTheme.titleMedium?.copyWith(color: whoColor),
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final scaledDialogueStyle = _scaledDialogueStyle(
+                dialogueStyle,
+                screenSize,
+                constraints,
+              );
+              final baseDialogueStyle = theme.textTheme.bodyLarge?.copyWith(
+                color: Colors.white,
+              );
+              return GestureDetector(
+                onTap: controller.continueGame,
+                behavior: HitTestBehavior.opaque,
+                child: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: SafeArea(
+                    minimum: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: Container(
+                      width: double.infinity,
+                      constraints: const BoxConstraints(minHeight: 112),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.72),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.16),
                         ),
-                        const SizedBox(height: 4),
-                      ],
-                      RenPyText(
-                        status.displayText,
-                        style: Theme.of(
-                          context,
-                        ).textTheme.bodyLarge?.copyWith(color: Colors.white),
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                    ],
+                      child: SingleChildScrollView(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (who != null) ...[
+                              Text(
+                                who,
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  color: whoColor,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                            ],
+                            RenPyText(
+                              status.displayText,
+                              style:
+                                  baseDialogueStyle?.merge(
+                                    scaledDialogueStyle,
+                                  ) ??
+                                  scaledDialogueStyle,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
+              );
+            },
           );
         }
         if (status is RenPyError) {
@@ -69,6 +94,27 @@ class RenPyDialogueView extends StatelessWidget {
       },
     );
   }
+}
+
+/// Scales RenPy script pixel sizes into the currently laid out stage.
+TextStyle? _scaledDialogueStyle(
+  TextStyle? style,
+  RenPyScreenSize? screenSize,
+  BoxConstraints constraints,
+) {
+  final fontSize = style?.fontSize;
+  final size = screenSize;
+  if (style == null || fontSize == null || size == null) return style;
+  if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight) {
+    return style;
+  }
+
+  final widthScale = constraints.maxWidth / size.width;
+  final heightScale = constraints.maxHeight / size.height;
+  final scale = widthScale < heightScale ? widthScale : heightScale;
+  if (!scale.isFinite || scale <= 0) return style;
+
+  return style.copyWith(fontSize: fontSize * scale);
 }
 
 /// Transparent tap target used while RenPy is waiting at a pause interaction.

@@ -774,6 +774,70 @@ label start:
     expect(tester.getCenter(stage), const Offset(600, 300));
   });
 
+  testWidgets('project player applies RenPy GUI dialogue text metadata', (
+    tester,
+  ) async {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('confession/game/options.rpy', '''
+define gui.text_font = "UglyQua.ttf"
+define config.screen_width = 1280
+define config.screen_height = 960
+define gui.text_size = 48
+define gui.text_color = '#d1aaaa'
+define gui.dialogue_text_outlines = [ (0, "#000000", 3, 3) ]
+'''),
+      RenPyProjectFile.text('confession/game/script.rpy', '''
+label start:
+    "Styled by GUI."
+'''),
+    ]);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyProjectPlayer(project: project)),
+    );
+
+    await _pumpUntil(tester, find.text('Styled by GUI.'));
+
+    final renpyText = tester.widget<RenPyText>(find.byType(RenPyText));
+    expect(renpyText.style?.fontFamily, 'UglyQua.ttf');
+    expect(renpyText.style?.fontSize, closeTo(30, 0.01));
+    expect(renpyText.style?.color, const Color(0xFFD1AAAA));
+    expect(renpyText.style?.shadows, isNotEmpty);
+  });
+
+  testWidgets('project player constrains long scaled GUI dialogue', (
+    tester,
+  ) async {
+    final longDialogue = List.filled(160, 'Long dialogue').join(' ');
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('confession/game/options.rpy', '''
+define config.screen_width = 1280
+define config.screen_height = 960
+define gui.text_size = 48
+define gui.text_color = '#ffffff'
+'''),
+      RenPyProjectFile.text('confession/game/script.rpy', '''
+label start:
+    "$longDialogue"
+'''),
+    ]);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyProjectPlayer(project: project)),
+    );
+
+    await _pumpUntil(tester, find.text(longDialogue));
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.descendant(
+        of: find.byType(RenPyDialogueView),
+        matching: find.byType(SingleChildScrollView),
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('project player exposes its controller for harnesses', (
     tester,
   ) async {

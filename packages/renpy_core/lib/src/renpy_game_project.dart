@@ -35,6 +35,72 @@ final class RenPyScreenSize {
   }
 }
 
+/// Ren'Py GUI configuration values that affect default presentation.
+final class RenPyGuiConfiguration {
+  const RenPyGuiConfiguration({
+    this.dialogueTextFont,
+    this.dialogueTextSize,
+    this.dialogueTextColor,
+    this.dialogueTextOutlineColor,
+  });
+
+  final String? dialogueTextFont;
+  final double? dialogueTextSize;
+  final String? dialogueTextColor;
+  final String? dialogueTextOutlineColor;
+
+  static const empty = RenPyGuiConfiguration();
+
+  static RenPyGuiConfiguration fromScriptSources(Iterable<String> sources) {
+    String? dialogueTextFont;
+    double? dialogueTextSize;
+    String? dialogueTextColor;
+    String? dialogueTextOutlineColor;
+
+    for (final source in sources) {
+      for (final match in _guiDefinePattern.allMatches(source)) {
+        final name = match.group(1)!;
+        final expression = match.group(2)!.trim();
+        switch (name) {
+          case 'text_font':
+            dialogueTextFont = _renpyStringLiteral(expression);
+          case 'text_size':
+            dialogueTextSize = double.tryParse(expression);
+          case 'text_color':
+            dialogueTextColor = _renpyStringLiteral(expression);
+          case 'dialogue_text_outlines':
+            dialogueTextOutlineColor = _renpyFirstQuotedColor(expression);
+        }
+      }
+    }
+
+    return RenPyGuiConfiguration(
+      dialogueTextFont: dialogueTextFont,
+      dialogueTextSize: dialogueTextSize,
+      dialogueTextColor: dialogueTextColor,
+      dialogueTextOutlineColor: dialogueTextOutlineColor,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        other is RenPyGuiConfiguration &&
+            dialogueTextFont == other.dialogueTextFont &&
+            dialogueTextSize == other.dialogueTextSize &&
+            dialogueTextColor == other.dialogueTextColor &&
+            dialogueTextOutlineColor == other.dialogueTextOutlineColor;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    dialogueTextFont,
+    dialogueTextSize,
+    dialogueTextColor,
+    dialogueTextOutlineColor,
+  );
+}
+
 /// A file selected from a RenPy project folder.
 final class RenPyProjectFile {
   RenPyProjectFile(String path, Uint8List bytes)
@@ -59,6 +125,7 @@ final class RenPyGameProject {
     required Map<String, RenPyRpaArchive> archives,
     required Map<String, String> fontAssets,
     required this.screenSize,
+    required this.gui,
   }) : _assets = Map.unmodifiable(assets),
        _assetsByLowerPath = Map.unmodifiable(
          _caseInsensitiveIndex(assets.keys),
@@ -106,6 +173,7 @@ final class RenPyGameProject {
         normalizedGameRoot,
       ),
       assets: byPath,
+      gui: _guiConfiguration(byPath, selectedScriptPath, normalizedGameRoot),
       archives: archives,
       fontAssets: _fontAssets(byPath.keys, archives, normalizedGameRoot),
       screenSize: _screenSize(byPath, normalizedGameRoot),
@@ -118,6 +186,7 @@ final class RenPyGameProject {
   final String scriptSource;
   final Set<String> availableAssets;
   final RenPyScreenSize? screenSize;
+  final RenPyGuiConfiguration gui;
   final Map<String, String> fontAssets;
   final Map<String, Uint8List> _assets;
   final Map<String, String> _assetsByLowerPath;
@@ -162,20 +231,27 @@ final class RenPyGameProject {
     String selectedScriptPath,
     String gameRoot,
   ) {
+    final scripts = _sortedScriptFiles(assets, selectedScriptPath, gameRoot);
+
+    return scripts
+        .map((script) => utf8.decode(script.value, allowMalformed: true))
+        .join('\n\n');
+  }
+
+  static List<MapEntry<String, Uint8List>> _sortedScriptFiles(
+    Map<String, Uint8List> assets,
+    String selectedScriptPath,
+    String gameRoot,
+  ) {
     final scripts = _scriptFiles(assets, gameRoot);
-    if (scripts.length <= 1) {
-      return utf8.decode(assets[selectedScriptPath]!, allowMalformed: true);
-    }
+    if (scripts.length <= 1) return scripts;
 
     scripts.sort((a, b) {
       if (a.key == selectedScriptPath) return -1;
       if (b.key == selectedScriptPath) return 1;
       return a.key.compareTo(b.key);
     });
-
-    return scripts
-        .map((script) => utf8.decode(script.value, allowMalformed: true))
-        .join('\n\n');
+    return scripts;
   }
 
   static List<MapEntry<String, Uint8List>> _scriptFiles(
@@ -289,6 +365,20 @@ final class RenPyGameProject {
 
     return _screenSizeFromSources(scriptSources);
   }
+
+  static RenPyGuiConfiguration _guiConfiguration(
+    Map<String, Uint8List> assets,
+    String selectedScriptPath,
+    String gameRoot,
+  ) {
+    return RenPyGuiConfiguration.fromScriptSources(
+      _sortedScriptFiles(
+        assets,
+        selectedScriptPath,
+        gameRoot,
+      ).map((script) => utf8.decode(script.value, allowMalformed: true)),
+    );
+  }
 }
 
 RenPyScreenSize? _screenSizeFromSources(Iterable<String> sources) {
@@ -312,6 +402,28 @@ RenPyScreenSize? _screenSizeFromSources(Iterable<String> sources) {
 
   if (width == null || height == null || width <= 0 || height <= 0) return null;
   return RenPyScreenSize(width: width, height: height);
+}
+
+final _guiDefinePattern = RegExp(
+  r'''^\s*define\s+gui\.([a-zA-Z_]\w*)\s*=\s*(.+)$''',
+  multiLine: true,
+);
+
+String? _renpyStringLiteral(String expression) {
+  final trimmed = expression.trim();
+  if (trimmed.length < 2) return null;
+  final quote = trimmed[0];
+  if (quote != '"' && quote != "'") return null;
+  final end = trimmed.indexOf(quote, 1);
+  if (end == -1) return null;
+  return trimmed.substring(1, end);
+}
+
+String? _renpyFirstQuotedColor(String expression) {
+  final match = RegExp(
+    r'''["'](#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?(?:[0-9a-fA-F]{2})?)["']''',
+  ).firstMatch(expression);
+  return match?.group(1);
 }
 
 String _normalizePath(String value) {

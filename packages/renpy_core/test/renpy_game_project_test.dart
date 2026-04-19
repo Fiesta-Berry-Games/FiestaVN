@@ -218,6 +218,27 @@ label start:
     );
     expect(project.fontAssets['Title.otf'], 'confession/game/fonts/Title.otf');
   });
+
+  test('discovers RenPy GUI dialogue text metadata from project scripts', () {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('confession/game/options.rpy', '''
+define gui.text_font = "sazanami-gothic.ttf"
+define gui.text_size = 48
+define gui.text_color = '#ffffff'
+define gui.dialogue_text_outlines = [ (0, "#000000", 3, 3) ]
+'''),
+      RenPyProjectFile.text('confession/game/script.rpy', '''
+label start:
+define gui.text_size = 12
+    "Styled."
+'''),
+    ]);
+
+    expect(project.gui.dialogueTextFont, 'sazanami-gothic.ttf');
+    expect(project.gui.dialogueTextSize, 48);
+    expect(project.gui.dialogueTextColor, '#ffffff');
+    expect(project.gui.dialogueTextOutlineColor, '#000000');
+  });
 }
 
 Uint8List _rpaArchive(Map<String, List<int>> files) {

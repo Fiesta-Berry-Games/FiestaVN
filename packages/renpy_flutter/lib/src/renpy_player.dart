@@ -32,6 +32,7 @@ class RenPyPlayer extends StatelessWidget {
     this.screenSize,
     this.audioPlayback,
     this.preferenceStore,
+    this.dialogueStyle,
   });
 
   final RenPyFlutterController controller;
@@ -43,6 +44,7 @@ class RenPyPlayer extends StatelessWidget {
   final RenPyScreenSize? screenSize;
   final RenPyAudioPlayback? audioPlayback;
   final RenPyPreferenceStore? preferenceStore;
+  final TextStyle? dialogueStyle;
 
   Future<void> _saveGame(BuildContext context) async {
     final saved = await controller.saveGame();
@@ -126,7 +128,11 @@ class RenPyPlayer extends StatelessWidget {
           preferences: preferences,
         ),
         RenPyPauseView(controller: controller),
-        RenPyDialogueView(controller: controller),
+        RenPyDialogueView(
+          controller: controller,
+          dialogueStyle: dialogueStyle,
+          screenSize: screenSize,
+        ),
         RenPyMenuSelector(controller: controller),
         ValueListenableBuilder<RenPyGameStatus>(
           valueListenable: controller,
@@ -744,6 +750,7 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
       screenSize: widget.project.screenSize,
       audioPlayback: widget.audioPlayback ?? _ownedAudioPlayback,
       preferenceStore: widget.preferenceStore,
+      dialogueStyle: _dialogueStyle(widget.project.gui),
     );
   }
 }
@@ -912,4 +919,52 @@ class _RenPyAssetPlayerState extends State<RenPyAssetPlayer> {
       preferenceStore: widget.preferenceStore,
     );
   }
+}
+
+TextStyle? _dialogueStyle(RenPyGuiConfiguration gui) {
+  final color = _colorFromRenPyHex(gui.dialogueTextColor);
+  final outlineColor = _colorFromRenPyHex(gui.dialogueTextOutlineColor);
+  if (gui.dialogueTextFont == null &&
+      gui.dialogueTextSize == null &&
+      color == null &&
+      outlineColor == null) {
+    return null;
+  }
+
+  return TextStyle(
+    fontFamily: gui.dialogueTextFont,
+    fontSize: gui.dialogueTextSize,
+    color: color,
+    shadows: outlineColor == null ? null : _outlineShadows(outlineColor),
+  );
+}
+
+Color? _colorFromRenPyHex(String? expression) {
+  if (expression == null) return null;
+  final value = expression.trim();
+  final hex = value.startsWith('#') ? value.substring(1) : value;
+  if (!RegExp(r'^[0-9a-fA-F]{3}$').hasMatch(hex) &&
+      !RegExp(r'^[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$').hasMatch(hex)) {
+    return null;
+  }
+  final expanded =
+      hex.length == 3 ? hex.split('').map((char) => '$char$char').join() : hex;
+  final argb = expanded.length == 6 ? 'FF$expanded' : expanded;
+  return Color(int.parse(argb, radix: 16));
+}
+
+List<Shadow> _outlineShadows(Color color) {
+  return [
+    for (final offset in const [
+      Offset(-1, -1),
+      Offset(0, -1),
+      Offset(1, -1),
+      Offset(-1, 0),
+      Offset(1, 0),
+      Offset(-1, 1),
+      Offset(0, 1),
+      Offset(1, 1),
+    ])
+      Shadow(offset: offset, color: color),
+  ];
 }

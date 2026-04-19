@@ -30,7 +30,11 @@ export 'package:renpy_core/renpy_core.dart'
         RenPyTransitionIntent,
         RenPyTransitionType;
 export 'package:renpy_core/renpy_core.dart'
-    show RenPyGameProject, RenPyProjectFile, RenPyScreenSize;
+    show
+        RenPyGameProject,
+        RenPyGuiConfiguration,
+        RenPyProjectFile,
+        RenPyScreenSize;
 
 export 'src/renpy_chrome.dart';
 export 'src/renpy_audio_layer.dart';
