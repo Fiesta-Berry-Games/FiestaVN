@@ -8,6 +8,7 @@ import 'package:renpy_core/renpy_core.dart'
         RenPyGenericStatement,
         RenPyNvlStatement,
         RenPyParser,
+        RenPyStatement,
         RenPyStyledText;
 import 'package:renpy_flutter/renpy_flutter.dart';
 
@@ -35,15 +36,17 @@ void main() {
       contains(endsWith('/game/images/bg/closedring.jpg')),
     );
 
-    final script =
-        RenPyParser().parse(project.scriptSource, project.scriptPath).script;
-    expect(script.findStatements<RenPyNvlStatement>((_) => true), isNotEmpty);
-    expect(
-      script.findStatements<RenPyGenericStatement>(
-        (statement) => statement.text == 'nvl clear',
-      ),
-      isEmpty,
+    final parseResult = RenPyParser().parse(
+      project.scriptSource,
+      project.scriptPath,
     );
+    final script = parseResult.script;
+    expect(parseResult.warnings, isEmpty);
+    expect(script.findStatements<RenPyNvlStatement>((_) => true), isNotEmpty);
+    final genericStatements = script.findStatements<RenPyGenericStatement>(
+      (_) => true,
+    );
+    expect(genericStatements.map(_statementLocation), isEmpty);
   }, skip: skipReason);
 
   test('Confession reaches the first dialogue beat', () async {
@@ -538,6 +541,10 @@ void main() {
     },
     skip: skipReason != null,
   );
+}
+
+String _statementLocation(RenPyStatement statement) {
+  return '${statement.filename}:${statement.linenumber}: $statement';
 }
 
 Future<void> _continueUntil(

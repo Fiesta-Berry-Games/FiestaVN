@@ -338,3 +338,55 @@ class RenPyStopStatement extends RenPyStatement {
     return fadeout == null ? 'Stop $channel' : 'Stop $channel fadeout $fadeout';
   }
 }
+
+/// Represents an `init offset = N` statement.
+class RenPyInitOffsetStatement extends RenPyStatement {
+  final int offset;
+
+  RenPyInitOffsetStatement(this.offset, String filename, int linenumber)
+    : super(filename, linenumber);
+
+  @override
+  String toString() {
+    return 'Init offset: $offset';
+  }
+}
+
+/// Represents a Ren'Py screen-language declaration.
+class RenPyScreenStatement extends RenPyStatement {
+  final String signature;
+
+  RenPyScreenStatement(this.signature, String filename, int linenumber)
+    : super(filename, linenumber);
+
+  @override
+  String toString() {
+    return 'Screen: $signature';
+  }
+}
+
+/// Represents a Ren'Py style declaration.
+class RenPyStyleStatement extends RenPyStatement {
+  final String declaration;
+
+  RenPyStyleStatement(this.declaration, String filename, int linenumber)
+    : super(filename, linenumber);
+
+  @override
+  String toString() {
+    return 'Style: $declaration';
+  }
+}
+
+/// Represents a Ren'Py ATL transform declaration.
+class RenPyTransformStatement extends RenPyStatement {
+  final String signature;
+
+  RenPyTransformStatement(this.signature, String filename, int linenumber)
+    : super(filename, linenumber);
+
+  @override
+  String toString() {
+    return 'Transform: $signature';
+  }
+}

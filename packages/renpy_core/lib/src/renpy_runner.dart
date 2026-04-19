@@ -448,6 +448,18 @@ class RenPyRunner {
       _executeCallStatement(stmt);
     } else if (stmt is RenPyNvlStatement) {
       _executeNvlStatement(stmt);
+    } else if (stmt is RenPyInitStatement || stmt is RenPyInitOffsetStatement) {
+      // Init metadata is applied before runtime or has no runtime effect.
+      _position++;
+      _executeNext();
+    } else if (stmt is RenPyScreenStatement || stmt is RenPyStyleStatement) {
+      // Screen/style declarations are UI metadata, not script runtime steps.
+      _position++;
+      _executeNext();
+    } else if (stmt is RenPyTransformStatement) {
+      // Transform declarations are referenced by later image placement clauses.
+      _position++;
+      _executeNext();
     } else if (stmt is RenPyPassStatement) {
       // Do nothing
       _position++;

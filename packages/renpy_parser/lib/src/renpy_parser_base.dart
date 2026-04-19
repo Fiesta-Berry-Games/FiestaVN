@@ -188,6 +188,18 @@ class RenPyParser {
       return _parsePythonStatement(line, warnings);
     }
 
+    if (text.startsWith('screen ')) {
+      return _parseScreenStatement(line, warnings);
+    }
+
+    if (text.startsWith('style ')) {
+      return _parseStyleStatement(line, warnings);
+    }
+
+    if (text.startsWith('transform ')) {
+      return _parseTransformStatement(line, warnings);
+    }
+
     // Parse define statement.
     if (text.startsWith('define ')) {
       return _parseDefineStatement(line, warnings);
@@ -269,11 +281,19 @@ class RenPyParser {
     );
   }
 
-  RenPyInitStatement _parseInitStatement(
-    GroupedLine line,
-    List<String> warnings,
-  ) {
+  RenPyStatement _parseInitStatement(GroupedLine line, List<String> warnings) {
     final text = line.text.trim();
+    final offsetMatch = RegExp(
+      r'''^init\s+offset\s*=\s*(-?\d+)\s*$''',
+    ).firstMatch(text);
+    if (offsetMatch != null) {
+      return RenPyInitOffsetStatement(
+        int.parse(offsetMatch.group(1)!),
+        line.filename,
+        line.number,
+      );
+    }
+
     final initMatch = RegExp(
       r'''^init(\s+(-?\d+))?(\s+python)?\s*:''',
     ).firstMatch(text);
@@ -865,7 +885,8 @@ class RenPyParser {
   ) {
     final text = line.text.trim();
     final defineRegex = RegExp(
-      r'^define\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$',
+      r'^define\s+([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)\s*=\s*(.+)$',
+      dotAll: true,
     );
     final match = defineRegex.firstMatch(text);
 
@@ -895,7 +916,8 @@ class RenPyParser {
   ) {
     final text = line.text.trim();
     final defaultRegex = RegExp(
-      r'^default\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$',
+      r'^default\s+([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)\s*=\s*(.+)$',
+      dotAll: true,
     );
     final match = defaultRegex.firstMatch(text);
 
@@ -1017,6 +1039,72 @@ class RenPyParser {
     final expression = text == 'return' ? null : text.substring(6).trim();
     return RenPyReturnStatement(
       expression == '' ? null : expression,
+      line.filename,
+      line.number,
+    );
+  }
+
+  RenPyScreenStatement _parseScreenStatement(
+    GroupedLine line,
+    List<String> warnings,
+  ) {
+    final text = line.text.trim();
+    final match = RegExp(r'^screen\s+(.+?)\s*:$').firstMatch(text);
+    if (match == null) {
+      throw RenPyParseError(
+        'Invalid screen statement syntax',
+        line.filename,
+        line.number,
+        0,
+      );
+    }
+
+    return RenPyScreenStatement(
+      match.group(1)!.trim(),
+      line.filename,
+      line.number,
+    );
+  }
+
+  RenPyStyleStatement _parseStyleStatement(
+    GroupedLine line,
+    List<String> warnings,
+  ) {
+    final text = line.text.trim();
+    final match = RegExp(r'^style\s+(.+?)(?::)?$').firstMatch(text);
+    if (match == null) {
+      throw RenPyParseError(
+        'Invalid style statement syntax',
+        line.filename,
+        line.number,
+        0,
+      );
+    }
+
+    return RenPyStyleStatement(
+      match.group(1)!.trim(),
+      line.filename,
+      line.number,
+    );
+  }
+
+  RenPyTransformStatement _parseTransformStatement(
+    GroupedLine line,
+    List<String> warnings,
+  ) {
+    final text = line.text.trim();
+    final match = RegExp(r'^transform\s+(.+?)\s*:$').firstMatch(text);
+    if (match == null) {
+      throw RenPyParseError(
+        'Invalid transform statement syntax',
+        line.filename,
+        line.number,
+        0,
+      );
+    }
+
+    return RenPyTransformStatement(
+      match.group(1)!.trim(),
       line.filename,
       line.number,
     );
