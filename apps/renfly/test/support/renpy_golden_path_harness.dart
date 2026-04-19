@@ -164,6 +164,23 @@ final class RenPyGoldenPathTrace {
     ];
   }
 
+  Map<RenPyDiagnosticCode, int> get diagnosticCountsByCode {
+    return _diagnosticCountsByCode(diagnostics);
+  }
+
+  Map<RenPyDiagnosticCode, int> get problematicDiagnosticCountsByCode {
+    return _diagnosticCountsByCode(problematicDiagnostics);
+  }
+
+  Map<RenPyDiagnosticCode, List<String?>> get diagnosticDetailsByCode {
+    return _diagnosticDetailsByCode(diagnostics);
+  }
+
+  Map<RenPyDiagnosticCode, List<String?>>
+  get problematicDiagnosticDetailsByCode {
+    return _diagnosticDetailsByCode(problematicDiagnostics);
+  }
+
   List<String> get problematicDiagnosticSummaries {
     return [
       for (final diagnostic in problematicDiagnostics)
@@ -247,3 +264,29 @@ const _problematicDiagnosticCodes = {
   RenPyDiagnosticCode.unresolvedAudioAsset,
   RenPyDiagnosticCode.unknownStatement,
 };
+
+Map<RenPyDiagnosticCode, int> _diagnosticCountsByCode(
+  Iterable<RenPyDiagnostic> diagnostics,
+) {
+  final counts = <RenPyDiagnosticCode, int>{};
+  for (final diagnostic in diagnostics) {
+    counts.update(diagnostic.code, (count) => count + 1, ifAbsent: () => 1);
+  }
+  return Map.unmodifiable(counts);
+}
+
+Map<RenPyDiagnosticCode, List<String?>> _diagnosticDetailsByCode(
+  Iterable<RenPyDiagnostic> diagnostics,
+) {
+  final details = <RenPyDiagnosticCode, List<String?>>{};
+  for (final diagnostic in diagnostics) {
+    details
+        .putIfAbsent(diagnostic.code, () => <String?>[])
+        .add(diagnostic.detail);
+  }
+  final snapshot = <RenPyDiagnosticCode, List<String?>>{};
+  for (final entry in details.entries) {
+    snapshot[entry.key] = List<String?>.unmodifiable(entry.value);
+  }
+  return Map.unmodifiable(snapshot);
+}

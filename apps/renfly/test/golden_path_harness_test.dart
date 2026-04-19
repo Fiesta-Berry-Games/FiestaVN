@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:renpy_flutter/renpy_flutter.dart';
 
 import 'support/renpy_golden_path_harness.dart';
 
@@ -107,6 +109,54 @@ void main() {
       },
     );
 
+    test('groups compatibility diagnostics by code and detail', () async {
+      final project = RenPyGameProject.fromFiles([
+        RenPyProjectFile.text('diagnostics/game/script.rpy', '''
+define strange = PushMove(1.0, "left")
+
+label start:
+    scene missing background at unsupported_transform with strange
+    play sound "missing.ogg"
+    "Done."
+'''),
+        RenPyProjectFile('diagnostics/game/images/present.png', Uint8List(0)),
+        RenPyProjectFile('diagnostics/game/audio/present.ogg', Uint8List(0)),
+      ]);
+
+      final result = await RenPyGoldenPathHarness(
+        project,
+      ).runUntilComplete(maxSteps: 20);
+
+      expect(result.complete, isTrue);
+      expect(result.error, isNull);
+      expect(result.problematicDiagnosticCountsByCode, {
+        RenPyDiagnosticCode.unsupportedTransition: 1,
+        RenPyDiagnosticCode.unsupportedPlacement: 1,
+        RenPyDiagnosticCode.unresolvedImageAsset: 1,
+        RenPyDiagnosticCode.unresolvedAudioAsset: 1,
+      });
+      expect(
+        result.problematicDiagnosticDetailsByCode[RenPyDiagnosticCode
+            .unsupportedTransition],
+        contains('PushMove(1.0, "left")'),
+      );
+      expect(
+        result.problematicDiagnosticDetailsByCode[RenPyDiagnosticCode
+            .unsupportedPlacement],
+        contains('unsupported_transform'),
+      );
+      expect(
+        result.problematicDiagnosticDetailsByCode[RenPyDiagnosticCode
+            .unresolvedImageAsset],
+        contains(_detailContaining('missing background ->')),
+      );
+      expect(
+        result.problematicDiagnosticDetailsByCode[RenPyDiagnosticCode
+            .unresolvedAudioAsset],
+        contains(_detailContaining('missing.ogg ->')),
+      );
+    });
+
     final confessionFixture = Directory('assets/games/Confession-1.03-pc/game');
     final confessionSkipReason =
         confessionFixture.existsSync()
@@ -180,4 +230,8 @@ void main() {
       skip: confessionSkipReason,
     );
   });
+}
+
+Matcher _detailContaining(String text) {
+  return predicate<String?>((detail) => detail?.contains(text) ?? false);
 }
