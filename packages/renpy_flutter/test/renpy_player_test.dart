@@ -838,6 +838,42 @@ label start:
     );
   });
 
+  testWidgets('project player applies RenPy GUI dialogue window geometry', (
+    tester,
+  ) async {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('confession/game/options.rpy', '''
+define config.screen_width = 1280
+define config.screen_height = 960
+define gui.textbox_height = 278
+define gui.textbox_yalign = 1.0
+define gui.dialogue_xpos = 120
+define gui.dialogue_ypos = 74
+define gui.dialogue_width = 1040
+'''),
+      RenPyProjectFile.text('confession/game/script.rpy', '''
+label start:
+    "Geometry by GUI."
+'''),
+    ]);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyProjectPlayer(project: project)),
+    );
+
+    await _pumpUntil(tester, find.text('Geometry by GUI.'));
+
+    final textBox = find.byKey(const ValueKey('renpy-dialogue-box'));
+    final renpyText = find.text('Geometry by GUI.');
+
+    expect(textBox, findsOneWidget);
+    expect(tester.getSize(textBox).height, closeTo(173.75, 0.01));
+    expect(tester.getTopLeft(textBox), const Offset(0, 426.25));
+    expect(tester.getTopLeft(renpyText).dx, closeTo(75, 0.01));
+    expect(tester.getTopLeft(renpyText).dy, closeTo(472.5, 0.01));
+    expect(tester.getSize(renpyText).width, lessThanOrEqualTo(650));
+  });
+
   testWidgets('project player exposes its controller for harnesses', (
     tester,
   ) async {

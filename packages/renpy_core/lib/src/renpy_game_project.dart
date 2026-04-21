@@ -42,12 +42,22 @@ final class RenPyGuiConfiguration {
     this.dialogueTextSize,
     this.dialogueTextColor,
     this.dialogueTextOutlineColor,
+    this.textboxHeight,
+    this.textboxYAlign,
+    this.dialogueXPos,
+    this.dialogueYPos,
+    this.dialogueWidth,
   });
 
   final String? dialogueTextFont;
   final double? dialogueTextSize;
   final String? dialogueTextColor;
   final String? dialogueTextOutlineColor;
+  final double? textboxHeight;
+  final double? textboxYAlign;
+  final double? dialogueXPos;
+  final double? dialogueYPos;
+  final double? dialogueWidth;
 
   static const empty = RenPyGuiConfiguration();
 
@@ -56,6 +66,11 @@ final class RenPyGuiConfiguration {
     double? dialogueTextSize;
     String? dialogueTextColor;
     String? dialogueTextOutlineColor;
+    double? textboxHeight;
+    double? textboxYAlign;
+    double? dialogueXPos;
+    double? dialogueYPos;
+    double? dialogueWidth;
 
     for (final source in sources) {
       for (final match in _guiDefinePattern.allMatches(source)) {
@@ -70,6 +85,16 @@ final class RenPyGuiConfiguration {
             dialogueTextColor = _renpyStringLiteral(expression);
           case 'dialogue_text_outlines':
             dialogueTextOutlineColor = _renpyFirstQuotedColor(expression);
+          case 'textbox_height':
+            textboxHeight = _renpyNumberLiteral(expression);
+          case 'textbox_yalign':
+            textboxYAlign = _renpyNumberLiteral(expression);
+          case 'dialogue_xpos':
+            dialogueXPos = _renpyNumberLiteral(expression);
+          case 'dialogue_ypos':
+            dialogueYPos = _renpyNumberLiteral(expression);
+          case 'dialogue_width':
+            dialogueWidth = _renpyNumberLiteral(expression);
         }
       }
     }
@@ -79,6 +104,11 @@ final class RenPyGuiConfiguration {
       dialogueTextSize: dialogueTextSize,
       dialogueTextColor: dialogueTextColor,
       dialogueTextOutlineColor: dialogueTextOutlineColor,
+      textboxHeight: textboxHeight,
+      textboxYAlign: textboxYAlign,
+      dialogueXPos: dialogueXPos,
+      dialogueYPos: dialogueYPos,
+      dialogueWidth: dialogueWidth,
     );
   }
 
@@ -89,7 +119,12 @@ final class RenPyGuiConfiguration {
             dialogueTextFont == other.dialogueTextFont &&
             dialogueTextSize == other.dialogueTextSize &&
             dialogueTextColor == other.dialogueTextColor &&
-            dialogueTextOutlineColor == other.dialogueTextOutlineColor;
+            dialogueTextOutlineColor == other.dialogueTextOutlineColor &&
+            textboxHeight == other.textboxHeight &&
+            textboxYAlign == other.textboxYAlign &&
+            dialogueXPos == other.dialogueXPos &&
+            dialogueYPos == other.dialogueYPos &&
+            dialogueWidth == other.dialogueWidth;
   }
 
   @override
@@ -98,6 +133,11 @@ final class RenPyGuiConfiguration {
     dialogueTextSize,
     dialogueTextColor,
     dialogueTextOutlineColor,
+    textboxHeight,
+    textboxYAlign,
+    dialogueXPos,
+    dialogueYPos,
+    dialogueWidth,
   );
 }
 
@@ -423,7 +463,12 @@ String? _renpyFirstQuotedColor(String expression) {
   final match = RegExp(
     r'''["'](#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?(?:[0-9a-fA-F]{2})?)["']''',
   ).firstMatch(expression);
+
   return match?.group(1);
+}
+
+double? _renpyNumberLiteral(String expression) {
+  return double.tryParse(expression.trim());
 }
 
 String _normalizePath(String value) {

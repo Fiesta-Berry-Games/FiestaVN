@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:renpy_core/renpy_core.dart' show RenPyScreenSize;
+import 'package:renpy_core/renpy_core.dart'
+    show RenPyGuiConfiguration, RenPyScreenSize;
 
 import 'renpy_flutter_controller.dart';
 import 'renpy_text.dart';
@@ -11,11 +12,13 @@ class RenPyDialogueView extends StatelessWidget {
     required this.controller,
     this.dialogueStyle,
     this.screenSize,
+    this.gui,
   });
 
   final RenPyFlutterController controller;
   final TextStyle? dialogueStyle;
   final RenPyScreenSize? screenSize;
+  final RenPyGuiConfiguration? gui;
 
   @override
   Widget build(BuildContext context) {
@@ -37,6 +40,51 @@ class RenPyDialogueView extends StatelessWidget {
               final baseDialogueStyle = theme.textTheme.bodyLarge?.copyWith(
                 color: Colors.white,
               );
+              final guiGeometry = _RenPyDialogueGeometry.fromGui(
+                gui,
+                screenSize,
+                constraints,
+              );
+              if (guiGeometry != null) {
+                return GestureDetector(
+                  onTap: controller.continueGame,
+                  behavior: HitTestBehavior.opaque,
+                  child: SizedBox.expand(
+                    child: Stack(
+                      children: [
+                        Positioned(
+                          top: guiGeometry.top,
+                          left: 0,
+                          right: 0,
+                          height: guiGeometry.height,
+                          child: Container(
+                            key: const ValueKey('renpy-dialogue-box'),
+                            decoration: _dialogueBoxDecoration(
+                              showBorder: false,
+                            ),
+                            child: _dialogueContent(
+                              text: status.displayText,
+                              who: who,
+                              whoColor: whoColor,
+                              theme: theme,
+                              style:
+                                  baseDialogueStyle?.merge(
+                                    scaledDialogueStyle,
+                                  ) ??
+                                  scaledDialogueStyle,
+                              padding: EdgeInsets.only(
+                                left: guiGeometry.dialogueLeft,
+                                top: guiGeometry.dialogueTop,
+                              ),
+                              width: guiGeometry.dialogueWidth,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
               return GestureDetector(
                 onTap: controller.continueGame,
                 behavior: HitTestBehavior.opaque,
@@ -48,37 +96,16 @@ class RenPyDialogueView extends StatelessWidget {
                       width: double.infinity,
                       constraints: const BoxConstraints(minHeight: 112),
                       padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.72),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.16),
-                        ),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: SingleChildScrollView(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (who != null) ...[
-                              Text(
-                                who,
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  color: whoColor,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                            ],
-                            RenPyText(
-                              status.displayText,
-                              style:
-                                  baseDialogueStyle?.merge(
-                                    scaledDialogueStyle,
-                                  ) ??
-                                  scaledDialogueStyle,
-                            ),
-                          ],
-                        ),
+                      key: const ValueKey('renpy-dialogue-box'),
+                      decoration: _dialogueBoxDecoration(),
+                      child: _dialogueContent(
+                        text: status.displayText,
+                        who: who,
+                        whoColor: whoColor,
+                        theme: theme,
+                        style:
+                            baseDialogueStyle?.merge(scaledDialogueStyle) ??
+                            scaledDialogueStyle,
                       ),
                     ),
                   ),
@@ -96,6 +123,100 @@ class RenPyDialogueView extends StatelessWidget {
   }
 }
 
+BoxDecoration _dialogueBoxDecoration({bool showBorder = true}) {
+  return BoxDecoration(
+    color: Colors.black.withValues(alpha: 0.72),
+    border:
+        showBorder
+            ? Border.all(color: Colors.white.withValues(alpha: 0.16))
+            : null,
+    borderRadius: BorderRadius.circular(8),
+  );
+}
+
+Widget _dialogueContent({
+  required String text,
+  required String? who,
+  required Color whoColor,
+  required ThemeData theme,
+  required TextStyle? style,
+  EdgeInsets padding = EdgeInsets.zero,
+  double? width,
+}) {
+  final content = SingleChildScrollView(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (who != null) ...[
+          Text(
+            who,
+            style: theme.textTheme.titleMedium?.copyWith(color: whoColor),
+          ),
+          const SizedBox(height: 4),
+        ],
+        RenPyText(text, style: style),
+      ],
+    ),
+  );
+
+  return Padding(
+    padding: padding,
+    child: width == null ? content : SizedBox(width: width, child: content),
+  );
+}
+
+final class _RenPyDialogueGeometry {
+  const _RenPyDialogueGeometry({
+    required this.top,
+    required this.height,
+    required this.dialogueLeft,
+    required this.dialogueTop,
+    this.dialogueWidth,
+  });
+
+  final double top;
+  final double height;
+  final double dialogueLeft;
+  final double dialogueTop;
+  final double? dialogueWidth;
+
+  static _RenPyDialogueGeometry? fromGui(
+    RenPyGuiConfiguration? gui,
+    RenPyScreenSize? screenSize,
+    BoxConstraints constraints,
+  ) {
+    final textboxHeight = gui?.textboxHeight;
+    final size = screenSize;
+    if (gui == null || textboxHeight == null || size == null) return null;
+    if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight) {
+      return null;
+    }
+
+    final scale = _stageScale(size, constraints);
+    if (scale == null) return null;
+    final height = textboxHeight * scale;
+    final yAlign = gui.textboxYAlign ?? 1.0;
+    final top = (constraints.maxHeight - height) * yAlign;
+    return _RenPyDialogueGeometry(
+      top: top,
+      height: height,
+      dialogueLeft: (gui.dialogueXPos ?? 0) * scale,
+      dialogueTop: (gui.dialogueYPos ?? 0) * scale,
+      dialogueWidth:
+          gui.dialogueWidth == null ? null : gui.dialogueWidth! * scale,
+    );
+  }
+}
+
+double? _stageScale(RenPyScreenSize screenSize, BoxConstraints constraints) {
+  final widthScale = constraints.maxWidth / screenSize.width;
+  final heightScale = constraints.maxHeight / screenSize.height;
+  final scale = widthScale < heightScale ? widthScale : heightScale;
+  if (!scale.isFinite || scale <= 0) return null;
+  return scale;
+}
+
 /// Scales RenPy script pixel sizes into the currently laid out stage.
 TextStyle? _scaledDialogueStyle(
   TextStyle? style,
@@ -105,14 +226,8 @@ TextStyle? _scaledDialogueStyle(
   final fontSize = style?.fontSize;
   final size = screenSize;
   if (style == null || fontSize == null || size == null) return style;
-  if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight) {
-    return style;
-  }
-
-  final widthScale = constraints.maxWidth / size.width;
-  final heightScale = constraints.maxHeight / size.height;
-  final scale = widthScale < heightScale ? widthScale : heightScale;
-  if (!scale.isFinite || scale <= 0) return style;
+  final scale = _stageScale(size, constraints);
+  if (scale == null) return style;
 
   return style.copyWith(fontSize: fontSize * scale);
 }

@@ -33,6 +33,7 @@ class RenPyPlayer extends StatelessWidget {
     this.audioPlayback,
     this.preferenceStore,
     this.dialogueStyle,
+    this.gui,
   });
 
   final RenPyFlutterController controller;
@@ -45,6 +46,7 @@ class RenPyPlayer extends StatelessWidget {
   final RenPyAudioPlayback? audioPlayback;
   final RenPyPreferenceStore? preferenceStore;
   final TextStyle? dialogueStyle;
+  final RenPyGuiConfiguration? gui;
 
   Future<void> _saveGame(BuildContext context) async {
     final saved = await controller.saveGame();
@@ -132,6 +134,7 @@ class RenPyPlayer extends StatelessWidget {
           controller: controller,
           dialogueStyle: dialogueStyle,
           screenSize: screenSize,
+          gui: gui,
         ),
         RenPyMenuSelector(controller: controller),
         ValueListenableBuilder<RenPyGameStatus>(
@@ -751,6 +754,7 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
       audioPlayback: widget.audioPlayback ?? _ownedAudioPlayback,
       preferenceStore: widget.preferenceStore,
       dialogueStyle: _dialogueStyle(widget.project.gui),
+      gui: widget.project.gui,
     );
   }
 }

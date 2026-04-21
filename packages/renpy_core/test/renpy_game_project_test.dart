@@ -239,6 +239,28 @@ define gui.text_size = 12
     expect(project.gui.dialogueTextColor, '#ffffff');
     expect(project.gui.dialogueTextOutlineColor, '#000000');
   });
+
+  test('discovers RenPy GUI dialogue window geometry metadata', () {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('confession/game/options.rpy', '''
+define gui.textbox_height = 278
+define gui.textbox_yalign = 1.0
+define gui.dialogue_xpos = 120
+define gui.dialogue_ypos = 74
+define gui.dialogue_width = 1040
+'''),
+      RenPyProjectFile.text('confession/game/script.rpy', '''
+label start:
+    "Geometry."
+'''),
+    ]);
+
+    expect(project.gui.textboxHeight, 278);
+    expect(project.gui.textboxYAlign, 1.0);
+    expect(project.gui.dialogueXPos, 120);
+    expect(project.gui.dialogueYPos, 74);
+    expect(project.gui.dialogueWidth, 1040);
+  });
 }
 
 Uint8List _rpaArchive(Map<String, List<int>> files) {
