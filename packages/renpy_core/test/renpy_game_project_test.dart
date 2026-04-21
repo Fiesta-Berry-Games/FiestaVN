@@ -261,6 +261,35 @@ label start:
     expect(project.gui.dialogueYPos, 74);
     expect(project.gui.dialogueWidth, 1040);
   });
+
+  test('discovers RenPy GUI textbox image metadata', () {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('confession/game/options.rpy', '''
+define gui.textbox = "gui/textbox.png"
+'''),
+      RenPyProjectFile.text('confession/game/script.rpy', '''
+label start:
+    "Textbox image."
+'''),
+    ]);
+
+    expect(project.gui.textboxAsset, 'gui/textbox.png');
+  });
+
+  test('discovers RenPy window style textbox image metadata', () {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('confession/game/screens.rpy', '''
+style window:
+    background Frame("gui/textbox.png", 12, 12)
+'''),
+      RenPyProjectFile.text('confession/game/script.rpy', '''
+label start:
+    "Textbox image from style."
+'''),
+    ]);
+
+    expect(project.gui.textboxAsset, 'gui/textbox.png');
+  });
 }
 
 Uint8List _rpaArchive(Map<String, List<int>> files) {

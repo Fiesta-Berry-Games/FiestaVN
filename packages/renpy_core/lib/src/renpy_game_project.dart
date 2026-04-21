@@ -44,6 +44,7 @@ final class RenPyGuiConfiguration {
     this.dialogueTextOutlineColor,
     this.textboxHeight,
     this.textboxYAlign,
+    this.textboxAsset,
     this.dialogueXPos,
     this.dialogueYPos,
     this.dialogueWidth,
@@ -55,6 +56,7 @@ final class RenPyGuiConfiguration {
   final String? dialogueTextOutlineColor;
   final double? textboxHeight;
   final double? textboxYAlign;
+  final String? textboxAsset;
   final double? dialogueXPos;
   final double? dialogueYPos;
   final double? dialogueWidth;
@@ -68,6 +70,7 @@ final class RenPyGuiConfiguration {
     String? dialogueTextOutlineColor;
     double? textboxHeight;
     double? textboxYAlign;
+    String? textboxAsset;
     double? dialogueXPos;
     double? dialogueYPos;
     double? dialogueWidth;
@@ -89,6 +92,8 @@ final class RenPyGuiConfiguration {
             textboxHeight = _renpyNumberLiteral(expression);
           case 'textbox_yalign':
             textboxYAlign = _renpyNumberLiteral(expression);
+          case 'textbox':
+            textboxAsset = _renpyStringLiteral(expression);
           case 'dialogue_xpos':
             dialogueXPos = _renpyNumberLiteral(expression);
           case 'dialogue_ypos':
@@ -97,6 +102,7 @@ final class RenPyGuiConfiguration {
             dialogueWidth = _renpyNumberLiteral(expression);
         }
       }
+      textboxAsset ??= _renpyWindowStyleBackgroundAsset(source);
     }
 
     return RenPyGuiConfiguration(
@@ -106,6 +112,7 @@ final class RenPyGuiConfiguration {
       dialogueTextOutlineColor: dialogueTextOutlineColor,
       textboxHeight: textboxHeight,
       textboxYAlign: textboxYAlign,
+      textboxAsset: textboxAsset,
       dialogueXPos: dialogueXPos,
       dialogueYPos: dialogueYPos,
       dialogueWidth: dialogueWidth,
@@ -122,6 +129,7 @@ final class RenPyGuiConfiguration {
             dialogueTextOutlineColor == other.dialogueTextOutlineColor &&
             textboxHeight == other.textboxHeight &&
             textboxYAlign == other.textboxYAlign &&
+            textboxAsset == other.textboxAsset &&
             dialogueXPos == other.dialogueXPos &&
             dialogueYPos == other.dialogueYPos &&
             dialogueWidth == other.dialogueWidth;
@@ -135,6 +143,7 @@ final class RenPyGuiConfiguration {
     dialogueTextOutlineColor,
     textboxHeight,
     textboxYAlign,
+    textboxAsset,
     dialogueXPos,
     dialogueYPos,
     dialogueWidth,
@@ -419,6 +428,47 @@ final class RenPyGameProject {
       ).map((script) => utf8.decode(script.value, allowMalformed: true)),
     );
   }
+}
+
+String? _renpyWindowStyleBackgroundAsset(String source) {
+  final lines = const LineSplitter().convert(source);
+
+  for (var i = 0; i < lines.length; i += 1) {
+    final line = lines[i];
+    final trimmed = line.trimLeft();
+    if (trimmed != 'style window:') continue;
+
+    final blockIndent = line.length - trimmed.length;
+    for (var j = i + 1; j < lines.length; j += 1) {
+      final childLine = lines[j];
+      final childTrimmed = childLine.trimLeft();
+      if (childTrimmed.isEmpty || childTrimmed.startsWith('#')) continue;
+
+      final childIndent = childLine.length - childTrimmed.length;
+      if (childIndent <= blockIndent) break;
+
+      final backgroundAsset = _renpyBackgroundAsset(childTrimmed);
+      if (backgroundAsset != null) return backgroundAsset;
+    }
+  }
+
+  return null;
+}
+
+String? _renpyBackgroundAsset(String line) {
+  const keyword = 'background';
+  if (line != keyword && !line.startsWith('$keyword ')) return null;
+
+  final expression = line.substring(keyword.length).trim();
+  return _renpyStringLiteral(expression) ??
+      _renpyDisplayableAssetLiteral(expression);
+}
+
+String? _renpyDisplayableAssetLiteral(String expression) {
+  final match = RegExp(
+    r'''^(?:Frame|Image)\(\s*(["'])(.*?)\1''',
+  ).firstMatch(expression.trim());
+  return match?.group(2);
 }
 
 RenPyScreenSize? _screenSizeFromSources(Iterable<String> sources) {

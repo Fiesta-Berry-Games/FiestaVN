@@ -29,6 +29,7 @@ class RenPyPlayer extends StatelessWidget {
     this.onRestart,
     this.imageLayerBuilder,
     this.gameRoot = '',
+    this.dialogueImageProvider,
     this.screenSize,
     this.audioPlayback,
     this.preferenceStore,
@@ -44,6 +45,7 @@ class RenPyPlayer extends StatelessWidget {
   final String gameRoot;
   final RenPyScreenSize? screenSize;
   final RenPyAudioPlayback? audioPlayback;
+  final RenPyImageProviderFactory? dialogueImageProvider;
   final RenPyPreferenceStore? preferenceStore;
   final TextStyle? dialogueStyle;
   final RenPyGuiConfiguration? gui;
@@ -135,6 +137,7 @@ class RenPyPlayer extends StatelessWidget {
           dialogueStyle: dialogueStyle,
           screenSize: screenSize,
           gui: gui,
+          imageProvider: dialogueImageProvider,
         ),
         RenPyMenuSelector(controller: controller),
         ValueListenableBuilder<RenPyGameStatus>(
@@ -721,7 +724,13 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
   }
 
   ImageProvider<Object> _imageProvider(String assetPath) {
-    final bytes = widget.project.readAsset(assetPath);
+    final bytes =
+        widget.project.readAsset(assetPath) ??
+        (widget.project.gameRoot.isEmpty
+            ? null
+            : widget.project.readAsset(
+              '${widget.project.gameRoot}/$assetPath',
+            ));
     if (bytes == null) return AssetImage(assetPath);
     return MemoryImage(bytes);
   }
@@ -755,6 +764,7 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
       preferenceStore: widget.preferenceStore,
       dialogueStyle: _dialogueStyle(widget.project.gui),
       gui: widget.project.gui,
+      dialogueImageProvider: _imageProvider,
     );
   }
 }

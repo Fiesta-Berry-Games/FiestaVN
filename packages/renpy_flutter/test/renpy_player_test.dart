@@ -874,6 +874,43 @@ label start:
     expect(tester.getSize(renpyText).width, lessThanOrEqualTo(650));
   });
 
+  testWidgets('project player applies RenPy GUI textbox image', (tester) async {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('confession/game/options.rpy', '''
+define config.screen_width = 1280
+define config.screen_height = 960
+define gui.textbox_height = 278
+define gui.textbox_yalign = 1.0
+define gui.textbox = "gui/textbox.png"
+'''),
+      RenPyProjectFile.text('confession/game/script.rpy', '''
+label start:
+    "Textbox image by GUI."
+'''),
+      RenPyProjectFile(
+        'confession/game/gui/textbox.png',
+        _transparentPngBytes(),
+      ),
+    ]);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyProjectPlayer(project: project)),
+    );
+
+    await _pumpUntil(tester, find.text('Textbox image by GUI.'));
+
+    final textBox = find.byKey(const ValueKey('renpy-dialogue-box'));
+    expect(textBox, findsOneWidget);
+
+    final container = tester.widget<Container>(textBox);
+    final decoration = container.decoration;
+    expect(decoration, isA<BoxDecoration>());
+
+    final boxDecoration = decoration! as BoxDecoration;
+    expect(boxDecoration.image, isNotNull);
+    expect(boxDecoration.image!.fit, BoxFit.fill);
+    expect(boxDecoration.image!.image, isA<MemoryImage>());
+  });
   testWidgets('project player exposes its controller for harnesses', (
     tester,
   ) async {

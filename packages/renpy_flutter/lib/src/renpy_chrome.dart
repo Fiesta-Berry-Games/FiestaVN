@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:renpy_core/renpy_core.dart'
     show RenPyGuiConfiguration, RenPyScreenSize;
 
+import 'renpy_image_layer.dart';
 import 'renpy_flutter_controller.dart';
 import 'renpy_text.dart';
 
@@ -13,12 +14,14 @@ class RenPyDialogueView extends StatelessWidget {
     this.dialogueStyle,
     this.screenSize,
     this.gui,
+    this.imageProvider,
   });
 
   final RenPyFlutterController controller;
   final TextStyle? dialogueStyle;
   final RenPyScreenSize? screenSize;
   final RenPyGuiConfiguration? gui;
+  final RenPyImageProviderFactory? imageProvider;
 
   @override
   Widget build(BuildContext context) {
@@ -61,6 +64,7 @@ class RenPyDialogueView extends StatelessWidget {
                             key: const ValueKey('renpy-dialogue-box'),
                             decoration: _dialogueBoxDecoration(
                               showBorder: false,
+                              image: _dialogueBoxImage(gui, imageProvider),
                             ),
                             child: _dialogueContent(
                               text: status.displayText,
@@ -123,15 +127,29 @@ class RenPyDialogueView extends StatelessWidget {
   }
 }
 
-BoxDecoration _dialogueBoxDecoration({bool showBorder = true}) {
+BoxDecoration _dialogueBoxDecoration({
+  bool showBorder = true,
+  DecorationImage? image,
+}) {
   return BoxDecoration(
     color: Colors.black.withValues(alpha: 0.72),
     border:
         showBorder
             ? Border.all(color: Colors.white.withValues(alpha: 0.16))
             : null,
+    image: image,
     borderRadius: BorderRadius.circular(8),
   );
+}
+
+DecorationImage? _dialogueBoxImage(
+  RenPyGuiConfiguration? gui,
+  RenPyImageProviderFactory? imageProvider,
+) {
+  final textboxAsset = gui?.textboxAsset;
+  if (textboxAsset == null || imageProvider == null) return null;
+
+  return DecorationImage(image: imageProvider(textboxAsset), fit: BoxFit.fill);
 }
 
 Widget _dialogueContent({
