@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -30,6 +31,7 @@ class RenPyPlayer extends StatelessWidget {
     this.imageLayerBuilder,
     this.gameRoot = '',
     this.dialogueImageProvider,
+    this.dialogueImageResolver,
     this.screenSize,
     this.audioPlayback,
     this.preferenceStore,
@@ -46,6 +48,7 @@ class RenPyPlayer extends StatelessWidget {
   final RenPyScreenSize? screenSize;
   final RenPyAudioPlayback? audioPlayback;
   final RenPyImageProviderFactory? dialogueImageProvider;
+  final RenPyDialogueImageResolver? dialogueImageResolver;
   final RenPyPreferenceStore? preferenceStore;
   final TextStyle? dialogueStyle;
   final RenPyGuiConfiguration? gui;
@@ -138,6 +141,7 @@ class RenPyPlayer extends StatelessWidget {
           screenSize: screenSize,
           gui: gui,
           imageProvider: dialogueImageProvider,
+          imageResolver: dialogueImageResolver,
         ),
         RenPyMenuSelector(controller: controller),
         ValueListenableBuilder<RenPyGameStatus>(
@@ -723,14 +727,17 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
     }
   }
 
-  ImageProvider<Object> _imageProvider(String assetPath) {
-    final bytes =
-        widget.project.readAsset(assetPath) ??
+  Uint8List? _readProjectAsset(String assetPath) {
+    return widget.project.readAsset(assetPath) ??
         (widget.project.gameRoot.isEmpty
             ? null
             : widget.project.readAsset(
               '${widget.project.gameRoot}/$assetPath',
             ));
+  }
+
+  ImageProvider<Object> _imageProvider(String assetPath) {
+    final bytes = _readProjectAsset(assetPath);
     if (bytes == null) return AssetImage(assetPath);
     return MemoryImage(bytes);
   }
@@ -740,6 +747,17 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
     _ownedAudioPlayback?.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  RenPyDialogueResolvedImage _dialogueImageResolver(String assetPath) {
+    final bytes = _readProjectAsset(assetPath);
+    if (bytes == null) {
+      return RenPyDialogueResolvedImage(provider: AssetImage(assetPath));
+    }
+    return RenPyDialogueResolvedImage(
+      provider: MemoryImage(bytes),
+      size: _pngSize(bytes),
+    );
   }
 
   @override
@@ -764,7 +782,7 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
       preferenceStore: widget.preferenceStore,
       dialogueStyle: _dialogueStyle(widget.project.gui),
       gui: widget.project.gui,
-      dialogueImageProvider: _imageProvider,
+      dialogueImageResolver: _dialogueImageResolver,
     );
   }
 }
@@ -981,4 +999,19 @@ List<Shadow> _outlineShadows(Color color) {
     ])
       Shadow(offset: offset, color: color),
   ];
+}
+
+Size? _pngSize(Uint8List bytes) {
+  const signature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+  if (bytes.length < 24) return null;
+  for (var i = 0; i < signature.length; i += 1) {
+    if (bytes[i] != signature[i]) return null;
+  }
+  if (String.fromCharCodes(bytes.sublist(12, 16)) != 'IHDR') return null;
+
+  final data = ByteData.sublistView(bytes);
+  final width = data.getUint32(16);
+  final height = data.getUint32(20);
+  if (width == 0 || height == 0) return null;
+  return Size(width.toDouble(), height.toDouble());
 }

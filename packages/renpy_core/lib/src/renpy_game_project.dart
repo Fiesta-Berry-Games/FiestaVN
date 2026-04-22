@@ -35,6 +35,71 @@ final class RenPyScreenSize {
   }
 }
 
+/// A Ren'Py GUI background value that can be rendered behind dialogue.
+sealed class RenPyGuiBackground {
+  const RenPyGuiBackground({required this.asset});
+
+  final String asset;
+}
+
+/// A plain Ren'Py GUI image background.
+final class RenPyGuiImageBackground extends RenPyGuiBackground {
+  const RenPyGuiImageBackground(String asset) : super(asset: asset);
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        other is RenPyGuiImageBackground && asset == other.asset;
+  }
+
+  @override
+  int get hashCode => Object.hash(RenPyGuiImageBackground, asset);
+
+  @override
+  String toString() => 'RenPyGuiImageBackground(asset: $asset)';
+}
+
+/// A Ren'Py Frame background with fixed image-border regions.
+final class RenPyGuiFrameBackground extends RenPyGuiBackground {
+  const RenPyGuiFrameBackground({
+    required super.asset,
+    required this.left,
+    required this.top,
+    required this.right,
+    required this.bottom,
+  });
+
+  final double left;
+  final double top;
+  final double right;
+  final double bottom;
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        other is RenPyGuiFrameBackground &&
+            asset == other.asset &&
+            left == other.left &&
+            top == other.top &&
+            right == other.right &&
+            bottom == other.bottom;
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(RenPyGuiFrameBackground, asset, left, top, right, bottom);
+
+  @override
+  String toString() {
+    return 'RenPyGuiFrameBackground('
+        'asset: $asset, '
+        'left: $left, '
+        'top: $top, '
+        'right: $right, '
+        'bottom: $bottom)';
+  }
+}
+
 /// Ren'Py GUI configuration values that affect default presentation.
 final class RenPyGuiConfiguration {
   const RenPyGuiConfiguration({
@@ -44,7 +109,7 @@ final class RenPyGuiConfiguration {
     this.dialogueTextOutlineColor,
     this.textboxHeight,
     this.textboxYAlign,
-    this.textboxAsset,
+    this.textboxBackground,
     this.dialogueXPos,
     this.dialogueYPos,
     this.dialogueWidth,
@@ -56,10 +121,12 @@ final class RenPyGuiConfiguration {
   final String? dialogueTextOutlineColor;
   final double? textboxHeight;
   final double? textboxYAlign;
-  final String? textboxAsset;
+  final RenPyGuiBackground? textboxBackground;
   final double? dialogueXPos;
   final double? dialogueYPos;
   final double? dialogueWidth;
+
+  String? get textboxAsset => textboxBackground?.asset;
 
   static const empty = RenPyGuiConfiguration();
 
@@ -70,7 +137,7 @@ final class RenPyGuiConfiguration {
     String? dialogueTextOutlineColor;
     double? textboxHeight;
     double? textboxYAlign;
-    String? textboxAsset;
+    RenPyGuiBackground? textboxBackground;
     double? dialogueXPos;
     double? dialogueYPos;
     double? dialogueWidth;
@@ -93,7 +160,7 @@ final class RenPyGuiConfiguration {
           case 'textbox_yalign':
             textboxYAlign = _renpyNumberLiteral(expression);
           case 'textbox':
-            textboxAsset = _renpyStringLiteral(expression);
+            textboxBackground = _renpyImageBackground(expression);
           case 'dialogue_xpos':
             dialogueXPos = _renpyNumberLiteral(expression);
           case 'dialogue_ypos':
@@ -102,7 +169,7 @@ final class RenPyGuiConfiguration {
             dialogueWidth = _renpyNumberLiteral(expression);
         }
       }
-      textboxAsset ??= _renpyWindowStyleBackgroundAsset(source);
+      textboxBackground ??= _renpyWindowStyleBackground(source);
     }
 
     return RenPyGuiConfiguration(
@@ -112,7 +179,7 @@ final class RenPyGuiConfiguration {
       dialogueTextOutlineColor: dialogueTextOutlineColor,
       textboxHeight: textboxHeight,
       textboxYAlign: textboxYAlign,
-      textboxAsset: textboxAsset,
+      textboxBackground: textboxBackground,
       dialogueXPos: dialogueXPos,
       dialogueYPos: dialogueYPos,
       dialogueWidth: dialogueWidth,
@@ -129,7 +196,7 @@ final class RenPyGuiConfiguration {
             dialogueTextOutlineColor == other.dialogueTextOutlineColor &&
             textboxHeight == other.textboxHeight &&
             textboxYAlign == other.textboxYAlign &&
-            textboxAsset == other.textboxAsset &&
+            textboxBackground == other.textboxBackground &&
             dialogueXPos == other.dialogueXPos &&
             dialogueYPos == other.dialogueYPos &&
             dialogueWidth == other.dialogueWidth;
@@ -143,7 +210,7 @@ final class RenPyGuiConfiguration {
     dialogueTextOutlineColor,
     textboxHeight,
     textboxYAlign,
-    textboxAsset,
+    textboxBackground,
     dialogueXPos,
     dialogueYPos,
     dialogueWidth,
@@ -430,7 +497,7 @@ final class RenPyGameProject {
   }
 }
 
-String? _renpyWindowStyleBackgroundAsset(String source) {
+RenPyGuiBackground? _renpyWindowStyleBackground(String source) {
   final lines = const LineSplitter().convert(source);
 
   for (var i = 0; i < lines.length; i += 1) {
@@ -447,28 +514,67 @@ String? _renpyWindowStyleBackgroundAsset(String source) {
       final childIndent = childLine.length - childTrimmed.length;
       if (childIndent <= blockIndent) break;
 
-      final backgroundAsset = _renpyBackgroundAsset(childTrimmed);
-      if (backgroundAsset != null) return backgroundAsset;
+      final background = _renpyBackground(childTrimmed);
+      if (background != null) return background;
     }
   }
 
   return null;
 }
 
-String? _renpyBackgroundAsset(String line) {
+RenPyGuiBackground? _renpyBackground(String line) {
   const keyword = 'background';
   if (line != keyword && !line.startsWith('$keyword ')) return null;
 
   final expression = line.substring(keyword.length).trim();
-  return _renpyStringLiteral(expression) ??
-      _renpyDisplayableAssetLiteral(expression);
+  return _renpyImageBackground(expression) ??
+      _renpyDisplayableBackground(expression);
 }
 
-String? _renpyDisplayableAssetLiteral(String expression) {
+RenPyGuiImageBackground? _renpyImageBackground(String expression) {
+  final asset = _renpyStringLiteral(expression);
+  return asset == null ? null : RenPyGuiImageBackground(asset);
+}
+
+RenPyGuiBackground? _renpyDisplayableBackground(String expression) {
+  final trimmed = expression.trim();
+  return _renpyFrameBackground(trimmed) ?? _renpyImageDisplayable(trimmed);
+}
+
+RenPyGuiFrameBackground? _renpyFrameBackground(String expression) {
   final match = RegExp(
-    r'''^(?:Frame|Image)\(\s*(["'])(.*?)\1''',
-  ).firstMatch(expression.trim());
-  return match?.group(2);
+    r'''^Frame\(\s*(["'])(.*?)\1\s*(?:,\s*(.*?))?\s*\)$''',
+  ).firstMatch(expression);
+  if (match == null) return null;
+
+  final args = _renpyArgumentList(match.group(3) ?? '');
+  if (args.length < 2) return null;
+
+  final left = _renpyNumberLiteral(args[0]);
+  final top = _renpyNumberLiteral(args[1]);
+  final right = args.length >= 4 ? _renpyNumberLiteral(args[2]) : left;
+  final bottom = args.length >= 4 ? _renpyNumberLiteral(args[3]) : top;
+  if (left == null || top == null || right == null || bottom == null) {
+    return null;
+  }
+
+  return RenPyGuiFrameBackground(
+    asset: match.group(2)!,
+    left: left,
+    top: top,
+    right: right,
+    bottom: bottom,
+  );
+}
+
+RenPyGuiImageBackground? _renpyImageDisplayable(String expression) {
+  final match = RegExp(r'''^Image\(\s*(["'])(.*?)\1''').firstMatch(expression);
+  return match == null ? null : RenPyGuiImageBackground(match.group(2)!);
+}
+
+List<String> _renpyArgumentList(String expression) {
+  if (expression.trim().isEmpty) return const [];
+  return expression.split(',').map((argument) => argument.trim()).toList();
 }
 
 RenPyScreenSize? _screenSizeFromSources(Iterable<String> sources) {

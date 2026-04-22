@@ -290,6 +290,29 @@ label start:
 
     expect(project.gui.textboxAsset, 'gui/textbox.png');
   });
+
+  test('preserves RenPy window Frame textbox borders', () {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('confession/game/screens.rpy', '''
+style window:
+    background Frame("gui/textbox.png", 12, 8, 14, 10)
+'''),
+      RenPyProjectFile.text('confession/game/script.rpy', '''
+label start:
+    "Framed textbox image."
+'''),
+    ]);
+
+    final background = project.gui.textboxBackground;
+    expect(background, isA<RenPyGuiFrameBackground>());
+
+    final frame = background as RenPyGuiFrameBackground;
+    expect(frame.asset, 'gui/textbox.png');
+    expect(frame.left, 12);
+    expect(frame.top, 8);
+    expect(frame.right, 14);
+    expect(frame.bottom, 10);
+  });
 }
 
 Uint8List _rpaArchive(Map<String, List<int>> files) {

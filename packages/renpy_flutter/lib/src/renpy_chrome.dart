@@ -1,10 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:renpy_core/renpy_core.dart'
-    show RenPyGuiConfiguration, RenPyScreenSize;
+    show RenPyGuiConfiguration, RenPyGuiFrameBackground, RenPyScreenSize;
 
 import 'renpy_image_layer.dart';
 import 'renpy_flutter_controller.dart';
 import 'renpy_text.dart';
+
+typedef RenPyDialogueImageResolver =
+    RenPyDialogueResolvedImage Function(String assetPath);
+
+/// An image resolved for Ren'Py chrome, with optional source dimensions.
+final class RenPyDialogueResolvedImage {
+  const RenPyDialogueResolvedImage({required this.provider, this.size});
+
+  final ImageProvider<Object> provider;
+  final Size? size;
+}
 
 /// Displays RenPy dialogue and errors over the current scene.
 class RenPyDialogueView extends StatelessWidget {
@@ -15,6 +26,7 @@ class RenPyDialogueView extends StatelessWidget {
     this.screenSize,
     this.gui,
     this.imageProvider,
+    this.imageResolver,
   });
 
   final RenPyFlutterController controller;
@@ -22,6 +34,7 @@ class RenPyDialogueView extends StatelessWidget {
   final RenPyScreenSize? screenSize;
   final RenPyGuiConfiguration? gui;
   final RenPyImageProviderFactory? imageProvider;
+  final RenPyDialogueImageResolver? imageResolver;
 
   @override
   Widget build(BuildContext context) {
@@ -64,7 +77,11 @@ class RenPyDialogueView extends StatelessWidget {
                             key: const ValueKey('renpy-dialogue-box'),
                             decoration: _dialogueBoxDecoration(
                               showBorder: false,
-                              image: _dialogueBoxImage(gui, imageProvider),
+                              image: _dialogueBoxImage(
+                                gui,
+                                imageResolver,
+                                imageProvider,
+                              ),
                             ),
                             child: _dialogueContent(
                               text: status.displayText,
@@ -144,12 +161,44 @@ BoxDecoration _dialogueBoxDecoration({
 
 DecorationImage? _dialogueBoxImage(
   RenPyGuiConfiguration? gui,
+  RenPyDialogueImageResolver? imageResolver,
   RenPyImageProviderFactory? imageProvider,
 ) {
-  final textboxAsset = gui?.textboxAsset;
-  if (textboxAsset == null || imageProvider == null) return null;
+  final background = gui?.textboxBackground;
+  if (background == null) return null;
 
-  return DecorationImage(image: imageProvider(textboxAsset), fit: BoxFit.fill);
+  final resolvedImage = _resolveDialogueImage(
+    background.asset,
+    imageResolver,
+    imageProvider,
+  );
+  if (resolvedImage == null) return null;
+
+  return DecorationImage(
+    image: resolvedImage.provider,
+    fit: BoxFit.fill,
+    centerSlice: _centerSliceForBackground(background, resolvedImage.size),
+  );
+}
+
+RenPyDialogueResolvedImage? _resolveDialogueImage(
+  String assetPath,
+  RenPyDialogueImageResolver? imageResolver,
+  RenPyImageProviderFactory? imageProvider,
+) {
+  if (imageResolver != null) return imageResolver(assetPath);
+  if (imageProvider == null) return null;
+  return RenPyDialogueResolvedImage(provider: imageProvider(assetPath));
+}
+
+Rect? _centerSliceForBackground(Object background, Size? sourceSize) {
+  if (background is! RenPyGuiFrameBackground || sourceSize == null) return null;
+
+  final right = sourceSize.width - background.right;
+  final bottom = sourceSize.height - background.bottom;
+  if (background.left >= right || background.top >= bottom) return null;
+
+  return Rect.fromLTRB(background.left, background.top, right, bottom);
 }
 
 Widget _dialogueContent({

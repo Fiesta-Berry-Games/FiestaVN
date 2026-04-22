@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show zlib;
+import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -911,6 +913,45 @@ label start:
     expect(boxDecoration.image!.fit, BoxFit.fill);
     expect(boxDecoration.image!.image, isA<MemoryImage>());
   });
+
+  testWidgets('project player applies RenPy GUI textbox Frame borders', (
+    tester,
+  ) async {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('confession/game/options.rpy', '''
+define config.screen_width = 1280
+define config.screen_height = 960
+define gui.textbox_height = 278
+define gui.textbox_yalign = 1.0
+'''),
+      RenPyProjectFile.text('confession/game/screens.rpy', '''
+style window:
+    background Frame("gui/textbox.png", 4, 3, 5, 6)
+'''),
+      RenPyProjectFile.text('confession/game/script.rpy', '''
+label start:
+    "Framed textbox image by GUI."
+'''),
+      RenPyProjectFile(
+        'confession/game/gui/textbox.png',
+        _solidPngBytes(width: 20, height: 16),
+      ),
+    ]);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyProjectPlayer(project: project)),
+    );
+
+    await _pumpUntil(tester, find.text('Framed textbox image by GUI.'));
+
+    final container = tester.widget<Container>(
+      find.byKey(const ValueKey('renpy-dialogue-box')),
+    );
+    final decoration = container.decoration! as BoxDecoration;
+
+    expect(decoration.image!.centerSlice, const Rect.fromLTRB(4, 3, 15, 10));
+  });
+
   testWidgets('project player exposes its controller for harnesses', (
     tester,
   ) async {
@@ -1178,6 +1219,62 @@ Uint8List _transparentPngBytes() {
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ'
     'AAAADUlEQVR42mP8z8BQDwAFgwJ/lQv3WQAAAABJRU5ErkJggg==',
   );
+}
+
+Uint8List _solidPngBytes({required int width, required int height}) {
+  final png = BytesBuilder();
+  png.add(const [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+  void addChunk(String type, List<int> data) {
+    final typeBytes = ascii.encode(type);
+    png.add(_uint32Bytes(data.length));
+    png.add(typeBytes);
+    png.add(data);
+    png.add(_uint32Bytes(_crc32([...typeBytes, ...data])));
+  }
+
+  final ihdr =
+      ByteData(13)
+        ..setUint32(0, width)
+        ..setUint32(4, height)
+        ..setUint8(8, 8)
+        ..setUint8(9, 6)
+        ..setUint8(10, 0)
+        ..setUint8(11, 0)
+        ..setUint8(12, 0);
+  addChunk('IHDR', ihdr.buffer.asUint8List());
+
+  final rows = BytesBuilder();
+  for (var y = 0; y < height; y += 1) {
+    rows.addByte(0);
+    for (var x = 0; x < width; x += 1) {
+      rows.add(const [0xFF, 0x00, 0x00, 0xFF]);
+    }
+  }
+  addChunk('IDAT', zlib.encode(rows.toBytes()));
+  addChunk('IEND', const []);
+
+  return png.toBytes();
+}
+
+List<int> _uint32Bytes(int value) {
+  return [
+    (value >> 24) & 0xFF,
+    (value >> 16) & 0xFF,
+    (value >> 8) & 0xFF,
+    value & 0xFF,
+  ];
+}
+
+int _crc32(List<int> bytes) {
+  var crc = 0xFFFFFFFF;
+  for (final byte in bytes) {
+    crc ^= byte;
+    for (var bit = 0; bit < 8; bit += 1) {
+      crc = (crc & 1) == 0 ? crc >> 1 : 0xEDB88320 ^ (crc >> 1);
+    }
+  }
+  return crc ^ 0xFFFFFFFF;
 }
 
 Future<void> _pumpUntil(WidgetTester tester, Finder finder) async {
