@@ -840,6 +840,133 @@ label start:
     );
   });
 
+  testWidgets('project player scales oversized Confession dialogue text', (
+    tester,
+  ) async {
+    const dialogue =
+        'The bottle shattered in my hands, leaving behind nothing.';
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('confession/game/options.rpy', '''
+define config.screen_width = 1280
+define config.screen_height = 960
+define gui.text_size = 48
+define gui.textbox_height = 93
+define gui.textbox_yalign = 1.0
+define gui.dialogue_xpos = 134
+define gui.dialogue_ypos = 25
+define gui.dialogue_width = 372
+'''),
+      RenPyProjectFile.text('confession/game/script.rpy', '''
+label start:
+    "$dialogue"
+'''),
+    ]);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyProjectPlayer(project: project)),
+    );
+
+    await _pumpUntil(tester, find.text(dialogue));
+
+    final renpyText = tester.widget<RenPyText>(find.byType(RenPyText));
+    expect(renpyText.style?.fontSize, closeTo(14.17, 0.01));
+
+    final textBox = find.byKey(const ValueKey('renpy-dialogue-box'));
+    expect(
+      tester.getBottomLeft(find.text(dialogue)).dy,
+      lessThanOrEqualTo(tester.getBottomLeft(textBox).dy + 1),
+    );
+  });
+
+  testWidgets('project player fits long Confession dialogue inside textbox', (
+    tester,
+  ) async {
+    const dialogue =
+        'Please note. This visual novel adaptation includes major spoilers. '
+        'The download to play this yourself, as well as places to purchase it '
+        'legitimately, are in the description. This project was made for fun, '
+        'and all credits go to the original creators. With that, I hope you '
+        'enjoy.';
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('confession/game/options.rpy', '''
+define config.screen_width = 1280
+define config.screen_height = 960
+define gui.text_size = 48
+define gui.textbox_height = 93
+define gui.textbox_yalign = 1.0
+define gui.dialogue_xpos = 134
+define gui.dialogue_ypos = 25
+define gui.dialogue_width = 372
+'''),
+      RenPyProjectFile.text('confession/game/script.rpy', '''
+label start:
+    "$dialogue"
+'''),
+    ]);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyProjectPlayer(project: project)),
+    );
+
+    await _pumpUntil(tester, find.text(dialogue));
+
+    final renpyText = tester.widget<RenPyText>(find.byType(RenPyText));
+    expect(renpyText.style?.fontSize, closeTo(14.17, 0.01));
+
+    final textBox = find.byKey(const ValueKey('renpy-dialogue-box'));
+    final textBoxTop = tester.getTopLeft(textBox).dy;
+    final textBoxBottom = tester.getBottomLeft(textBox).dy;
+    final textTop = tester.getTopLeft(find.text(dialogue)).dy;
+    final textBottom = tester.getBottomLeft(find.text(dialogue)).dy;
+    final textWidth = tester.getSize(find.text(dialogue)).width;
+
+    expect(tester.getSize(textBox).height, greaterThan(93 * 600 / 960));
+    expect(textBoxBottom, closeTo(600, 0.01));
+    expect(textBottom, lessThanOrEqualTo(textBoxBottom + 1));
+    expect(textTop, greaterThanOrEqualTo(textBoxTop));
+    expect(textTop - textBoxTop, closeTo(textBoxBottom - textBottom, 2));
+    expect(textWidth, greaterThan(tester.getSize(textBox).width * 0.6));
+  });
+
+  testWidgets('project player pins floating controls above dialogue', (
+    tester,
+  ) async {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('confession/game/options.rpy', '''
+define config.screen_width = 1280
+define config.screen_height = 960
+define gui.text_size = 48
+define gui.textbox_height = 93
+define gui.textbox_yalign = 1.0
+define gui.dialogue_xpos = 134
+define gui.dialogue_ypos = 25
+define gui.dialogue_width = 372
+'''),
+      RenPyProjectFile.text('confession/game/script.rpy', '''
+label start:
+    "Controls should not cover this dialogue."
+'''),
+    ]);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyProjectPlayer(project: project)),
+    );
+
+    await _pumpUntil(
+      tester,
+      find.text('Controls should not cover this dialogue.'),
+    );
+
+    final textBox = find.byKey(const ValueKey('renpy-dialogue-box'));
+    final restart = find.byTooltip('Restart');
+
+    expect(restart, findsOneWidget);
+    expect(
+      tester.getBottomRight(restart).dy,
+      lessThanOrEqualTo(tester.getTopRight(textBox).dy),
+    );
+  });
+
   testWidgets('project player applies RenPy GUI dialogue window geometry', (
     tester,
   ) async {
@@ -871,6 +998,11 @@ label start:
     expect(textBox, findsOneWidget);
     expect(tester.getSize(textBox).height, closeTo(173.75, 0.01));
     expect(tester.getTopLeft(textBox), const Offset(0, 426.25));
+    final container = tester.widget<Container>(textBox);
+    final padding = (container.child! as Padding).padding as EdgeInsets;
+    expect(padding.left, closeTo(75, 0.01));
+    expect(padding.right, closeTo(75, 0.01));
+    expect(padding.top, closeTo(46.25, 0.01));
     expect(tester.getTopLeft(renpyText).dx, closeTo(75, 0.01));
     expect(tester.getTopLeft(renpyText).dy, closeTo(472.5, 0.01));
     expect(tester.getSize(renpyText).width, lessThanOrEqualTo(650));

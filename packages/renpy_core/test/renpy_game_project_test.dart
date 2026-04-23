@@ -222,7 +222,7 @@ label start:
   test('discovers RenPy GUI dialogue text metadata from project scripts', () {
     final project = RenPyGameProject.fromFiles([
       RenPyProjectFile.text('confession/game/options.rpy', '''
-define gui.text_font = "sazanami-gothic.ttf"
+define gui.text_font = gui.preference("font", "sazanami-gothic.ttf")
 define gui.text_size = 48
 define gui.text_color = '#ffffff'
 define gui.dialogue_text_outlines = [ (0, "#000000", 3, 3) ]

@@ -161,7 +161,9 @@ final class RenPyGuiConfiguration {
         final expression = match.group(2)!.trim();
         switch (name) {
           case 'text_font':
-            dialogueTextFont = _renpyStringLiteral(expression);
+            dialogueTextFont =
+                _renpyStringLiteral(expression) ??
+                _renpyGuiPreferenceStringDefault(expression);
           case 'text_size':
             dialogueTextSize = double.tryParse(expression);
           case 'text_color':
@@ -702,6 +704,14 @@ String? _renpyStringLiteral(String expression) {
   final end = trimmed.indexOf(quote, 1);
   if (end == -1) return null;
   return trimmed.substring(1, end);
+}
+
+String? _renpyGuiPreferenceStringDefault(String expression) {
+  final match = RegExp(
+    r'''^gui\.preference\(\s*(["'])[^"']+\1\s*,\s*(["'])(.*?)\2\s*\)$''',
+  ).firstMatch(expression.trim());
+
+  return match?.group(3);
 }
 
 String? _renpyFirstQuotedColor(String expression) {

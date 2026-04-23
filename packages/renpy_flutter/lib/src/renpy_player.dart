@@ -156,7 +156,7 @@ class RenPyPlayer extends StatelessWidget {
 
             return PositionedDirectional(
               end: 16,
-              bottom: 16,
+              top: 16,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
