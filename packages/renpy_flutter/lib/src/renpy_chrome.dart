@@ -253,7 +253,7 @@ final class _RenPyDialogueGeometry {
     RenPyScreenSize? screenSize,
     BoxConstraints constraints,
   ) {
-    final textboxHeight = gui?.textboxHeight;
+    final textboxHeight = gui?.textboxHeight ?? gui?.windowYMinimum;
     final size = screenSize;
     if (gui == null || textboxHeight == null || size == null) return null;
     if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight) {
@@ -263,13 +263,15 @@ final class _RenPyDialogueGeometry {
     final scale = _stageScale(size, constraints);
     if (scale == null) return null;
     final height = textboxHeight * scale;
-    final yAlign = gui.textboxYAlign ?? 1.0;
+    final yAlign = gui.textboxYAlign ?? gui.windowYAlign ?? 1.0;
     final top = (constraints.maxHeight - height) * yAlign;
+    final dialogueX = gui.dialogueXPos ?? gui.windowXPadding ?? 0;
+    final dialogueY = gui.dialogueYPos ?? gui.windowYPadding ?? 0;
     return _RenPyDialogueGeometry(
       top: top,
       height: height,
-      dialogueLeft: (gui.dialogueXPos ?? 0) * scale,
-      dialogueTop: (gui.dialogueYPos ?? 0) * scale,
+      dialogueLeft: dialogueX * scale,
+      dialogueTop: dialogueY * scale,
       dialogueWidth:
           gui.dialogueWidth == null ? null : gui.dialogueWidth! * scale,
     );

@@ -110,6 +110,10 @@ final class RenPyGuiConfiguration {
     this.textboxHeight,
     this.textboxYAlign,
     this.textboxBackground,
+    this.windowYMinimum,
+    this.windowYAlign,
+    this.windowXPadding,
+    this.windowYPadding,
     this.dialogueXPos,
     this.dialogueYPos,
     this.dialogueWidth,
@@ -122,6 +126,10 @@ final class RenPyGuiConfiguration {
   final double? textboxHeight;
   final double? textboxYAlign;
   final RenPyGuiBackground? textboxBackground;
+  final double? windowYMinimum;
+  final double? windowYAlign;
+  final double? windowXPadding;
+  final double? windowYPadding;
   final double? dialogueXPos;
   final double? dialogueYPos;
   final double? dialogueWidth;
@@ -138,7 +146,12 @@ final class RenPyGuiConfiguration {
     double? textboxHeight;
     double? textboxYAlign;
     RenPyGuiBackground? textboxBackground;
+    double? windowYMinimum;
+    double? windowYAlign;
+    double? windowXPadding;
+    double? windowYPadding;
     double? dialogueXPos;
+    var textboxBackgroundFromGui = false;
     double? dialogueYPos;
     double? dialogueWidth;
 
@@ -161,6 +174,7 @@ final class RenPyGuiConfiguration {
             textboxYAlign = _renpyNumberLiteral(expression);
           case 'textbox':
             textboxBackground = _renpyImageBackground(expression);
+            textboxBackgroundFromGui = textboxBackground != null;
           case 'dialogue_xpos':
             dialogueXPos = _renpyNumberLiteral(expression);
           case 'dialogue_ypos':
@@ -169,7 +183,14 @@ final class RenPyGuiConfiguration {
             dialogueWidth = _renpyNumberLiteral(expression);
         }
       }
-      textboxBackground ??= _renpyWindowStyleBackground(source);
+      final windowStyle = _renpyWindowStyle(source);
+      if (!textboxBackgroundFromGui && textboxBackground == null) {
+        textboxBackground = windowStyle.background;
+      }
+      windowYMinimum ??= windowStyle.yMinimum;
+      windowYAlign ??= windowStyle.yAlign;
+      windowXPadding ??= windowStyle.xPadding;
+      windowYPadding ??= windowStyle.yPadding;
     }
 
     return RenPyGuiConfiguration(
@@ -180,6 +201,10 @@ final class RenPyGuiConfiguration {
       textboxHeight: textboxHeight,
       textboxYAlign: textboxYAlign,
       textboxBackground: textboxBackground,
+      windowYMinimum: windowYMinimum,
+      windowYAlign: windowYAlign,
+      windowXPadding: windowXPadding,
+      windowYPadding: windowYPadding,
       dialogueXPos: dialogueXPos,
       dialogueYPos: dialogueYPos,
       dialogueWidth: dialogueWidth,
@@ -197,6 +222,10 @@ final class RenPyGuiConfiguration {
             textboxHeight == other.textboxHeight &&
             textboxYAlign == other.textboxYAlign &&
             textboxBackground == other.textboxBackground &&
+            windowYMinimum == other.windowYMinimum &&
+            windowYAlign == other.windowYAlign &&
+            windowXPadding == other.windowXPadding &&
+            windowYPadding == other.windowYPadding &&
             dialogueXPos == other.dialogueXPos &&
             dialogueYPos == other.dialogueYPos &&
             dialogueWidth == other.dialogueWidth;
@@ -211,6 +240,10 @@ final class RenPyGuiConfiguration {
     textboxHeight,
     textboxYAlign,
     textboxBackground,
+    windowYMinimum,
+    windowYAlign,
+    windowXPadding,
+    windowYPadding,
     dialogueXPos,
     dialogueYPos,
     dialogueWidth,
@@ -497,8 +530,29 @@ final class RenPyGameProject {
   }
 }
 
-RenPyGuiBackground? _renpyWindowStyleBackground(String source) {
+final class _RenPyWindowStyle {
+  const _RenPyWindowStyle({
+    this.background,
+    this.yMinimum,
+    this.yAlign,
+    this.xPadding,
+    this.yPadding,
+  });
+
+  final RenPyGuiBackground? background;
+  final double? yMinimum;
+  final double? yAlign;
+  final double? xPadding;
+  final double? yPadding;
+}
+
+_RenPyWindowStyle _renpyWindowStyle(String source) {
   final lines = const LineSplitter().convert(source);
+  RenPyGuiBackground? background;
+  double? yMinimum;
+  double? yAlign;
+  double? xPadding;
+  double? yPadding;
 
   for (var i = 0; i < lines.length; i += 1) {
     final line = lines[i];
@@ -514,12 +568,33 @@ RenPyGuiBackground? _renpyWindowStyleBackground(String source) {
       final childIndent = childLine.length - childTrimmed.length;
       if (childIndent <= blockIndent) break;
 
-      final background = _renpyBackground(childTrimmed);
-      if (background != null) return background;
+      final parsedBackground = _renpyBackground(childTrimmed);
+      if (parsedBackground != null) {
+        background ??= parsedBackground;
+        continue;
+      }
+
+      final property = _renpyStyleProperty(childTrimmed);
+      switch (property?.name) {
+        case 'yminimum':
+          yMinimum ??= _renpyNumberLiteral(property!.value);
+        case 'yalign':
+          yAlign ??= _renpyNumberLiteral(property!.value);
+        case 'xpadding':
+          xPadding ??= _renpyNumberLiteral(property!.value);
+        case 'ypadding':
+          yPadding ??= _renpyNumberLiteral(property!.value);
+      }
     }
   }
 
-  return null;
+  return _RenPyWindowStyle(
+    background: background,
+    yMinimum: yMinimum,
+    yAlign: yAlign,
+    xPadding: xPadding,
+    yPadding: yPadding,
+  );
 }
 
 RenPyGuiBackground? _renpyBackground(String line) {
@@ -575,6 +650,20 @@ RenPyGuiImageBackground? _renpyImageDisplayable(String expression) {
 List<String> _renpyArgumentList(String expression) {
   if (expression.trim().isEmpty) return const [];
   return expression.split(',').map((argument) => argument.trim()).toList();
+}
+
+({String name, String value})? _renpyStyleProperty(String line) {
+  final trimmed = line.trim();
+  if (trimmed.isEmpty || trimmed.startsWith('#')) return null;
+
+  final separator = trimmed.indexOf(RegExp(r'\s+'));
+  if (separator <= 0) return null;
+
+  final name = trimmed.substring(0, separator);
+  final value = trimmed.substring(separator).trim();
+  if (value.isEmpty) return null;
+
+  return (name: name, value: value);
 }
 
 RenPyScreenSize? _screenSizeFromSources(Iterable<String> sources) {

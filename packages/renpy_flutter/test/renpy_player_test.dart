@@ -876,6 +876,47 @@ label start:
     expect(tester.getSize(renpyText).width, lessThanOrEqualTo(650));
   });
 
+  testWidgets('project player applies RenPy window style geometry', (
+    tester,
+  ) async {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('styled/game/options.rpy', '''
+define config.screen_width = 100
+define config.screen_height = 100
+'''),
+      RenPyProjectFile.text('styled/game/screens.rpy', '''
+style window:
+    yminimum 20
+    yalign 1.0
+    xpadding 4
+    ypadding 5
+'''),
+      RenPyProjectFile.text('styled/game/script.rpy', '''
+label start:
+    "Window style geometry."
+'''),
+    ]);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyProjectPlayer(project: project)),
+    );
+
+    await _pumpUntil(tester, find.text('Window style geometry.'));
+
+    final textBox = find.byKey(const ValueKey('renpy-dialogue-box'));
+    final renpyText = find.text('Window style geometry.');
+
+    expect(tester.getSize(textBox).height, closeTo(120, 0.01));
+    expect(tester.getTopLeft(textBox).dy, closeTo(480, 0.01));
+    expect(
+      tester.getTopLeft(renpyText).dx - tester.getTopLeft(textBox).dx,
+      closeTo(24, 0.01),
+    );
+    expect(
+      tester.getTopLeft(renpyText).dy - tester.getTopLeft(textBox).dy,
+      closeTo(30, 0.01),
+    );
+  });
   testWidgets('project player applies RenPy GUI textbox image', (tester) async {
     final project = RenPyGameProject.fromFiles([
       RenPyProjectFile.text('confession/game/options.rpy', '''

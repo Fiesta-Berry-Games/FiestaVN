@@ -291,6 +291,46 @@ label start:
     expect(project.gui.textboxAsset, 'gui/textbox.png');
   });
 
+  test('keeps the primary RenPy window style textbox image', () {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('confession/game/screens.rpy', '''
+style window:
+    background Frame("gui/textbox.png", 12, 12)
+
+variant "small":
+    style window:
+        background Frame("gui/phone/textbox.png", 12, 12)
+'''),
+      RenPyProjectFile.text('confession/game/script.rpy', '''
+label start:
+    "Textbox image from primary style."
+'''),
+    ]);
+
+    expect(project.gui.textboxAsset, 'gui/textbox.png');
+  });
+
+  test('discovers RenPy window style geometry metadata', () {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('confession/game/screens.rpy', '''
+style window:
+    yminimum 150
+    yalign 1.0
+    xpadding 11
+    ypadding 13
+'''),
+      RenPyProjectFile.text('confession/game/script.rpy', '''
+label start:
+    "Styled window geometry."
+'''),
+    ]);
+
+    expect(project.gui.windowYMinimum, 150);
+    expect(project.gui.windowYAlign, 1.0);
+    expect(project.gui.windowXPadding, 11);
+    expect(project.gui.windowYPadding, 13);
+  });
+
   test('preserves RenPy window Frame textbox borders', () {
     final project = RenPyGameProject.fromFiles([
       RenPyProjectFile.text('confession/game/screens.rpy', '''
