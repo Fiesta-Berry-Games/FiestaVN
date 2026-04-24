@@ -91,6 +91,13 @@ final class RenPyImageChange extends RenPyGameStatus {
   final String? showText;
 }
 
+/// Emitted when a rollback or load replaces the full visual presentation.
+final class RenPyVisualRestore extends RenPyGameStatus {
+  const RenPyVisualRestore(this.visual);
+
+  final RenPyVisualSnapshot visual;
+}
+
 /// Emitted when a RenPy audio command is encountered.
 final class RenPyAudioChange extends RenPyGameStatus {
   const RenPyAudioChange.play({
@@ -188,6 +195,10 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     yanchor: 1,
   );
   List<RenPyDiagnostic> get diagnostics => List.unmodifiable(_diagnostics);
+  static const _defaultVisualSnapshot = RenPyVisualSnapshot(
+    scene: RenPyVisualElementSnapshot(imageName: 'black'),
+    sprites: [],
+  );
 
   static const _rollbackHistoryLimit = 100;
 
@@ -553,22 +564,11 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       }
     }
 
+    final visual = presentation?.visual ?? _defaultVisualSnapshot;
+    _restoreVisualSnapshot(visual);
+    value = RenPyVisualRestore(visual);
+
     if (presentation == null) return;
-
-    final visual = presentation.visual;
-    final scene = visual?.scene;
-    if (scene != null) {
-      final change = _imageChangeForScene(scene);
-      _recordImageChange(change);
-      value = change;
-    }
-
-    for (final sprite
-        in visual?.sprites ?? const <RenPyVisualElementSnapshot>[]) {
-      final change = _imageChangeForSprite(sprite);
-      _recordImageChange(change);
-      value = change;
-    }
 
     for (final entry
         in presentation.audio?.channels.entries ??
@@ -590,10 +590,32 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     for (final transient in transientAudio) {
       value = _audioChangeForTransient(transient);
     }
-
     _pendingTransientAudio
       ..clear()
       ..addAll(transientAudio);
+  }
+
+  void _restoreVisualSnapshot(RenPyVisualSnapshot visual) {
+    _sceneSnapshot = visual.scene;
+    _spriteSnapshots.clear();
+    _spritePlacements.clear();
+
+    for (final sprite in visual.sprites) {
+      final tag = sprite.tag ?? _tagForSnapshot(sprite);
+      if (tag == null) continue;
+
+      final placement = sprite.placement ?? _defaultSpritePlacement;
+      _spritePlacements[tag] = placement;
+      _spriteSnapshots[tag] = RenPyVisualElementSnapshot(
+        tag: tag,
+        imageName: sprite.imageName,
+        assetPath: sprite.assetPath,
+        solidColor: sprite.solidColor,
+        operations: sprite.operations,
+        placement: placement,
+        text: sprite.text,
+      );
+    }
   }
 
   RenPyImageChange _imageChangeForScene(RenPyVisualElementSnapshot snapshot) {
@@ -633,6 +655,12 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     }
 
     return null;
+  }
+
+  String? _tagForSnapshot(RenPyVisualElementSnapshot snapshot) {
+    final imageName = snapshot.imageName;
+    if (imageName == null) return null;
+    return _imageTag(imageName);
   }
 
   void _recordImageChange(RenPyImageChange change) {

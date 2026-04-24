@@ -69,6 +69,8 @@ final class RenPyGoldenPathHarness {
           trace.pauses.add(status);
         case RenPyImageChange():
           trace.images.add(status);
+        case RenPyVisualRestore():
+          break;
         case RenPyAudioChange():
           trace.audio.add(status);
         case RenPyTransitionChange():

@@ -321,19 +321,22 @@ void main() {
       contains('/se/ZS4.wav'),
     );
 
-    final scene = restoredEvents.whereType<RenPyImageChange>().firstWhere(
-      (event) => event.scene == 'fea_l2',
-    );
-    expect(scene.sceneAsset, endsWith('/game/images/bg/fea_l2.jpg'));
-
-    final ange = restoredEvents.whereType<RenPyImageChange>().firstWhere(
-      (event) => event.show == 'enj fumana1',
-    );
-    expect(ange.showPlacement, const RenPyImagePlacement.position(xpos: 0.7));
+    final visualRestore = restoredEvents.whereType<RenPyVisualRestore>().single;
+    expect(visualRestore.visual.scene?.imageName, 'fea_l2');
     expect(
-      ange.showAsset,
+      visualRestore.visual.scene?.assetPath,
+      endsWith('/game/images/bg/fea_l2.jpg'),
+    );
+
+    final ange = visualRestore.visual.sprites.firstWhere(
+      (sprite) => sprite.imageName == 'enj fumana1',
+    );
+    expect(ange.placement, const RenPyImagePlacement.position(xpos: 0.7));
+    expect(
+      ange.assetPath,
       endsWith('/game/images/characters/enj/1/enj fumana1.png'),
     );
+    expect(restoredEvents.whereType<RenPyImageChange>(), isEmpty);
 
     restoredEvents.clear();
     controller.continueGame();

@@ -292,14 +292,16 @@ label start:
     expect(await secondController.loadSavedGame(), isTrue);
 
     expect((secondController.value as RenPyDialogue).text, 'Second.');
+    final visualRestore = restoredEvents.whereType<RenPyVisualRestore>().single;
+    expect(visualRestore.visual.scene?.imageName, 'bg uni');
     expect(
-      restoredEvents.whereType<RenPyImageChange>().map((event) => event.scene),
-      contains('bg uni'),
+      visualRestore.visual.scene?.assetPath,
+      'assets/game/images/bg uni.png',
     );
-    expect(
-      restoredEvents.whereType<RenPyImageChange>().map((event) => event.show),
-      contains('sylvie green smile'),
-    );
+    expect(visualRestore.visual.sprites.map((sprite) => sprite.imageName), [
+      'sylvie green smile',
+    ]);
+    expect(restoredEvents.whereType<RenPyImageChange>(), isEmpty);
     expect(
       restoredEvents.whereType<RenPyAudioChange>().map((event) => event.asset),
       contains('second.ogg'),
@@ -420,14 +422,16 @@ label start:
 
     expect(controller.rollback(), isTrue);
     expect((controller.value as RenPyDialogue).text, 'First.');
+    final visualRestore = restoredEvents.whereType<RenPyVisualRestore>().single;
+    expect(visualRestore.visual.scene?.imageName, 'bg lecturehall');
     expect(
-      restoredEvents.whereType<RenPyImageChange>().map((event) => event.scene),
-      contains('bg lecturehall'),
+      visualRestore.visual.scene?.assetPath,
+      'assets/game/images/bg lecturehall.png',
     );
-    expect(
-      restoredEvents.whereType<RenPyImageChange>().map((event) => event.show),
-      contains('sylvie green normal'),
-    );
+    expect(visualRestore.visual.sprites.map((sprite) => sprite.imageName), [
+      'sylvie green normal',
+    ]);
+    expect(restoredEvents.whereType<RenPyImageChange>(), isEmpty);
     expect(
       restoredEvents.whereType<RenPyAudioChange>().map((event) => event.asset),
       contains('first.ogg'),

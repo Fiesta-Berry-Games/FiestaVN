@@ -8,6 +8,8 @@ import 'package:renpy_core/renpy_core.dart'
         RenPyImagePlacement,
         RenPyResolvedImage,
         RenPyScreenSize,
+        RenPyVisualElementSnapshot,
+        RenPyVisualSnapshot,
         RenPyTransitionIntent,
         RenPyTransitionType;
 
@@ -63,6 +65,17 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
         _activeTransitionIntent = status.intent;
         _transitionActive = true;
         _transitionGeneration++;
+      });
+      return;
+    }
+
+    if (status is RenPyVisualRestore) {
+      setState(() {
+        _previousVisualState = null;
+        _transitionActive = false;
+        _activeTransitionIntent = null;
+        _transitionGeneration++;
+        _applyVisualSnapshot(status.visual);
       });
       return;
     }
@@ -131,6 +144,54 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
         }
       }
     });
+  }
+
+  void _applyVisualSnapshot(RenPyVisualSnapshot visual) {
+    _sprites.clear();
+    _positions.clear();
+
+    final scene = visual.scene;
+    final sceneName = scene?.imageName;
+    final solidColor =
+        _colorForSnapshotSolid(scene) ??
+        (sceneName == null ? Colors.black : _solidColorForScene(sceneName));
+    _backgroundColor = solidColor ?? Colors.black;
+    _backgroundImage =
+        solidColor == null && scene != null
+            ? _RenPyRenderedImage.fromSnapshot(scene)
+            : null;
+
+    for (final sprite in visual.sprites) {
+      final name = _tagForSnapshot(sprite);
+      if (name == null) continue;
+
+      final placement = sprite.placement ?? _defaultSpritePlacement;
+      _positions[name] = placement;
+
+      final text = sprite.text;
+      if (text != null) {
+        _sprites[name] = _RenPySpriteState.text(
+          text: text,
+          placement: placement,
+        );
+        continue;
+      }
+
+      final image = _RenPyRenderedImage.fromSnapshot(sprite);
+      if (image == null) continue;
+      _sprites[name] = _RenPySpriteState.image(
+        image: image,
+        placement: placement,
+      );
+    }
+  }
+
+  String? _tagForSnapshot(RenPyVisualElementSnapshot snapshot) {
+    final tag = snapshot.tag;
+    if (tag != null && tag.isNotEmpty) return tag;
+    final imageName = snapshot.imageName;
+    if (imageName == null) return null;
+    return imageName.split('#').first.trim().split(RegExp(r'\s+')).first;
   }
 
   void _putSprite(String name, _RenPySpriteState sprite, {String? behind}) {
@@ -303,6 +364,12 @@ Color? _colorForResolvedSolid(RenPyResolvedImage? image) {
   return Color.fromARGB(color.alpha, color.red, color.green, color.blue);
 }
 
+Color? _colorForSnapshotSolid(RenPyVisualElementSnapshot? snapshot) {
+  final color = snapshot?.solidColor;
+  if (color == null) return null;
+  return Color.fromARGB(color.alpha, color.red, color.green, color.blue);
+}
+
 class _RenPyRenderedImage {
   const _RenPyRenderedImage({
     required this.assetPath,
@@ -316,6 +383,18 @@ class _RenPyRenderedImage {
     return _RenPyRenderedImage(
       assetPath: assetPath,
       operations: image.operations,
+    );
+  }
+
+  static _RenPyRenderedImage? fromSnapshot(
+    RenPyVisualElementSnapshot snapshot,
+  ) {
+    final assetPath = snapshot.assetPath;
+    if (assetPath == null) return null;
+
+    return _RenPyRenderedImage(
+      assetPath: assetPath,
+      operations: snapshot.operations,
     );
   }
 
@@ -759,8 +838,10 @@ class _RenPyFadeTransition extends StatelessWidget {
     }
 
     final inFraction = (1 - inStart).clamp(0.0, 1.0);
-    final colorOpacity =
-        (1 - _ratio(progress - inStart, inFraction)).clamp(0.0, 1.0);
+    final colorOpacity = (1 - _ratio(progress - inStart, inFraction)).clamp(
+      0.0,
+      1.0,
+    );
     return Stack(
       fit: StackFit.expand,
       children: [

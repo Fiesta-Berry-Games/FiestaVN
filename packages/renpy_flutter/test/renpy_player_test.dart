@@ -153,6 +153,155 @@ label start:
     expect(find.text('Second.'), findsNothing);
   });
 
+  testWidgets('asset player rollback clears later visual state', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    "Black one."
+    "Black two."
+    scene bg lecturehall
+    show sylvie green normal
+    "Visual."
+''',
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {
+            'assets/game/images/bg lecturehall.png',
+            'assets/game/images/sylvie green normal.png',
+          },
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('Black one.'));
+    expect(find.byType(Image), findsNothing);
+
+    await tester.tap(find.text('Black one.'));
+    await _pumpUntil(tester, find.text('Black two.'));
+    expect(find.byType(Image), findsNothing);
+
+    await tester.tap(find.text('Black two.'));
+    await _pumpUntil(tester, find.text('Visual.'));
+    expect(find.byType(Image), findsNWidgets(2));
+
+    await tester.tap(find.byTooltip('Rollback'));
+    await _pumpUntil(tester, find.text('Black two.'));
+
+    expect(find.text('Visual.'), findsNothing);
+    expect(find.byType(Image), findsNothing);
+  });
+
+  testWidgets('asset player rollback replaces two sprites with one', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    scene bg lecturehall
+    show sylvie green normal
+    "One sprite."
+    show eileen happy
+    "Two sprites."
+''',
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {
+            'assets/game/images/bg lecturehall.png',
+            'assets/game/images/sylvie green normal.png',
+            'assets/game/images/eileen happy.png',
+          },
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('One sprite.'));
+    expect(_assetImageNames(tester), [
+      'assets/game/images/bg lecturehall.png',
+      'assets/game/images/sylvie green normal.png',
+    ]);
+
+    await tester.tap(find.text('One sprite.'));
+    await _pumpUntil(tester, find.text('Two sprites.'));
+    expect(_assetImageNames(tester), [
+      'assets/game/images/bg lecturehall.png',
+      'assets/game/images/sylvie green normal.png',
+      'assets/game/images/eileen happy.png',
+    ]);
+
+    await tester.tap(find.byTooltip('Rollback'));
+    await _pumpUntil(tester, find.text('One sprite.'));
+
+    expect(find.text('Two sprites.'), findsNothing);
+    expect(_assetImageNames(tester), [
+      'assets/game/images/bg lecturehall.png',
+      'assets/game/images/sylvie green normal.png',
+    ]);
+  });
+
+  testWidgets('asset player load replaces two sprites with saved one', (
+    tester,
+  ) async {
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    scene bg lecturehall
+    show sylvie green normal
+    "Saved one sprite."
+    show eileen happy
+    "Current two sprites."
+''',
+    });
+    final snapshotStore = RenPyMemoryRunnerSnapshotStore();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {
+            'assets/game/images/bg lecturehall.png',
+            'assets/game/images/sylvie green normal.png',
+            'assets/game/images/eileen happy.png',
+          },
+          snapshotStore: snapshotStore,
+        ),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('Saved one sprite.'));
+    await tester.tap(find.byTooltip('Save'));
+    await tester.pump();
+
+    await tester.tap(find.text('Saved one sprite.'));
+    await _pumpUntil(tester, find.text('Current two sprites.'));
+    expect(_assetImageNames(tester), [
+      'assets/game/images/bg lecturehall.png',
+      'assets/game/images/sylvie green normal.png',
+      'assets/game/images/eileen happy.png',
+    ]);
+
+    await tester.tap(find.byTooltip('Load'));
+    await _pumpUntil(tester, find.text('Saved one sprite.'));
+
+    expect(find.text('Current two sprites.'), findsNothing);
+    expect(_assetImageNames(tester), [
+      'assets/game/images/bg lecturehall.png',
+      'assets/game/images/sylvie green normal.png',
+    ]);
+  });
+
   testWidgets('asset player page-up key restores previous dialogue', (
     tester,
   ) async {
@@ -1448,6 +1597,13 @@ int _crc32(List<int> bytes) {
     }
   }
   return crc ^ 0xFFFFFFFF;
+}
+
+List<String> _assetImageNames(WidgetTester tester) {
+  return tester
+      .widgetList<Image>(find.byType(Image))
+      .map((image) => (image.image as AssetImage).assetName)
+      .toList();
 }
 
 Future<void> _pumpUntil(WidgetTester tester, Finder finder) async {
