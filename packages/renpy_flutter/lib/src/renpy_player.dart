@@ -37,6 +37,7 @@ class RenPyPlayer extends StatelessWidget {
     this.preferenceStore,
     this.dialogueStyle,
     this.gui,
+    this.layerOrder,
   });
 
   final RenPyFlutterController controller;
@@ -52,6 +53,7 @@ class RenPyPlayer extends StatelessWidget {
   final RenPyPreferenceStore? preferenceStore;
   final TextStyle? dialogueStyle;
   final RenPyGuiConfiguration? gui;
+  final List<String>? layerOrder;
 
   Future<void> _saveGame(BuildContext context) async {
     final saved = await controller.saveGame();
@@ -127,7 +129,11 @@ class RenPyPlayer extends StatelessWidget {
         if (imageLayerBuilder != null)
           imageLayerBuilder!(context, controller)
         else
-          RenPyImageLayer(controller: controller, screenSize: screenSize),
+          RenPyImageLayer(
+            controller: controller,
+            screenSize: screenSize,
+            layerOrder: layerOrder,
+          ),
         RenPyAudioLayer(
           controller: controller,
           gameRoot: gameRoot,
@@ -774,6 +780,7 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
               controller: controller,
               imageProvider: _imageProvider,
               screenSize: widget.project.screenSize,
+              layerOrder: widget.project.visualLayers,
             );
           },
       gameRoot: widget.project.gameRoot,
@@ -782,6 +789,7 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
       preferenceStore: widget.preferenceStore,
       dialogueStyle: _dialogueStyle(widget.project.gui),
       gui: widget.project.gui,
+      layerOrder: widget.project.visualLayers,
       dialogueImageResolver: _dialogueImageResolver,
     );
   }

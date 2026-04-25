@@ -276,6 +276,7 @@ final class RenPyGameProject {
     required Map<String, RenPyRpaArchive> archives,
     required Map<String, String> fontAssets,
     required this.screenSize,
+    required List<String>? visualLayers,
     required this.gui,
   }) : _assets = Map.unmodifiable(assets),
        _assetsByLowerPath = Map.unmodifiable(
@@ -283,6 +284,8 @@ final class RenPyGameProject {
        ),
        _archives = Map.unmodifiable(archives),
        fontAssets = Map.unmodifiable(fontAssets),
+       visualLayers =
+           visualLayers == null ? null : List.unmodifiable(visualLayers),
        availableAssets = Set.unmodifiable(
          {
            ...assets.keys.where((asset) => asset != scriptPath),
@@ -328,6 +331,11 @@ final class RenPyGameProject {
       archives: archives,
       fontAssets: _fontAssets(byPath.keys, archives, normalizedGameRoot),
       screenSize: _screenSize(byPath, normalizedGameRoot),
+      visualLayers: _visualLayers(
+        byPath,
+        selectedScriptPath,
+        normalizedGameRoot,
+      ),
     );
   }
 
@@ -337,6 +345,7 @@ final class RenPyGameProject {
   final String scriptSource;
   final Set<String> availableAssets;
   final RenPyScreenSize? screenSize;
+  final List<String>? visualLayers;
   final RenPyGuiConfiguration gui;
   final Map<String, String> fontAssets;
   final Map<String, Uint8List> _assets;
@@ -530,6 +539,20 @@ final class RenPyGameProject {
       ).map((script) => utf8.decode(script.value, allowMalformed: true)),
     );
   }
+
+  static List<String>? _visualLayers(
+    Map<String, Uint8List> assets,
+    String selectedScriptPath,
+    String gameRoot,
+  ) {
+    return _visualLayersFromSources(
+      _sortedScriptFiles(
+        assets,
+        selectedScriptPath,
+        gameRoot,
+      ).map((script) => utf8.decode(script.value, allowMalformed: true)),
+    );
+  }
 }
 
 final class _RenPyWindowStyle {
@@ -691,9 +714,108 @@ RenPyScreenSize? _screenSizeFromSources(Iterable<String> sources) {
   return RenPyScreenSize(width: width, height: height);
 }
 
+List<String>? _visualLayersFromSources(Iterable<String> sources) {
+  List<String>? layers;
+
+  for (final source in sources) {
+    final operations = <_LayerOperation>[];
+
+    for (final match in _configLayersPattern.allMatches(source)) {
+      final parsed = _quotedStrings(match.group(1)!);
+      if (parsed.isNotEmpty) {
+        operations.add(_LayerOperation.assign(match.start, parsed));
+      }
+    }
+
+    for (final match in _configLayersInsertPattern.allMatches(source)) {
+      final index = int.tryParse(match.group(1)!);
+      final layer = match.group(3);
+      if (index != null && layer != null && layer.isNotEmpty) {
+        operations.add(_LayerOperation.insert(match.start, index, layer));
+      }
+    }
+
+    for (final match in _configLayersAppendPattern.allMatches(source)) {
+      final layer = match.group(2);
+      if (layer != null && layer.isNotEmpty) {
+        operations.add(_LayerOperation.append(match.start, layer));
+      }
+    }
+
+    operations.sort((left, right) => left.offset.compareTo(right.offset));
+
+    for (final operation in operations) {
+      switch (operation) {
+        case _AssignLayerOperation(:final value):
+          layers = _dedupeLayers(value);
+        case _InsertLayerOperation(:final index, :final value):
+          final current = [...?layers];
+          final target = index.clamp(0, current.length).toInt();
+          current.remove(value);
+          current.insert(target, value);
+          layers = current;
+        case _AppendLayerOperation(:final value):
+          final current = [...?layers];
+          current.remove(value);
+          current.add(value);
+          layers = current;
+      }
+    }
+  }
+
+  return layers == null ? null : _dedupeLayers(layers);
+}
+
+sealed class _LayerOperation {
+  const _LayerOperation(this.offset);
+
+  factory _LayerOperation.assign(int offset, List<String> value) =
+      _AssignLayerOperation;
+
+  factory _LayerOperation.insert(int offset, int index, String value) =
+      _InsertLayerOperation;
+
+  factory _LayerOperation.append(int offset, String value) =
+      _AppendLayerOperation;
+
+  final int offset;
+}
+
+final class _AssignLayerOperation extends _LayerOperation {
+  const _AssignLayerOperation(super.offset, this.value);
+
+  final List<String> value;
+}
+
+final class _InsertLayerOperation extends _LayerOperation {
+  const _InsertLayerOperation(super.offset, this.index, this.value);
+
+  final int index;
+  final String value;
+}
+
+final class _AppendLayerOperation extends _LayerOperation {
+  const _AppendLayerOperation(super.offset, this.value);
+
+  final String value;
+}
+
 final _guiDefinePattern = RegExp(
   r'''^\s*define\s+gui\.([a-zA-Z_]\w*)\s*=\s*(.+)$''',
   multiLine: true,
+);
+
+final _configLayersPattern = RegExp(
+  r'''config\.layers\s*=\s*\[(.*?)\]''',
+  dotAll: true,
+);
+
+final _configLayersInsertPattern = RegExp(
+  r'''config\.layers\.insert\(\s*(\d+)\s*,\s*(["'])(.*?)\2\s*\)''',
+);
+
+final _configLayersAppendPattern = RegExp(
+  r'''config\.layers\.append\(\s*(["'])(.*?)\1\s*\)''',
 );
 
 String? _renpyStringLiteral(String expression) {
@@ -720,6 +842,21 @@ String? _renpyFirstQuotedColor(String expression) {
   ).firstMatch(expression);
 
   return match?.group(1);
+}
+
+List<String> _quotedStrings(String expression) {
+  return [
+    for (final match in RegExp(r'''(["'])(.*?)\1''').allMatches(expression))
+      match.group(2)!,
+  ];
+}
+
+List<String> _dedupeLayers(Iterable<String> layers) {
+  final seen = <String>{};
+  return [
+    for (final layer in layers)
+      if (layer.trim().isNotEmpty && seen.add(layer.trim())) layer.trim(),
+  ];
 }
 
 double? _renpyNumberLiteral(String expression) {

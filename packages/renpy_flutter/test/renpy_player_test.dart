@@ -925,6 +925,45 @@ label start:
     expect(tester.getCenter(stage), const Offset(600, 300));
   });
 
+  testWidgets('project player applies configured visual layer order', (
+    tester,
+  ) async {
+    final bg = _solidPngBytes(width: 1, height: 1);
+    final overlay = _solidPngBytes(width: 2, height: 1);
+    final logo = _solidPngBytes(width: 3, height: 1);
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('layers/game/options.rpy', '''
+init python:
+    config.layers = ["hud", "master"]
+'''),
+      RenPyProjectFile.text('layers/game/script.rpy', '''
+label start:
+    scene bg room
+    show overlay onlayer hud
+    show logo
+    "Layered."
+'''),
+      RenPyProjectFile('layers/game/images/bg room.png', bg),
+      RenPyProjectFile('layers/game/images/overlay.png', overlay),
+      RenPyProjectFile('layers/game/images/logo.png', logo),
+    ]);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyProjectPlayer(project: project, showRestartButton: false),
+      ),
+    );
+
+    await _pumpUntil(tester, find.text('Layered.'));
+
+    expect(
+      tester
+          .widgetList<Image>(find.byType(Image))
+          .map((image) => (image.image as MemoryImage).bytes.length),
+      [bg.length, overlay.length, logo.length],
+    );
+  });
+
   testWidgets('project player applies RenPy GUI dialogue text metadata', (
     tester,
   ) async {

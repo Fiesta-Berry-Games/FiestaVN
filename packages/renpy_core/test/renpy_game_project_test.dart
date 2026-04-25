@@ -195,6 +195,50 @@ label start:
     expect(project.screenSize, const RenPyScreenSize(width: 1280, height: 960));
   });
 
+  test('discovers configured visual layer order from project scripts', () {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('layers/game/options.rpy', '''
+init python:
+    config.layers = [
+        "belowmid",
+        "master",
+        "abovemid",
+        "screens",
+        "overlay",
+    ]
+'''),
+      RenPyProjectFile.text('layers/game/script.rpy', '''
+label start:
+    "Layered."
+'''),
+    ]);
+
+    expect(project.visualLayers, [
+      'belowmid',
+      'master',
+      'abovemid',
+      'screens',
+      'overlay',
+    ]);
+  });
+
+  test('discovers visual layer insert and append mutations', () {
+    final project = RenPyGameProject.fromFiles([
+      RenPyProjectFile.text('layers/game/options.rpy', '''
+init python:
+    config.layers = [ "master", "screens" ]
+    config.layers.insert(0, "belowmid")
+    config.layers.append("abovemid")
+'''),
+      RenPyProjectFile.text('layers/game/script.rpy', '''
+label start:
+    "Layered."
+'''),
+    ]);
+
+    expect(project.visualLayers, ['belowmid', 'master', 'screens', 'abovemid']);
+  });
+
   test('discovers project font assets with RenPy font tag aliases', () {
     final project = RenPyGameProject.fromFiles([
       RenPyProjectFile.text('confession/game/script.rpy', '''

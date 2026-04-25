@@ -731,6 +731,50 @@ void main() {
     ]);
   });
 
+  testWidgets('image layer honors configured layer order', (tester) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyImageLayer(
+          controller: controller,
+          layerOrder: const ['hud', 'master'],
+        ),
+      ),
+    );
+
+    controller.value = RenPyImageChange(
+      scene: 'bg room',
+      sceneAsset: 'assets/game/images/bg-room.png',
+    );
+    await tester.pump();
+    controller.value = RenPyImageChange(
+      show: 'overlay',
+      showOnLayer: 'hud',
+      showAsset: 'assets/game/images/overlay.png',
+    );
+    await tester.pump();
+    controller.value = RenPyImageChange(
+      show: 'logo',
+      showAsset: 'assets/game/images/logo.png',
+    );
+    await tester.pump();
+    controller.value = RenPyImageChange(
+      show: 'sparkle',
+      showOnLayer: 'unlisted',
+      showAsset: 'assets/game/images/sparkle.png',
+    );
+    await tester.pump();
+
+    expect(_assetNames(tester), [
+      'assets/game/images/bg-room.png',
+      'assets/game/images/overlay.png',
+      'assets/game/images/logo.png',
+      'assets/game/images/sparkle.png',
+    ]);
+  });
+
   testWidgets('image layer inserts shown sprites behind target tags', (
     tester,
   ) async {

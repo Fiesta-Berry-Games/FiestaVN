@@ -26,17 +26,27 @@ class RenPyImageLayer extends StatefulWidget {
     required this.controller,
     this.imageProvider,
     this.screenSize,
+    this.layerOrder,
   });
 
   final RenPyFlutterController controller;
   final RenPyImageProviderFactory? imageProvider;
   final RenPyScreenSize? screenSize;
+  final List<String>? layerOrder;
 
   @override
   State<RenPyImageLayer> createState() => _RenPyImageLayerState();
 }
 
 const _masterLayer = 'master';
+const _defaultLayerOrder = [
+  'belowmid',
+  _masterLayer,
+  'abovemid',
+  'transient',
+  'screens',
+  'overlay',
+];
 
 class _RenPyImageLayerState extends State<RenPyImageLayer> {
   static const _transitionDuration = Duration(milliseconds: 300);
@@ -338,6 +348,7 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
       state: current,
       imageProvider: widget.imageProvider ?? _defaultImageProvider,
       screenSize: widget.screenSize,
+      layerOrder: widget.layerOrder,
     );
     final previousFrame =
         previous == null
@@ -346,6 +357,7 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
               state: previous,
               imageProvider: widget.imageProvider ?? _defaultImageProvider,
               screenSize: widget.screenSize,
+              layerOrder: widget.layerOrder,
             );
     final isPunch =
         _transitionActive &&
@@ -550,11 +562,13 @@ class _RenPyVisualFrame extends StatelessWidget {
     required this.state,
     required this.imageProvider,
     required this.screenSize,
+    required this.layerOrder,
   });
 
   final _RenPyVisualState state;
   final RenPyImageProviderFactory imageProvider;
   final RenPyScreenSize? screenSize;
+  final List<String>? layerOrder;
 
   @override
   Widget build(BuildContext context) {
@@ -574,7 +588,7 @@ class _RenPyVisualFrame extends StatelessWidget {
                 (context, error, stackTrace) =>
                     Container(color: const Color(0xFF202020)),
           ),
-        for (final entry in _orderedSprites(state.sprites))
+        for (final entry in _orderedSprites(state.sprites, layerOrder))
           _RenPyDisplayableSprite(
             key: ValueKey(state.widgetKey(entry.key)),
             sprite: entry.value,
@@ -649,6 +663,7 @@ class _RenPyDisplayableSprite extends StatelessWidget {
 
 List<MapEntry<String, _RenPySpriteState>> _orderedSprites(
   Map<String, _RenPySpriteState> sprites,
+  List<String>? layerOrder,
 ) {
   final indexed = <({int index, MapEntry<String, _RenPySpriteState> entry})>[];
   var index = 0;
@@ -659,7 +674,8 @@ List<MapEntry<String, _RenPySpriteState>> _orderedSprites(
   indexed.sort((left, right) {
     final layerComparison = _layerRank(
       _layerForSpriteKey(left.entry.key),
-    ).compareTo(_layerRank(_layerForSpriteKey(right.entry.key)));
+      layerOrder,
+    ).compareTo(_layerRank(_layerForSpriteKey(right.entry.key), layerOrder));
     if (layerComparison != 0) return layerComparison;
     return left.index.compareTo(right.index);
   });
@@ -673,17 +689,29 @@ String _layerForSpriteKey(String spriteKey) {
   return spriteKey.substring(0, separator);
 }
 
-int _layerRank(String layer) {
-  return switch (layer) {
-    'belowmid' => 5,
-    _masterLayer => 10,
-    'abovemid' => 20,
-    'transient' => 30,
-    'screens' => 40,
-    'overlay' => 50,
-    _ when layer.startsWith('below') => 5,
-    _ => 25,
-  };
+int _layerRank(String layer, List<String>? layerOrder) {
+  final order = _effectiveLayerOrder(layerOrder);
+  final explicitRank = order.indexOf(layer);
+  if (explicitRank >= 0) return explicitRank * 10;
+
+  if (layerOrder == null || layerOrder.isEmpty) {
+    final masterRank = order.indexOf(_masterLayer) * 10;
+    if (layer.startsWith('below')) return masterRank - 5;
+  }
+
+  return order.length * 10 + 5;
+}
+
+List<String> _effectiveLayerOrder(List<String>? layerOrder) {
+  final raw =
+      layerOrder == null || layerOrder.isEmpty
+          ? _defaultLayerOrder
+          : layerOrder;
+  final seen = <String>{};
+  return [
+    for (final layer in raw)
+      if (layer.trim().isNotEmpty && seen.add(layer.trim())) layer.trim(),
+  ];
 }
 
 Widget _positionDisplayable({
