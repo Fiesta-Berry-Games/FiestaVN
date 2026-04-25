@@ -455,7 +455,7 @@ label start:
     "Both."
     hide logo onlayer master
     "Above only."
-    scene black onlayer abovemid
+    hide logo onlayer abovemid
     "None."
 ''',
       gameRoot: 'assets/game',
@@ -505,6 +505,60 @@ label start:
     );
     expect(await controller.saveGame(), isTrue);
     expect((await store.load())!.presentation!.visual!.sprites, isEmpty);
+  });
+
+  test('controller records non-master scenes as layered sprites', () async {
+    final store = RenPyMemoryRunnerSnapshotStore();
+    final controller = RenPyFlutterController(snapshotStore: store);
+    addTearDown(controller.dispose);
+
+    controller.load(
+      '''
+label start:
+    scene bg room
+    show logo onlayer master
+    scene overlay onlayer abovemid
+    "Layered."
+    scene bg other
+    "Master changed."
+''',
+      gameRoot: 'assets/game',
+      availableAssets: const {
+        'assets/game/images/bg room.png',
+        'assets/game/images/bg other.png',
+        'assets/game/images/logo.png',
+        'assets/game/images/overlay.png',
+      },
+    );
+
+    await _continueUntil(
+      controller,
+      (status) => status is RenPyDialogue && status.text == 'Layered.',
+    );
+    expect(await controller.saveGame(), isTrue);
+
+    final layered = (await store.load())!.presentation!.visual!;
+    expect(layered.scene?.imageName, 'bg room');
+    expect(layered.scene?.layer, isNull);
+    expect(layered.sprites.map((sprite) => sprite.imageName), [
+      'logo',
+      'overlay',
+    ]);
+    expect(layered.sprites.map((sprite) => sprite.layer), [null, 'abovemid']);
+
+    controller.continueGame();
+    await _continueUntil(
+      controller,
+      (status) => status is RenPyDialogue && status.text == 'Master changed.',
+    );
+    expect(await controller.saveGame(), isTrue);
+
+    final afterMasterScene = (await store.load())!.presentation!.visual!;
+    expect(afterMasterScene.scene?.imageName, 'bg other');
+    expect(afterMasterScene.sprites.map((sprite) => sprite.imageName), [
+      'overlay',
+    ]);
+    expect(afterMasterScene.sprites.single.layer, 'abovemid');
   });
 
   test('controller rollback does not replay one-shot sound effects', () async {

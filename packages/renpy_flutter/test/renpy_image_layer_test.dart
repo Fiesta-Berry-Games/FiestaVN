@@ -635,6 +635,102 @@ void main() {
     expect(_assetNames(tester), ['assets/game/images/logo-master.png']);
   });
 
+  testWidgets('image layer renders non-master scenes as layered sprites', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(
+      scene: 'bg room',
+      sceneAsset: 'assets/game/images/bg-room.png',
+    );
+    await tester.pump();
+    controller.value = RenPyImageChange(
+      show: 'logo',
+      showAsset: 'assets/game/images/logo.png',
+    );
+    await tester.pump();
+    controller.value = RenPyImageChange(
+      scene: 'overlay',
+      sceneOnLayer: 'abovemid',
+      sceneAsset: 'assets/game/images/overlay.png',
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('logo')), findsOneWidget);
+    expect(find.byKey(const ValueKey('abovemid::overlay')), findsOneWidget);
+    expect(_assetNames(tester), [
+      'assets/game/images/bg-room.png',
+      'assets/game/images/logo.png',
+      'assets/game/images/overlay.png',
+    ]);
+
+    controller.value = RenPyImageChange(
+      scene: 'bg other',
+      sceneAsset: 'assets/game/images/bg-other.png',
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('logo')), findsNothing);
+    expect(find.byKey(const ValueKey('abovemid::overlay')), findsOneWidget);
+    expect(_assetNames(tester), [
+      'assets/game/images/bg-other.png',
+      'assets/game/images/overlay.png',
+    ]);
+
+    controller.value = RenPyImageChange(
+      scene: 'overlay replacement',
+      sceneOnLayer: 'abovemid',
+      sceneAsset: 'assets/game/images/overlay-replacement.png',
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('abovemid::overlay')), findsOneWidget);
+    expect(_assetNames(tester), [
+      'assets/game/images/bg-other.png',
+      'assets/game/images/overlay-replacement.png',
+    ]);
+  });
+
+  testWidgets('image layer renders higher layers above master sprites', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(
+      scene: 'bg room',
+      sceneAsset: 'assets/game/images/bg-room.png',
+    );
+    await tester.pump();
+    controller.value = RenPyImageChange(
+      show: 'overlay',
+      showOnLayer: 'abovemid',
+      showAsset: 'assets/game/images/overlay.png',
+    );
+    await tester.pump();
+    controller.value = RenPyImageChange(
+      show: 'logo',
+      showAsset: 'assets/game/images/logo.png',
+    );
+    await tester.pump();
+
+    expect(_assetNames(tester), [
+      'assets/game/images/bg-room.png',
+      'assets/game/images/logo.png',
+      'assets/game/images/overlay.png',
+    ]);
+  });
+
   testWidgets('image layer inserts shown sprites behind target tags', (
     tester,
   ) async {

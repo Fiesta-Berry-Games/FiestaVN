@@ -597,27 +597,18 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   }
 
   void _restoreVisualSnapshot(RenPyVisualSnapshot visual) {
-    _sceneSnapshot = visual.scene;
+    final scene = visual.scene;
+    _sceneSnapshot =
+        scene == null || !_isMasterLayer(scene.layer) ? null : scene;
     _spriteSnapshots.clear();
     _spritePlacements.clear();
 
-    for (final sprite in visual.sprites) {
-      final tag = sprite.tag ?? _tagForSnapshot(sprite);
-      if (tag == null) continue;
+    if (scene != null && !_isMasterLayer(scene.layer)) {
+      _restoreSpriteSnapshot(scene);
+    }
 
-      final key = _spriteKey(tag, sprite.layer);
-      final placement = sprite.placement ?? _defaultSpritePlacement;
-      _spritePlacements[key] = placement;
-      _spriteSnapshots[key] = RenPyVisualElementSnapshot(
-        tag: tag,
-        layer: sprite.layer,
-        imageName: sprite.imageName,
-        assetPath: sprite.assetPath,
-        solidColor: sprite.solidColor,
-        operations: sprite.operations,
-        placement: placement,
-        text: sprite.text,
-      );
+    for (final sprite in visual.sprites) {
+      _restoreSpriteSnapshot(sprite);
     }
   }
 
@@ -671,14 +662,32 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     final scene = change.scene;
     if (scene != null) {
       _clearSpriteLayer(change.sceneOnLayer);
-      _sceneSnapshot = RenPyVisualElementSnapshot(
-        layer: _snapshotLayer(change.sceneOnLayer),
-        imageName: scene,
-        assetPath: change.sceneAsset,
-        solidColor: change.sceneImage?.solidColor,
-        operations: change.sceneImage?.operations ?? const [],
-        placement: change.scenePlacement,
-      );
+      if (_isMasterLayer(change.sceneOnLayer)) {
+        _sceneSnapshot = RenPyVisualElementSnapshot(
+          imageName: scene,
+          assetPath: change.sceneAsset,
+          solidColor: change.sceneImage?.solidColor,
+          operations: change.sceneImage?.operations ?? const [],
+          placement: change.scenePlacement,
+        );
+      } else {
+        final tag = _imageTag(scene);
+        final key = _spriteKey(tag, change.sceneOnLayer);
+        final placement =
+            change.scenePlacement ??
+            RenPyImagePlacement.parse(change.sceneAt) ??
+            _defaultSpritePlacement;
+        _spritePlacements[key] = placement;
+        _spriteSnapshots[key] = RenPyVisualElementSnapshot(
+          tag: tag,
+          layer: _snapshotLayer(change.sceneOnLayer),
+          imageName: scene,
+          assetPath: change.sceneAsset,
+          solidColor: change.sceneImage?.solidColor,
+          operations: change.sceneImage?.operations ?? const [],
+          placement: placement,
+        );
+      }
     }
 
     final hiddenImage = change.hide;
@@ -720,6 +729,25 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     _spritePlacements.removeWhere((key, _) => key.startsWith('$normalized::'));
   }
 
+  void _restoreSpriteSnapshot(RenPyVisualElementSnapshot sprite) {
+    final tag = sprite.tag ?? _tagForSnapshot(sprite);
+    if (tag == null) return;
+
+    final key = _spriteKey(tag, sprite.layer);
+    final placement = sprite.placement ?? _defaultSpritePlacement;
+    _spritePlacements[key] = placement;
+    _spriteSnapshots[key] = RenPyVisualElementSnapshot(
+      tag: tag,
+      layer: sprite.layer,
+      imageName: sprite.imageName,
+      assetPath: sprite.assetPath,
+      solidColor: sprite.solidColor,
+      operations: sprite.operations,
+      placement: placement,
+      text: sprite.text,
+    );
+  }
+
   String _spriteKey(String tag, String? layer) {
     return '${_normalizedLayer(layer)}::$tag';
   }
@@ -727,6 +755,10 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   String? _snapshotLayer(String? layer) {
     final normalized = _normalizedLayer(layer);
     return normalized == _masterLayer ? null : normalized;
+  }
+
+  bool _isMasterLayer(String? layer) {
+    return _normalizedLayer(layer) == _masterLayer;
   }
 
   String _normalizedLayer(String? layer) {
