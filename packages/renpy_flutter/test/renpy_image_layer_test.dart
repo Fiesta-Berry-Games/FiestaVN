@@ -804,6 +804,71 @@ void main() {
     ]);
   });
 
+  testWidgets('image layer resolves behind targets within the same layer', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(
+      show: 'eileen happy',
+      showOnLayer: 'abovemid',
+      showAsset: 'assets/game/images/eileen.png',
+    );
+    await tester.pump();
+    controller.value = RenPyImageChange(
+      show: 'sylvie green normal',
+      showAsset: 'assets/game/images/sylvie.png',
+    );
+    await tester.pump();
+    controller.value = RenPyImageChange(
+      show: 'logo',
+      showOnLayer: 'abovemid',
+      showBehind: 'eileen',
+      showAsset: 'assets/game/images/logo.png',
+    );
+    await tester.pump();
+
+    expect(_assetNames(tester), [
+      'assets/game/images/sylvie.png',
+      'assets/game/images/logo.png',
+      'assets/game/images/eileen.png',
+    ]);
+  });
+
+  testWidgets('image layer ignores behind targets on other layers', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(
+      show: 'eileen happy',
+      showAsset: 'assets/game/images/eileen.png',
+    );
+    await tester.pump();
+    controller.value = RenPyImageChange(
+      show: 'logo',
+      showOnLayer: 'abovemid',
+      showBehind: 'eileen',
+      showAsset: 'assets/game/images/logo.png',
+    );
+    await tester.pump();
+
+    expect(_assetNames(tester), [
+      'assets/game/images/eileen.png',
+      'assets/game/images/logo.png',
+    ]);
+  });
+
   testWidgets('image layer applies displayable operations', (tester) async {
     final controller = RenPyFlutterController();
     addTearDown(controller.dispose);

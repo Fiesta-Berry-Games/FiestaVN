@@ -709,7 +709,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
         _spritePlacements[key] ??
         _defaultSpritePlacement;
     _spritePlacements[key] = placement;
-    _spriteSnapshots[key] = RenPyVisualElementSnapshot(
+    final snapshot = RenPyVisualElementSnapshot(
       tag: tag,
       layer: _snapshotLayer(change.showOnLayer),
       imageName: shownImage,
@@ -719,6 +719,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       placement: placement,
       text: change.showText,
     );
+    _putSpriteSnapshot(key, snapshot, behind: change.showBehind);
   }
 
   void _clearSpriteLayer(String? layer) {
@@ -746,6 +747,42 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       placement: placement,
       text: sprite.text,
     );
+  }
+
+  void _putSpriteSnapshot(
+    String key,
+    RenPyVisualElementSnapshot snapshot, {
+    String? behind,
+  }) {
+    _spriteSnapshots.remove(key);
+
+    final behindValue = behind?.trim();
+    final target =
+        behindValue == null || behindValue.isEmpty
+            ? null
+            : behindValue.split(RegExp(r'\s+')).first;
+    if (target == null || target.isEmpty) {
+      _spriteSnapshots[key] = snapshot;
+      return;
+    }
+
+    final targetKey = _spriteKey(target, snapshot.layer);
+    if (!_spriteSnapshots.containsKey(targetKey)) {
+      _spriteSnapshots[key] = snapshot;
+      return;
+    }
+
+    final ordered = <String, RenPyVisualElementSnapshot>{};
+    for (final entry in _spriteSnapshots.entries) {
+      if (entry.key == targetKey) {
+        ordered[key] = snapshot;
+      }
+      ordered[entry.key] = entry.value;
+    }
+
+    _spriteSnapshots
+      ..clear()
+      ..addAll(ordered);
   }
 
   String _spriteKey(String tag, String? layer) {
