@@ -188,6 +188,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
 
   final List<RenPyRunnerSnapshot> _rollbackHistory = [];
 
+  static const _masterLayer = 'master';
   static const _defaultSpritePlacement = RenPyImagePlacement.position(
     xpos: 0.5,
     xanchor: 0.5,
@@ -604,10 +605,12 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       final tag = sprite.tag ?? _tagForSnapshot(sprite);
       if (tag == null) continue;
 
+      final key = _spriteKey(tag, sprite.layer);
       final placement = sprite.placement ?? _defaultSpritePlacement;
-      _spritePlacements[tag] = placement;
-      _spriteSnapshots[tag] = RenPyVisualElementSnapshot(
+      _spritePlacements[key] = placement;
+      _spriteSnapshots[key] = RenPyVisualElementSnapshot(
         tag: tag,
+        layer: sprite.layer,
         imageName: sprite.imageName,
         assetPath: sprite.assetPath,
         solidColor: sprite.solidColor,
@@ -630,6 +633,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   RenPyImageChange _imageChangeForSprite(RenPyVisualElementSnapshot snapshot) {
     return RenPyImageChange(
       show: snapshot.imageName,
+      showOnLayer: snapshot.layer,
       showPlacement: snapshot.placement,
       showAsset: snapshot.assetPath,
       showImage: _resolvedImageFor(snapshot),
@@ -666,9 +670,9 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   void _recordImageChange(RenPyImageChange change) {
     final scene = change.scene;
     if (scene != null) {
-      _spriteSnapshots.clear();
-      _spritePlacements.clear();
+      _clearSpriteLayer(change.sceneOnLayer);
       _sceneSnapshot = RenPyVisualElementSnapshot(
+        layer: _snapshotLayer(change.sceneOnLayer),
         imageName: scene,
         assetPath: change.sceneAsset,
         solidColor: change.sceneImage?.solidColor,
@@ -680,22 +684,25 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     final hiddenImage = change.hide;
     if (hiddenImage != null) {
       final tag = _imageTag(hiddenImage);
-      _spriteSnapshots.remove(tag);
-      _spritePlacements.remove(tag);
+      final key = _spriteKey(tag, change.hideOnLayer);
+      _spriteSnapshots.remove(key);
+      _spritePlacements.remove(key);
     }
 
     final shownImage = change.show;
     if (shownImage == null) return;
 
     final tag = _imageTag(shownImage);
+    final key = _spriteKey(tag, change.showOnLayer);
     final placement =
         change.showPlacement ??
         RenPyImagePlacement.parse(change.showAt) ??
-        _spritePlacements[tag] ??
+        _spritePlacements[key] ??
         _defaultSpritePlacement;
-    _spritePlacements[tag] = placement;
-    _spriteSnapshots[tag] = RenPyVisualElementSnapshot(
+    _spritePlacements[key] = placement;
+    _spriteSnapshots[key] = RenPyVisualElementSnapshot(
       tag: tag,
+      layer: _snapshotLayer(change.showOnLayer),
       imageName: shownImage,
       assetPath: change.showAsset,
       solidColor: change.showImage?.solidColor,
@@ -703,6 +710,28 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       placement: placement,
       text: change.showText,
     );
+  }
+
+  void _clearSpriteLayer(String? layer) {
+    final normalized = _normalizedLayer(layer);
+    _spriteSnapshots.removeWhere(
+      (_, sprite) => _normalizedLayer(sprite.layer) == normalized,
+    );
+    _spritePlacements.removeWhere((key, _) => key.startsWith('$normalized::'));
+  }
+
+  String _spriteKey(String tag, String? layer) {
+    return '${_normalizedLayer(layer)}::$tag';
+  }
+
+  String? _snapshotLayer(String? layer) {
+    final normalized = _normalizedLayer(layer);
+    return normalized == _masterLayer ? null : normalized;
+  }
+
+  String _normalizedLayer(String? layer) {
+    final value = layer?.trim();
+    return value == null || value.isEmpty ? _masterLayer : value;
   }
 
   void _recordAudioChange(RenPyAudioChange change) {

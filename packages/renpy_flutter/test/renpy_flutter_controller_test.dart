@@ -438,6 +438,75 @@ label start:
     );
   });
 
+  test('controller tracks same-tag sprites independently per layer', () async {
+    final store = RenPyMemoryRunnerSnapshotStore();
+    final controller = RenPyFlutterController(snapshotStore: store);
+    final restoredEvents = <RenPyGameStatus>[];
+    addTearDown(controller.dispose);
+    controller.addListener(() {
+      restoredEvents.add(controller.value);
+    });
+
+    controller.load(
+      '''
+label start:
+    show logo onlayer master
+    show logo onlayer abovemid
+    "Both."
+    hide logo onlayer master
+    "Above only."
+    scene black onlayer abovemid
+    "None."
+''',
+      gameRoot: 'assets/game',
+      availableAssets: const {'assets/game/images/logo.png'},
+    );
+
+    await _continueUntil(
+      controller,
+      (status) => status is RenPyDialogue && status.text == 'Both.',
+    );
+    expect(await controller.saveGame(), isTrue);
+
+    final bothSprites = (await store.load())!.presentation!.visual!.sprites;
+    expect(bothSprites.map((sprite) => sprite.imageName), ['logo', 'logo']);
+    expect(bothSprites.map((sprite) => sprite.layer), [null, 'abovemid']);
+
+    restoredEvents.clear();
+    controller.continueGame();
+    await _continueUntil(
+      controller,
+      (status) => status is RenPyDialogue && status.text == 'Above only.',
+    );
+    expect(await controller.saveGame(), isTrue);
+
+    final remainingSprites =
+        (await store.load())!.presentation!.visual!.sprites;
+    expect(remainingSprites.map((sprite) => sprite.imageName), ['logo']);
+    expect(remainingSprites.single.layer, 'abovemid');
+
+    expect(controller.rollback(), isTrue);
+    expect((controller.value as RenPyDialogue).text, 'Both.');
+    final visualRestore = restoredEvents.whereType<RenPyVisualRestore>().single;
+    expect(visualRestore.visual.sprites.map((sprite) => sprite.imageName), [
+      'logo',
+      'logo',
+    ]);
+    expect(visualRestore.visual.sprites.map((sprite) => sprite.layer), [
+      null,
+      'abovemid',
+    ]);
+
+    restoredEvents.clear();
+    controller.continueGame();
+    await _continueUntil(
+      controller,
+      (status) => status is RenPyDialogue && status.text == 'None.',
+    );
+    expect(await controller.saveGame(), isTrue);
+    expect((await store.load())!.presentation!.visual!.sprites, isEmpty);
+  });
+
   test('controller rollback does not replay one-shot sound effects', () async {
     final controller = RenPyFlutterController();
     final restoredEvents = <RenPyGameStatus>[];

@@ -584,6 +584,57 @@ void main() {
     expect(_assetNames(tester), ['assets/game/images/sylvie green smile.png']);
   });
 
+  testWidgets('image layer keys same-tag sprites by layer', (tester) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(
+      show: 'logo',
+      showAsset: 'assets/game/images/logo-master.png',
+    );
+    await tester.pump();
+
+    controller.value = RenPyImageChange(
+      show: 'logo',
+      showOnLayer: 'abovemid',
+      showAsset: 'assets/game/images/logo-abovemid.png',
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('logo')), findsOneWidget);
+    expect(find.byKey(const ValueKey('abovemid::logo')), findsOneWidget);
+    expect(_assetNames(tester), [
+      'assets/game/images/logo-master.png',
+      'assets/game/images/logo-abovemid.png',
+    ]);
+
+    controller.value = RenPyImageChange(hide: 'logo', hideOnLayer: 'master');
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('logo')), findsNothing);
+    expect(find.byKey(const ValueKey('abovemid::logo')), findsOneWidget);
+    expect(_assetNames(tester), ['assets/game/images/logo-abovemid.png']);
+
+    controller.value = RenPyImageChange(
+      show: 'logo',
+      showAsset: 'assets/game/images/logo-master.png',
+    );
+    await tester.pump();
+    controller.value = RenPyImageChange(
+      scene: 'black',
+      sceneOnLayer: 'abovemid',
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('logo')), findsOneWidget);
+    expect(find.byKey(const ValueKey('abovemid::logo')), findsNothing);
+    expect(_assetNames(tester), ['assets/game/images/logo-master.png']);
+  });
+
   testWidgets('image layer inserts shown sprites behind target tags', (
     tester,
   ) async {

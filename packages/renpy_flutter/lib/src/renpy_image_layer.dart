@@ -36,6 +36,8 @@ class RenPyImageLayer extends StatefulWidget {
   State<RenPyImageLayer> createState() => _RenPyImageLayerState();
 }
 
+const _masterLayer = 'master';
+
 class _RenPyImageLayerState extends State<RenPyImageLayer> {
   static const _transitionDuration = Duration(milliseconds: 300);
 
@@ -87,8 +89,8 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
       _transitionActive = false;
 
       if (status.scene != null) {
-        _sprites.clear();
-        _positions.clear();
+        _clearSpriteLayer(status.sceneOnLayer);
+
         final solidColor =
             _colorForResolvedSolid(status.sceneImage) ??
             _solidColorForScene(status.scene!);
@@ -104,8 +106,9 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
 
       if (status.hide != null) {
         final name = status.hide!.trim().split(RegExp(r'\s+')).first;
-        _sprites.remove(name);
-        _positions.remove(name);
+        final key = _spriteKey(name, status.hideOnLayer);
+        _sprites.remove(key);
+        _positions.remove(key);
       }
 
       if (status.show != null) {
@@ -114,13 +117,14 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
         if (parts.isEmpty) return;
 
         final name = parts.first;
+        final key = _spriteKey(name, status.showOnLayer);
 
         final placement =
             status.showPlacement ??
             RenPyImagePlacement.parse(status.showAt) ??
-            _positions[name] ??
+            _positions[key] ??
             _defaultSpritePlacement;
-        _positions[name] = placement;
+        _positions[key] = placement;
 
         final text = status.showText;
         if (text != null) {
@@ -128,6 +132,7 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
             name,
             _RenPySpriteState.text(text: text, placement: placement),
             behind: status.showBehind,
+            layer: status.showOnLayer,
           );
         } else {
           final image = _RenPyRenderedImage.fromStatus(
@@ -140,6 +145,7 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
             name,
             _RenPySpriteState.image(image: image, placement: placement),
             behind: status.showBehind,
+            layer: status.showOnLayer,
           );
         }
       }
@@ -164,13 +170,14 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
     for (final sprite in visual.sprites) {
       final name = _tagForSnapshot(sprite);
       if (name == null) continue;
+      final key = _spriteKey(name, sprite.layer);
 
       final placement = sprite.placement ?? _defaultSpritePlacement;
-      _positions[name] = placement;
+      _positions[key] = placement;
 
       final text = sprite.text;
       if (text != null) {
-        _sprites[name] = _RenPySpriteState.text(
+        _sprites[key] = _RenPySpriteState.text(
           text: text,
           placement: placement,
         );
@@ -179,7 +186,7 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
 
       final image = _RenPyRenderedImage.fromSnapshot(sprite);
       if (image == null) continue;
-      _sprites[name] = _RenPySpriteState.image(
+      _sprites[key] = _RenPySpriteState.image(
         image: image,
         placement: placement,
       );
@@ -194,23 +201,35 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
     return imageName.split('#').first.trim().split(RegExp(r'\s+')).first;
   }
 
-  void _putSprite(String name, _RenPySpriteState sprite, {String? behind}) {
-    _sprites.remove(name);
+  void _putSprite(
+    String name,
+    _RenPySpriteState sprite, {
+    String? behind,
+    String? layer,
+  }) {
+    final key = _spriteKey(name, layer);
+    _sprites.remove(key);
 
     final behindValue = behind?.trim();
     final target =
         behindValue == null || behindValue.isEmpty
             ? null
             : behindValue.split(RegExp(r'\s+')).first;
-    if (target == null || target.isEmpty || !_sprites.containsKey(target)) {
-      _sprites[name] = sprite;
+    if (target == null || target.isEmpty) {
+      _sprites[key] = sprite;
+      return;
+    }
+
+    final targetKey = _spriteKey(target, layer);
+    if (!_sprites.containsKey(targetKey)) {
+      _sprites[key] = sprite;
       return;
     }
 
     final ordered = <String, _RenPySpriteState>{};
     for (final entry in _sprites.entries) {
-      if (entry.key == target) {
-        ordered[name] = sprite;
+      if (entry.key == targetKey) {
+        ordered[key] = sprite;
       }
       ordered[entry.key] = entry.value;
     }
@@ -218,6 +237,29 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
     _sprites
       ..clear()
       ..addAll(ordered);
+  }
+
+  void _clearSpriteLayer(String? layer) {
+    final normalized = _normalizedLayer(layer);
+    _sprites.removeWhere((key, _) => key.startsWith('$normalized::'));
+    _positions.removeWhere((key, _) => key.startsWith('$normalized::'));
+  }
+
+  String _spriteKey(String tag, String? layer) {
+    return '${_normalizedLayer(layer)}::$tag';
+  }
+
+  String _widgetKey(String spriteKey) {
+    final separator = spriteKey.indexOf('::');
+    if (separator < 0) return spriteKey;
+    final layer = spriteKey.substring(0, separator);
+    final tag = spriteKey.substring(separator + 2);
+    return layer == _masterLayer ? tag : spriteKey;
+  }
+
+  String _normalizedLayer(String? layer) {
+    final value = layer?.trim();
+    return value == null || value.isEmpty ? _masterLayer : value;
   }
 
   @override
@@ -320,6 +362,7 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
       backgroundColor: _backgroundColor,
       backgroundImage: _backgroundImage,
       sprites: Map.unmodifiable(_sprites),
+      widgetKey: _widgetKey,
     );
   }
 
@@ -339,11 +382,13 @@ class _RenPyVisualState {
     required this.backgroundColor,
     required this.backgroundImage,
     required this.sprites,
+    required this.widgetKey,
   });
 
   final Color backgroundColor;
   final _RenPyRenderedImage? backgroundImage;
   final Map<String, _RenPySpriteState> sprites;
+  final String Function(String spriteKey) widgetKey;
 }
 
 Color? _solidColorForScene(String scene) {
@@ -461,7 +506,7 @@ class _RenPyVisualFrame extends StatelessWidget {
           ),
         for (final entry in state.sprites.entries)
           _RenPyDisplayableSprite(
-            key: ValueKey(entry.key),
+            key: ValueKey(state.widgetKey(entry.key)),
             sprite: entry.value,
             imageProvider: imageProvider,
             screenSize: screenSize,

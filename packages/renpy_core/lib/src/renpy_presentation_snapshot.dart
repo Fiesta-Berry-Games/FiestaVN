@@ -59,6 +59,7 @@ final class RenPyVisualSnapshot {
 final class RenPyVisualElementSnapshot {
   const RenPyVisualElementSnapshot({
     this.tag,
+    this.layer,
     this.imageName,
     this.assetPath,
     this.solidColor,
@@ -68,6 +69,7 @@ final class RenPyVisualElementSnapshot {
   });
 
   final String? tag;
+  final String? layer;
   final String? imageName;
   final String? assetPath;
   final RenPyColorValue? solidColor;
@@ -77,6 +79,7 @@ final class RenPyVisualElementSnapshot {
 
   Map<String, Object?> toJson() => {
     if (tag != null) 'tag': tag,
+    if (layer != null) 'layer': layer,
     if (imageName != null) 'imageName': imageName,
     if (assetPath != null) 'assetPath': assetPath,
     if (solidColor != null) 'solidColor': _colorToJson(solidColor!),
@@ -89,6 +92,7 @@ final class RenPyVisualElementSnapshot {
   factory RenPyVisualElementSnapshot.fromJson(Map<String, Object?> json) {
     return RenPyVisualElementSnapshot(
       tag: json['tag'] as String?,
+      layer: json['layer'] as String?,
       imageName: json['imageName'] as String?,
       assetPath: json['assetPath'] as String?,
       solidColor:

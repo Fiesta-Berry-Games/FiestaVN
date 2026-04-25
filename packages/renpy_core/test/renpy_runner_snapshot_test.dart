@@ -182,4 +182,18 @@ label start:
 
     expect(restored.toJson(), snapshot.toJson());
   });
+
+  test('visual element snapshot serializes layer identity', () {
+    const snapshot = RenPyVisualElementSnapshot(
+      tag: 'logo',
+      layer: 'abovemid',
+      imageName: 'logo',
+      assetPath: 'assets/game/images/logo.png',
+    );
+
+    final restored = RenPyVisualElementSnapshot.fromJson(snapshot.toJson());
+
+    expect(restored.layer, 'abovemid');
+    expect(restored.toJson(), snapshot.toJson());
+  });
 }
