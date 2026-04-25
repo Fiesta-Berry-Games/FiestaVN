@@ -144,7 +144,11 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
         if (text != null) {
           _putSprite(
             name,
-            _RenPySpriteState.text(text: text, placement: placement),
+            _RenPySpriteState.text(
+              text: text,
+              placement: placement,
+              zOrder: status.showZOrder ?? 0,
+            ),
             behind: status.showBehind,
             layer: status.showOnLayer,
           );
@@ -157,7 +161,11 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
 
           _putSprite(
             name,
-            _RenPySpriteState.image(image: image, placement: placement),
+            _RenPySpriteState.image(
+              image: image,
+              placement: placement,
+              zOrder: status.showZOrder ?? 0,
+            ),
             behind: status.showBehind,
             layer: status.showOnLayer,
           );
@@ -202,7 +210,11 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
 
     final text = sprite.text;
     if (text != null) {
-      _sprites[key] = _RenPySpriteState.text(text: text, placement: placement);
+      _sprites[key] = _RenPySpriteState.text(
+        text: text,
+        placement: placement,
+        zOrder: sprite.zOrder ?? 0,
+      );
       return;
     }
 
@@ -211,13 +223,18 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
       _sprites[key] = _RenPySpriteState.solid(
         solidColor: solidColor,
         placement: placement,
+        zOrder: sprite.zOrder ?? 0,
       );
       return;
     }
 
     final image = _RenPyRenderedImage.fromSnapshot(sprite);
     if (image == null) return;
-    _sprites[key] = _RenPySpriteState.image(image: image, placement: placement);
+    _sprites[key] = _RenPySpriteState.image(
+      image: image,
+      placement: placement,
+      zOrder: sprite.zOrder ?? 0,
+    );
   }
 
   String? _tagForSnapshot(RenPyVisualElementSnapshot snapshot) {
@@ -530,17 +547,24 @@ class _RenPyRenderedImage {
 }
 
 class _RenPySpriteState {
-  const _RenPySpriteState.image({required this.image, required this.placement})
-    : solidColor = null,
-      text = null;
+  const _RenPySpriteState.image({
+    required this.image,
+    required this.placement,
+    this.zOrder = 0,
+  }) : solidColor = null,
+       text = null;
 
-  const _RenPySpriteState.text({required this.text, required this.placement})
-    : image = null,
-      solidColor = null;
+  const _RenPySpriteState.text({
+    required this.text,
+    required this.placement,
+    this.zOrder = 0,
+  }) : image = null,
+       solidColor = null;
 
   const _RenPySpriteState.solid({
     required this.solidColor,
     required this.placement,
+    this.zOrder = 0,
   }) : image = null,
        text = null;
 
@@ -548,6 +572,7 @@ class _RenPySpriteState {
   final Color? solidColor;
   final String? text;
   final RenPyImagePlacement placement;
+  final int zOrder;
 }
 
 const _defaultSpritePlacement = RenPyImagePlacement.position(
@@ -677,6 +702,10 @@ List<MapEntry<String, _RenPySpriteState>> _orderedSprites(
       layerOrder,
     ).compareTo(_layerRank(_layerForSpriteKey(right.entry.key), layerOrder));
     if (layerComparison != 0) return layerComparison;
+    final zOrderComparison = left.entry.value.zOrder.compareTo(
+      right.entry.value.zOrder,
+    );
+    if (zOrderComparison != 0) return zOrderComparison;
     return left.index.compareTo(right.index);
   });
 

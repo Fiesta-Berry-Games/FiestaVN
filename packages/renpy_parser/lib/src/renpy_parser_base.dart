@@ -571,7 +571,7 @@ class RenPyParser {
       text.substring(prefix.length),
       line,
       'show',
-      const ['at', 'onlayer', 'behind', 'with'],
+      const ['at', 'onlayer', 'zorder', 'behind', 'with'],
     );
 
     return RenPyShowStatement(
@@ -582,6 +582,7 @@ class RenPyParser {
       line.number,
       behindExpression: parts.clauses['behind'],
       onLayerExpression: parts.clauses['onlayer'],
+      zOrderExpression: parts.clauses['zorder'],
     );
   }
 
@@ -608,6 +609,7 @@ class RenPyParser {
       'as',
       'at',
       'onlayer',
+      'zorder',
       'behind',
       'with',
     ], requireImageName: false);
@@ -620,6 +622,7 @@ class RenPyParser {
       line.number,
       behindExpression: parts.clauses['behind'],
       onLayerExpression: parts.clauses['onlayer'],
+      zOrderExpression: parts.clauses['zorder'],
       displayableText: _unescapeString(quoted.value),
     );
   }

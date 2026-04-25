@@ -110,6 +110,7 @@ class RenPyShowStatement extends RenPyStatement {
   final String? atExpression;
   final String? behindExpression;
   final String? onLayerExpression;
+  final String? zOrderExpression;
   final String? withExpression;
   final String? displayableText;
 
@@ -121,6 +122,7 @@ class RenPyShowStatement extends RenPyStatement {
     int linenumber, {
     this.behindExpression,
     this.onLayerExpression,
+    this.zOrderExpression,
     this.displayableText,
   }) : super(filename, linenumber);
 

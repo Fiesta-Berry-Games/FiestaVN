@@ -726,6 +726,7 @@ class RenPyRunner {
         at: stmt.atExpression,
         placement: placement,
         onLayer: stmt.onLayerExpression,
+        zOrder: _parseZOrder(stmt.zOrderExpression),
         behind: stmt.behindExpression,
         displayableText: stmt.displayableText,
       ),
@@ -737,6 +738,12 @@ class RenPyRunner {
 
     _position++;
     _executeNext();
+  }
+
+  int? _parseZOrder(String? expression) {
+    final value = expression?.trim();
+    if (value == null || value.isEmpty) return null;
+    return int.tryParse(value);
   }
 
   /// Execute a scene statement.

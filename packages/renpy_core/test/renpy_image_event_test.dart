@@ -156,6 +156,27 @@ label start:
     ]);
   });
 
+  test('runner emits show zorder metadata', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    show logo zorder 10 onlayer abovemid
+    show title zorder -5
+''', 'image_zorder.rpy').script;
+    final runner = RenPyRunner(script);
+    final events = <RenPyImageEvent>[];
+
+    runner.onImageEvent = events.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(events, [
+      const RenPyImageEvent.show('logo', onLayer: 'abovemid', zOrder: 10),
+      const RenPyImageEvent.show('title', zOrder: -5),
+    ]);
+  });
+
   test('runner emits show text displayables as structured image events', () {
     final script =
         RenPyParser().parse('''

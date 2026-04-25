@@ -189,11 +189,13 @@ label start:
       layer: 'abovemid',
       imageName: 'logo',
       assetPath: 'assets/game/images/logo.png',
+      zOrder: 10,
     );
 
     final restored = RenPyVisualElementSnapshot.fromJson(snapshot.toJson());
 
     expect(restored.layer, 'abovemid');
+    expect(restored.zOrder, 10);
     expect(restored.toJson(), snapshot.toJson());
   });
 }

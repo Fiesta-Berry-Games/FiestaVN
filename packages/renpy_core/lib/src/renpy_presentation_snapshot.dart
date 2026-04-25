@@ -65,6 +65,7 @@ final class RenPyVisualElementSnapshot {
     this.solidColor,
     this.operations = const [],
     this.placement,
+    this.zOrder,
     this.text,
   });
 
@@ -75,6 +76,7 @@ final class RenPyVisualElementSnapshot {
   final RenPyColorValue? solidColor;
   final List<RenPyImageOperation> operations;
   final RenPyImagePlacement? placement;
+  final int? zOrder;
   final String? text;
 
   Map<String, Object?> toJson() => {
@@ -86,6 +88,7 @@ final class RenPyVisualElementSnapshot {
     if (operations.isNotEmpty)
       'operations': operations.map(_operationToJson).toList(),
     if (placement != null) 'placement': _placementToJson(placement!),
+    if (zOrder != null) 'zOrder': zOrder,
     if (text != null) 'text': text,
   };
 
@@ -109,6 +112,7 @@ final class RenPyVisualElementSnapshot {
           json['placement'] == null
               ? null
               : _placementFromJson(_mapFromJson(json['placement'])),
+      zOrder: json['zOrder'] as int?,
       text: json['text'] as String?,
     );
   }

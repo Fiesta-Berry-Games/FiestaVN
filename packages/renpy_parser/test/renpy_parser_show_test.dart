@@ -23,6 +23,26 @@ label start:
     expect(shows[1].withExpression, 'dissolve');
   });
 
+  test('show statements carry zorder clauses separately from names', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    show logo zorder 10 onlayer abovemid
+    show text "Chapter One" as title zorder -5 at truecenter
+''', 'show_zorder.rpy').script;
+
+    final shows = script.findStatements<RenPyShowStatement>((_) => true);
+
+    expect(shows[0].imageName, 'logo');
+    expect(shows[0].zOrderExpression, '10');
+    expect(shows[0].onLayerExpression, 'abovemid');
+
+    expect(shows[1].imageName, 'title');
+    expect(shows[1].displayableText, 'Chapter One');
+    expect(shows[1].zOrderExpression, '-5');
+    expect(shows[1].atExpression, 'truecenter');
+  });
+
   test(
     'show text statements carry displayable text separately from placement',
     () {

@@ -38,6 +38,7 @@ class RenPyImageEvent {
     this.placement,
     this.onLayer,
   }) : action = RenPyImageAction.scene,
+       zOrder = null,
        behind = null,
        displayableText = null;
 
@@ -46,6 +47,7 @@ class RenPyImageEvent {
     this.at,
     this.placement,
     this.onLayer,
+    this.zOrder,
     this.behind,
     this.displayableText,
   }) : action = RenPyImageAction.show;
@@ -54,6 +56,7 @@ class RenPyImageEvent {
     : action = RenPyImageAction.hide,
       at = null,
       placement = null,
+      zOrder = null,
       behind = null,
       displayableText = null;
 
@@ -68,6 +71,9 @@ class RenPyImageEvent {
 
   /// The RenPy layer targeted by `onlayer`, if specified.
   final String? onLayer;
+
+  /// The numeric RenPy z-order for this show statement, if specified.
+  final int? zOrder;
 
   /// The image tag this show statement should render behind, if specified.
   final String? behind;
@@ -84,6 +90,7 @@ class RenPyImageEvent {
             at == other.at &&
             placement == other.placement &&
             onLayer == other.onLayer &&
+            zOrder == other.zOrder &&
             behind == other.behind &&
             displayableText == other.displayableText;
   }
@@ -95,6 +102,7 @@ class RenPyImageEvent {
     at,
     placement,
     onLayer,
+    zOrder,
     behind,
     displayableText,
   );
@@ -103,7 +111,7 @@ class RenPyImageEvent {
   String toString() {
     return 'RenPyImageEvent.$action('
         'imageName: $imageName, at: $at, placement: $placement, '
-        'onLayer: $onLayer, behind: $behind, '
+        'onLayer: $onLayer, zOrder: $zOrder, behind: $behind, '
         'displayableText: $displayableText)';
   }
 }
