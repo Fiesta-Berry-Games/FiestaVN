@@ -63,6 +63,7 @@ final class RenPyImageChange extends RenPyGameStatus {
     this.sceneOnLayer,
     this.showOnLayer,
     this.hideOnLayer,
+    this.sceneZOrder,
     this.showBehind,
     this.showZOrder,
     this.scenePlacement,
@@ -82,6 +83,7 @@ final class RenPyImageChange extends RenPyGameStatus {
   final String? sceneOnLayer;
   final String? showOnLayer;
   final String? hideOnLayer;
+  final int? sceneZOrder;
   final String? showBehind;
   final int? showZOrder;
   final RenPyImagePlacement? scenePlacement;
@@ -444,6 +446,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
           scene: event.imageName,
           sceneAt: event.at,
           sceneOnLayer: event.onLayer,
+          sceneZOrder: event.zOrder,
           scenePlacement: event.placement,
           sceneAsset: image?.assetPath,
           sceneImage: image,
@@ -621,6 +624,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       scenePlacement: snapshot.placement,
       sceneAsset: snapshot.assetPath,
       sceneImage: _resolvedImageFor(snapshot),
+      sceneZOrder: snapshot.zOrder,
     );
   }
 
@@ -673,6 +677,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
           solidColor: change.sceneImage?.solidColor,
           operations: change.sceneImage?.operations ?? const [],
           placement: change.scenePlacement,
+          zOrder: change.sceneZOrder,
         );
       } else {
         final tag = _imageTag(scene);
@@ -690,6 +695,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
           solidColor: change.sceneImage?.solidColor,
           operations: change.sceneImage?.operations ?? const [],
           placement: placement,
+          zOrder: change.sceneZOrder,
         );
       }
     }

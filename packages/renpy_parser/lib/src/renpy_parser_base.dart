@@ -786,7 +786,7 @@ class RenPyParser {
       text.substring(prefix.length),
       line,
       'scene',
-      const ['at', 'onlayer', 'with'],
+      const ['at', 'onlayer', 'zorder', 'with'],
     );
 
     return RenPySceneStatement(
@@ -796,6 +796,7 @@ class RenPyParser {
       line.filename,
       line.number,
       onLayerExpression: parts.clauses['onlayer'],
+      zOrderExpression: parts.clauses['zorder'],
     );
   }
 

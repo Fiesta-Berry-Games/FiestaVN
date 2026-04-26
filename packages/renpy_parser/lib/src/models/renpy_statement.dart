@@ -135,6 +135,7 @@ class RenPySceneStatement extends RenPyStatement {
   final String? imageName;
   final String? atExpression;
   final String? onLayerExpression;
+  final String? zOrderExpression;
   final String? withExpression;
 
   RenPySceneStatement(
@@ -144,6 +145,7 @@ class RenPySceneStatement extends RenPyStatement {
     String filename,
     int linenumber, {
     this.onLayerExpression,
+    this.zOrderExpression,
   }) : super(filename, linenumber);
 
   @override

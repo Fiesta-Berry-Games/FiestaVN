@@ -43,6 +43,22 @@ label start:
     expect(shows[1].atExpression, 'truecenter');
   });
 
+  test('scene statements carry zorder clauses separately from names', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    scene overlay onlayer abovemid zorder 10 with dissolve
+''', 'scene_zorder.rpy').script;
+
+    final scene =
+        script.findStatements<RenPySceneStatement>((_) => true).single;
+
+    expect(scene.imageName, 'overlay');
+    expect(scene.onLayerExpression, 'abovemid');
+    expect(scene.zOrderExpression, '10');
+    expect(scene.withExpression, 'dissolve');
+  });
+
   test(
     'show text statements carry displayable text separately from placement',
     () {

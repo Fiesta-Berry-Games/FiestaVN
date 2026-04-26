@@ -304,7 +304,11 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
     if (solidColor != null) {
       _putSprite(
         name,
-        _RenPySpriteState.solid(solidColor: solidColor, placement: placement),
+        _RenPySpriteState.solid(
+          solidColor: solidColor,
+          placement: placement,
+          zOrder: status.sceneZOrder ?? 0,
+        ),
         layer: status.sceneOnLayer,
       );
       return;
@@ -318,7 +322,11 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
 
     _putSprite(
       name,
-      _RenPySpriteState.image(image: image, placement: placement),
+      _RenPySpriteState.image(
+        image: image,
+        placement: placement,
+        zOrder: status.sceneZOrder ?? 0,
+      ),
       layer: status.sceneOnLayer,
     );
   }

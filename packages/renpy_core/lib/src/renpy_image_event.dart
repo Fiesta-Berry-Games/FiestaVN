@@ -37,8 +37,8 @@ class RenPyImageEvent {
     this.at,
     this.placement,
     this.onLayer,
+    this.zOrder,
   }) : action = RenPyImageAction.scene,
-       zOrder = null,
        behind = null,
        displayableText = null;
 
@@ -72,7 +72,7 @@ class RenPyImageEvent {
   /// The RenPy layer targeted by `onlayer`, if specified.
   final String? onLayer;
 
-  /// The numeric RenPy z-order for this show statement, if specified.
+  /// The numeric RenPy z-order for this image statement, if specified.
   final int? zOrder;
 
   /// The image tag this show statement should render behind, if specified.

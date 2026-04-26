@@ -671,6 +671,65 @@ label start:
     );
   });
 
+  test(
+    'controller preserves layered scene zorder within visual snapshots',
+    () async {
+      final store = RenPyMemoryRunnerSnapshotStore();
+      final controller = RenPyFlutterController(snapshotStore: store);
+      final restoredEvents = <RenPyGameStatus>[];
+      addTearDown(controller.dispose);
+      controller.addListener(() {
+        restoredEvents.add(controller.value);
+      });
+
+      controller.load(
+        '''
+label start:
+    scene overlay onlayer abovemid zorder 10
+    show logo onlayer abovemid zorder 20
+    "Layered."
+    "Next."
+''',
+        gameRoot: 'assets/game',
+        availableAssets: const {
+          'assets/game/images/overlay.png',
+          'assets/game/images/logo.png',
+        },
+      );
+
+      await _continueUntil(
+        controller,
+        (status) => status is RenPyDialogue && status.text == 'Layered.',
+      );
+      expect(await controller.saveGame(), isTrue);
+
+      final sprites = (await store.load())!.presentation!.visual!.sprites;
+      expect(
+        sprites.map(
+          (sprite) => (sprite.imageName, sprite.layer, sprite.zOrder),
+        ),
+        [('overlay', 'abovemid', 10), ('logo', 'abovemid', 20)],
+      );
+
+      restoredEvents.clear();
+      controller.continueGame();
+      await _continueUntil(
+        controller,
+        (status) => status is RenPyDialogue && status.text == 'Next.',
+      );
+
+      expect(controller.rollback(), isTrue);
+      final visualRestore =
+          restoredEvents.whereType<RenPyVisualRestore>().single;
+      expect(
+        visualRestore.visual.sprites.map(
+          (sprite) => (sprite.imageName, sprite.layer, sprite.zOrder),
+        ),
+        [('overlay', 'abovemid', 10), ('logo', 'abovemid', 20)],
+      );
+    },
+  );
+
   test('controller rollback does not replay one-shot sound effects', () async {
     final controller = RenPyFlutterController();
     final restoredEvents = <RenPyGameStatus>[];

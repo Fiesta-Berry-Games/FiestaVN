@@ -177,6 +177,25 @@ label start:
     ]);
   });
 
+  test('runner emits scene zorder metadata', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    scene overlay onlayer abovemid zorder 10
+''', 'scene_zorder.rpy').script;
+    final runner = RenPyRunner(script);
+    final events = <RenPyImageEvent>[];
+
+    runner.onImageEvent = events.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(events, [
+      const RenPyImageEvent.scene('overlay', onLayer: 'abovemid', zOrder: 10),
+    ]);
+  });
+
   test('runner emits show text displayables as structured image events', () {
     final script =
         RenPyParser().parse('''

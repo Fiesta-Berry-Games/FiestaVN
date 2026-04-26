@@ -906,6 +906,43 @@ void main() {
     ]);
   });
 
+  testWidgets('image layer orders layered scenes by zorder', (tester) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(
+      scene: 'overlay',
+      sceneOnLayer: 'abovemid',
+      sceneZOrder: 10,
+      sceneAsset: 'assets/game/images/overlay.png',
+    );
+    await tester.pump();
+    controller.value = RenPyImageChange(
+      show: 'logo',
+      showOnLayer: 'abovemid',
+      showZOrder: 20,
+      showAsset: 'assets/game/images/logo.png',
+    );
+    await tester.pump();
+    controller.value = RenPyImageChange(
+      show: 'back',
+      showOnLayer: 'abovemid',
+      showZOrder: -5,
+      showAsset: 'assets/game/images/back.png',
+    );
+    await tester.pump();
+
+    expect(_assetNames(tester), [
+      'assets/game/images/back.png',
+      'assets/game/images/overlay.png',
+      'assets/game/images/logo.png',
+    ]);
+  });
+
   testWidgets('image layer applies displayable operations', (tester) async {
     final controller = RenPyFlutterController();
     addTearDown(controller.dispose);

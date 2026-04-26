@@ -756,6 +756,7 @@ class RenPyRunner {
         at: stmt.atExpression,
         placement: placement,
         onLayer: stmt.onLayerExpression,
+        zOrder: _parseZOrder(stmt.zOrderExpression),
       ),
     );
     if (onImage != null) {
