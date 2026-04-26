@@ -225,6 +225,23 @@ label start:
           result.dialogue.map((line) => line.displayText),
           contains('Afterword:'),
         );
+        final imageChanges = result.images;
+        final metaShowIndex = imageChanges.indexWhere(
+          (change) => change.show == 'meta',
+        );
+        final logoShowIndex = imageChanges.indexWhere(
+          (change) => change.show == 'logo',
+        );
+        final metaHideIndex = imageChanges.indexWhere(
+          (change) => change.hide == 'meta',
+        );
+        final logoHideIndex = imageChanges.indexWhere(
+          (change) => change.hide == 'logo',
+        );
+        expect(metaShowIndex, isNonNegative);
+        expect(logoShowIndex, isNonNegative);
+        expect(metaHideIndex, greaterThan(metaShowIndex));
+        expect(logoHideIndex, greaterThan(logoShowIndex));
         expect(result.summary.dialogueCount, greaterThan(100));
       },
       skip: confessionSkipReason,
