@@ -135,6 +135,42 @@ label start:
     );
   });
 
+  test('runner resolves simple named transform placement intent', () {
+    final script =
+        RenPyParser().parse('''
+transform small_left:
+    xpos 0.25
+    xanchor 0.5
+    ypos 0.5
+    yanchor 0.5
+    zoom 0.5
+
+label start:
+    show logo at small_left
+''', 'image_named_transform.rpy').script;
+    final runner = RenPyRunner(script);
+    final events = <RenPyImageEvent>[];
+    final diagnostics = <RenPyDiagnostic>[];
+
+    runner.onImageEvent = events.add;
+    runner.onDiagnostic = diagnostics.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(
+      events.single.placement,
+      const RenPyImagePlacement.position(
+        xpos: 0.25,
+        xanchor: 0.5,
+        ypos: 0.5,
+        yanchor: 0.5,
+        zoom: 0.5,
+      ),
+    );
+    expect(diagnostics, isEmpty);
+  });
+
   test('runner emits onlayer metadata separately from image names', () {
     final script =
         RenPyParser().parse('''

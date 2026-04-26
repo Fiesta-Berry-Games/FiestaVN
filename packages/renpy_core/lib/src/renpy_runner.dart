@@ -211,6 +211,7 @@ class RenPyRunner {
   RenPyDialogueEvent? _lastDialogueEvent;
   _PendingDialogue? _pendingDialogue;
   late RenPyTransitionResolver _transitionResolver;
+  final Map<String, RenPyImagePlacement> _transformPlacements = {};
 
   /// Callbacks for various events
   DialogueCallback? onDialogue;
@@ -260,6 +261,8 @@ class RenPyRunner {
           );
         } else if (statement is RenPyPythonStatement) {
           _applyAudioChannelRegistration(statement.code);
+        } else if (statement is RenPyTransformStatement) {
+          _applyTransformStatement(statement);
         } else if (statement is RenPyInitStatement) {
           process(statement.block);
         }
@@ -305,6 +308,20 @@ class RenPyRunner {
       );
       _variables[name] = _evaluateExpression(expression);
     }
+  }
+
+  void _applyTransformStatement(RenPyTransformStatement statement) {
+    final name = _transformName(statement.signature);
+    if (name == null) return;
+    final placement = _placementFromTransformBody(statement.body);
+    if (placement != null) {
+      _transformPlacements[name] = placement;
+    }
+  }
+
+  String? _transformName(String signature) {
+    final match = RegExp(r'^([A-Za-z_]\w*)').firstMatch(signature.trim());
+    return match?.group(1);
   }
 
   dynamic _evaluateExpression(String expression) {
@@ -718,7 +735,7 @@ class RenPyRunner {
 
   /// Execute a show statement.
   void _executeShowStatement(RenPyShowStatement stmt) {
-    final placement = RenPyImagePlacement.parse(stmt.atExpression);
+    final placement = _placementFor(stmt.atExpression);
     _diagnosePlacement(placement);
     onImageEvent?.call(
       RenPyImageEvent.show(
@@ -746,9 +763,19 @@ class RenPyRunner {
     return int.tryParse(value);
   }
 
+  RenPyImagePlacement? _placementFor(String? expression) {
+    final value = expression?.trim();
+    if (value == null || value.isEmpty) return null;
+
+    final parsed = RenPyImagePlacement.parse(value);
+    if (parsed == null || parsed.isSupported) return parsed;
+
+    return _transformPlacements[value] ?? parsed;
+  }
+
   /// Execute a scene statement.
   void _executeSceneStatement(RenPySceneStatement stmt) {
-    final placement = RenPyImagePlacement.parse(stmt.atExpression);
+    final placement = _placementFor(stmt.atExpression);
     _diagnosePlacement(placement);
     onImageEvent?.call(
       RenPyImageEvent.scene(
@@ -1742,6 +1769,55 @@ class RenPyRunner {
   void _flushPersistent() {
     _persistentStore?.save(_persistent);
   }
+}
+
+RenPyImagePlacement? _placementFromTransformBody(List<String> body) {
+  final values = <String, _TransformValue>{};
+  for (final rawLine in body) {
+    final line = rawLine.trim();
+    if (line.isEmpty || line.startsWith('#')) continue;
+
+    final match = RegExp(
+      r'^(xpos|ypos|xanchor|yanchor|xalign|yalign|zoom|xzoom|yzoom)\s+(.+)$',
+    ).firstMatch(line);
+    if (match == null) return null;
+
+    final value = _transformValue(match.group(2)!);
+    if (value == null) return null;
+    values[match.group(1)!] = value;
+  }
+
+  if (values.isEmpty) return null;
+  return RenPyImagePlacement.position(
+    xpos: values['xpos']?.value,
+    ypos: values['ypos']?.value,
+    xanchor: values['xanchor']?.value,
+    yanchor: values['yanchor']?.value,
+    xalign: values['xalign']?.value,
+    yalign: values['yalign']?.value,
+    xposIsPixel: values['xpos']?.isPixel ?? false,
+    yposIsPixel: values['ypos']?.isPixel ?? false,
+    xanchorIsPixel: values['xanchor']?.isPixel ?? false,
+    yanchorIsPixel: values['yanchor']?.isPixel ?? false,
+    zoom: values['zoom']?.value,
+    xzoom: values['xzoom']?.value,
+    yzoom: values['yzoom']?.value,
+  );
+}
+
+_TransformValue? _transformValue(String expression) {
+  final value = expression.trim();
+  final number = double.tryParse(value);
+  if (number == null) return null;
+  final isPixel = RegExp(r'^-?\d+$').hasMatch(value);
+  return _TransformValue(number, isPixel);
+}
+
+class _TransformValue {
+  const _TransformValue(this.value, this.isPixel);
+
+  final double value;
+  final bool isPixel;
 }
 
 class _VariableLookup {

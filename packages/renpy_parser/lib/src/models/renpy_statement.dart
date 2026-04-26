@@ -385,9 +385,14 @@ class RenPyStyleStatement extends RenPyStatement {
 /// Represents a Ren'Py ATL transform declaration.
 class RenPyTransformStatement extends RenPyStatement {
   final String signature;
+  final List<String> body;
 
-  RenPyTransformStatement(this.signature, String filename, int linenumber)
-    : super(filename, linenumber);
+  RenPyTransformStatement(
+    this.signature,
+    String filename,
+    int linenumber, {
+    this.body = const [],
+  }) : super(filename, linenumber);
 
   @override
   String toString() {

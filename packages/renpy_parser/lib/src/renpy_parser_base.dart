@@ -1111,6 +1111,7 @@ class RenPyParser {
       match.group(1)!.trim(),
       line.filename,
       line.number,
+      body: [for (final blockLine in line.block) blockLine.text.trim()],
     );
   }
 }

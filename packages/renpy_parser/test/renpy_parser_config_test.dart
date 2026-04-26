@@ -22,6 +22,11 @@ screen say(who, what):
 
 transform delayed_blink(delay, cycle):
     alpha 0.0
+    linear delay alpha 1.0
+
+transform small_left:
+    xpos 0.25
+    zoom 0.5
 
 label start:
     "Ready."
@@ -67,9 +72,17 @@ label start:
     expect(
       result.script
           .findStatements<RenPyTransformStatement>((_) => true)
+          .map((stmt) => stmt.signature),
+      containsAll(['delayed_blink(delay, cycle)', 'small_left']),
+    );
+    expect(
+      result.script
+          .findStatements<RenPyTransformStatement>(
+            (stmt) => stmt.signature == 'small_left',
+          )
           .single
-          .signature,
-      'delayed_blink(delay, cycle)',
+          .body,
+      ['xpos 0.25', 'zoom 0.5'],
     );
   });
 }

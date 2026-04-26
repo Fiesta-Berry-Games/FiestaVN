@@ -956,6 +956,51 @@ label start:
   });
 
   test(
+    'controller carries simple named transform placement metadata',
+    () async {
+      final controller = RenPyFlutterController();
+      final images = <RenPyImageChange>[];
+      addTearDown(controller.dispose);
+
+      controller.addListener(() {
+        final status = controller.value;
+        if (status is RenPyImageChange) images.add(status);
+      });
+
+      controller.load(
+        '''
+transform small_left:
+    xpos 0.25
+    xanchor 0.5
+    zoom 0.5
+
+label start:
+    show logo at small_left
+    "Placed."
+''',
+        gameRoot: 'assets/game',
+        availableAssets: const {'assets/game/images/logo.png'},
+      );
+
+      await _continueUntil(controller, (status) => status is RenPyDialogue);
+
+      expect(images.single.show, 'logo');
+      expect(images.single.showAt, 'small_left');
+      expect(
+        images.single.showPlacement,
+        const RenPyImagePlacement.position(xpos: 0.25, xanchor: 0.5, zoom: 0.5),
+      );
+      expect(
+        controller.diagnostics.where(
+          (diagnostic) =>
+              diagnostic.code == RenPyDiagnosticCode.unsupportedPlacement,
+        ),
+        isEmpty,
+      );
+    },
+  );
+
+  test(
     'controller carries show text displayables without image assets',
     () async {
       final controller = RenPyFlutterController();
