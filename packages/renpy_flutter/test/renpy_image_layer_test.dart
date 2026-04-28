@@ -978,6 +978,32 @@ void main() {
     );
   });
 
+  testWidgets('image layer applies placement alpha to displayables', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(
+      show: 'logo',
+      showAsset: 'assets/game/images/logo.png',
+      showPlacement: const RenPyImagePlacement.position(alpha: 0.5),
+    );
+    await tester.pump();
+
+    final opacity = tester.widget<Opacity>(
+      find.descendant(
+        of: find.byKey(const ValueKey('logo')),
+        matching: find.byType(Opacity),
+      ),
+    );
+    expect(opacity.opacity, 0.5);
+  });
+
   testWidgets('image layer renders show text displayables at placement', (
     tester,
   ) async {

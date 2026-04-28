@@ -150,6 +150,7 @@ label start:
                 zoom: 1.25,
                 xzoom: 0.8,
                 yzoom: 1.5,
+                alpha: 0.5,
               ),
             ),
           ],

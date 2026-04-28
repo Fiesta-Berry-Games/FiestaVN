@@ -135,6 +135,26 @@ label start:
     );
   });
 
+  test('runner preserves Transform alpha placement intent', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    show logo at Transform(alpha = 0.5)
+''', 'image_transform_alpha.rpy').script;
+    final runner = RenPyRunner(script);
+    final events = <RenPyImageEvent>[];
+
+    runner.onImageEvent = events.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(
+      events.single.placement,
+      const RenPyImagePlacement.position(alpha: 0.5),
+    );
+  });
+
   test('runner resolves simple named transform placement intent', () {
     final script =
         RenPyParser().parse('''
@@ -167,6 +187,35 @@ label start:
         yanchor: 0.5,
         zoom: 0.5,
       ),
+    );
+    expect(diagnostics, isEmpty);
+  });
+
+  test('runner resolves named transform alpha from parameterized calls', () {
+    final script =
+        RenPyParser().parse('''
+transform delayed_blink(delay, cycle):
+    alpha .5
+    pause delay
+    block:
+        linear .2 alpha 1.0
+
+label start:
+    show logo at delayed_blink(0.0, 1.0)
+''', 'image_named_transform_alpha.rpy').script;
+    final runner = RenPyRunner(script);
+    final events = <RenPyImageEvent>[];
+    final diagnostics = <RenPyDiagnostic>[];
+
+    runner.onImageEvent = events.add;
+    runner.onDiagnostic = diagnostics.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(
+      events.single.placement,
+      const RenPyImagePlacement.position(alpha: 0.5),
     );
     expect(diagnostics, isEmpty);
   });

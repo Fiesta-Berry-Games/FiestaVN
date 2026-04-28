@@ -770,7 +770,9 @@ class RenPyRunner {
     final parsed = RenPyImagePlacement.parse(value);
     if (parsed == null || parsed.isSupported) return parsed;
 
-    return _transformPlacements[value] ?? parsed;
+    return _transformPlacements[value] ??
+        _transformPlacements[_transformName(value)] ??
+        parsed;
   }
 
   /// Execute a scene statement.
@@ -1778,9 +1780,12 @@ RenPyImagePlacement? _placementFromTransformBody(List<String> body) {
     if (line.isEmpty || line.startsWith('#')) continue;
 
     final match = RegExp(
-      r'^(xpos|ypos|xanchor|yanchor|xalign|yalign|zoom|xzoom|yzoom)\s+(.+)$',
+      r'^(xpos|ypos|xanchor|yanchor|xalign|yalign|zoom|xzoom|yzoom|alpha)\s+(.+)$',
     ).firstMatch(line);
-    if (match == null) return null;
+    if (match == null) {
+      if (values.isEmpty) return null;
+      break;
+    }
 
     final value = _transformValue(match.group(2)!);
     if (value == null) return null;
@@ -1802,6 +1807,7 @@ RenPyImagePlacement? _placementFromTransformBody(List<String> body) {
     zoom: values['zoom']?.value,
     xzoom: values['xzoom']?.value,
     yzoom: values['yzoom']?.value,
+    alpha: values['alpha']?.value,
   );
 }
 

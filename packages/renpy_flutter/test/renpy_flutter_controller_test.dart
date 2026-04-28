@@ -1000,6 +1000,49 @@ label start:
     },
   );
 
+  test('controller carries named transform alpha placement metadata', () async {
+    final controller = RenPyFlutterController();
+    final images = <RenPyImageChange>[];
+    addTearDown(controller.dispose);
+
+    controller.addListener(() {
+      final status = controller.value;
+      if (status is RenPyImageChange) images.add(status);
+    });
+
+    controller.load(
+      '''
+transform delayed_blink(delay, cycle):
+    alpha .5
+    pause delay
+    block:
+        linear .2 alpha 1.0
+
+label start:
+    show logo at delayed_blink(0.0, 1.0)
+    "Blinking."
+''',
+      gameRoot: 'assets/game',
+      availableAssets: const {'assets/game/images/logo.png'},
+    );
+
+    await _continueUntil(controller, (status) => status is RenPyDialogue);
+
+    expect(images.single.show, 'logo');
+    expect(images.single.showAt, 'delayed_blink(0.0, 1.0)');
+    expect(
+      images.single.showPlacement,
+      const RenPyImagePlacement.position(alpha: 0.5),
+    );
+    expect(
+      controller.diagnostics.where(
+        (diagnostic) =>
+            diagnostic.code == RenPyDiagnosticCode.unsupportedPlacement,
+      ),
+      isEmpty,
+    );
+  });
+
   test(
     'controller carries show text displayables without image assets',
     () async {

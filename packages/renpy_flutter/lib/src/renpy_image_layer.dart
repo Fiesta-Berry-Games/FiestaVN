@@ -762,7 +762,11 @@ Widget _positionDisplayable({
     child: Transform.translate(offset: resolved.anchorOffset, child: child),
   );
 
-  return _scaleDisplayable(placement, screenScale, anchored);
+  final scaled = _scaleDisplayable(placement, screenScale, anchored);
+  final alpha = placement.alpha;
+  if (alpha == null) return scaled;
+
+  return Opacity(opacity: alpha.clamp(0, 1).toDouble(), child: scaled);
 }
 
 Widget _scaleDisplayable(

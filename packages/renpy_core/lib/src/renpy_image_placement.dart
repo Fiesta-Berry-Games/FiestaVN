@@ -12,6 +12,7 @@ class RenPyImagePlacement {
     this.zoom,
     this.xzoom,
     this.yzoom,
+    this.alpha,
     this.xanchorIsPixel = false,
     this.yanchorIsPixel = false,
   }) : expression = null;
@@ -29,7 +30,8 @@ class RenPyImagePlacement {
       yanchorIsPixel = false,
       zoom = null,
       xzoom = null,
-      yzoom = null;
+      yzoom = null,
+      alpha = null;
   final double? xpos;
   final double? ypos;
   final double? xanchor;
@@ -40,6 +42,7 @@ class RenPyImagePlacement {
   final double? zoom;
   final double? xzoom;
   final double? yzoom;
+  final double? alpha;
   final bool yposIsPixel;
   final bool xanchorIsPixel;
   final bool yanchorIsPixel;
@@ -87,6 +90,7 @@ class RenPyImagePlacement {
             zoom == other.zoom &&
             xzoom == other.xzoom &&
             yzoom == other.yzoom &&
+            alpha == other.alpha &&
             yposIsPixel == other.yposIsPixel &&
             xanchorIsPixel == other.xanchorIsPixel &&
             yanchorIsPixel == other.yanchorIsPixel &&
@@ -110,6 +114,7 @@ class RenPyImagePlacement {
       zoom,
       xzoom,
       yzoom,
+      alpha,
     );
   }
 
@@ -123,7 +128,7 @@ class RenPyImagePlacement {
         'yanchor: $yanchor, xalign: $xalign, yalign: $yalign, '
         'xposIsPixel: $xposIsPixel, yposIsPixel: $yposIsPixel, '
         'xanchorIsPixel: $xanchorIsPixel, yanchorIsPixel: $yanchorIsPixel, '
-        'zoom: $zoom, xzoom: $xzoom, yzoom: $yzoom)';
+        'zoom: $zoom, xzoom: $xzoom, yzoom: $yzoom, alpha: $alpha)';
   }
 }
 
@@ -146,6 +151,7 @@ RenPyImagePlacement _placementFromArguments(Map<String, String> args) {
     zoom: _positionValue(args['zoom'])?.value,
     xzoom: _positionValue(args['xzoom'])?.value,
     yzoom: _positionValue(args['yzoom'])?.value,
+    alpha: _positionValue(args['alpha'])?.value,
   );
 }
 
