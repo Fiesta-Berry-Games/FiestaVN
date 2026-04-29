@@ -151,6 +151,8 @@ label start:
                 xzoom: 0.8,
                 yzoom: 1.5,
                 alpha: 0.5,
+                alphaTarget: 1,
+                alphaDuration: 0.2,
               ),
             ),
           ],

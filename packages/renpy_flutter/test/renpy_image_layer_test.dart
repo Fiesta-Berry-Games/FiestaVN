@@ -1004,6 +1004,34 @@ void main() {
     expect(opacity.opacity, 0.5);
   });
 
+  testWidgets('image layer animates placement alpha tweens', (tester) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(
+      show: 'logo',
+      showAsset: 'assets/game/images/logo.png',
+      showPlacement: const RenPyImagePlacement.position(
+        alpha: 0,
+        alphaTarget: 1,
+        alphaDuration: 0.2,
+      ),
+    );
+    await tester.pump();
+
+    expect(_spriteOpacity(tester, 'logo'), 0);
+
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(_spriteOpacity(tester, 'logo'), moreOrLessEquals(0.5, epsilon: 0.1));
+
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(_spriteOpacity(tester, 'logo'), 1);
+  });
+
   testWidgets('image layer renders show text displayables at placement', (
     tester,
   ) async {
@@ -1067,6 +1095,16 @@ List<String> _assetNames(WidgetTester tester) {
     final provider = image.image as AssetImage;
     return provider.assetName;
   }).toList();
+}
+
+double _spriteOpacity(WidgetTester tester, String tag) {
+  final opacity = tester.widget<Opacity>(
+    find.descendant(
+      of: find.byKey(ValueKey(tag)),
+      matching: find.byType(Opacity),
+    ),
+  );
+  return opacity.opacity;
 }
 
 Offset _spriteAnchor(WidgetTester tester, String tag) {

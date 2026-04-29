@@ -240,6 +240,8 @@ Map<String, Object?> _placementToJson(RenPyImagePlacement placement) => {
   if (placement.xzoom != null) 'xzoom': placement.xzoom,
   if (placement.yzoom != null) 'yzoom': placement.yzoom,
   if (placement.alpha != null) 'alpha': placement.alpha,
+  if (placement.alphaTarget != null) 'alphaTarget': placement.alphaTarget,
+  if (placement.alphaDuration != null) 'alphaDuration': placement.alphaDuration,
 };
 
 RenPyImagePlacement _placementFromJson(Map<String, Object?> json) {
@@ -260,6 +262,8 @@ RenPyImagePlacement _placementFromJson(Map<String, Object?> json) {
     xzoom: (json['xzoom'] as num?)?.toDouble(),
     yzoom: (json['yzoom'] as num?)?.toDouble(),
     alpha: (json['alpha'] as num?)?.toDouble(),
+    alphaTarget: (json['alphaTarget'] as num?)?.toDouble(),
+    alphaDuration: (json['alphaDuration'] as num?)?.toDouble(),
   );
 }
 

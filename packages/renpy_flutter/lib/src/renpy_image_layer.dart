@@ -766,7 +766,20 @@ Widget _positionDisplayable({
   final alpha = placement.alpha;
   if (alpha == null) return scaled;
 
-  return Opacity(opacity: alpha.clamp(0, 1).toDouble(), child: scaled);
+  final target = placement.alphaTarget;
+  final duration = placement.alphaDuration;
+  if (target == null || duration == null || duration <= 0) {
+    return Opacity(opacity: alpha.clamp(0, 1).toDouble(), child: scaled);
+  }
+
+  return TweenAnimationBuilder<double>(
+    tween: Tween(begin: alpha, end: target),
+    duration: Duration(milliseconds: (duration * 1000).round()),
+    builder:
+        (context, opacity, child) =>
+            Opacity(opacity: opacity.clamp(0, 1).toDouble(), child: child),
+    child: scaled,
+  );
 }
 
 Widget _scaleDisplayable(

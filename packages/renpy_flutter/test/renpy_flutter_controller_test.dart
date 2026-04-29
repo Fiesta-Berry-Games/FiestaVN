@@ -1043,6 +1043,51 @@ label start:
     );
   });
 
+  test('controller carries simple transform alpha tween metadata', () async {
+    final controller = RenPyFlutterController();
+    final images = <RenPyImageChange>[];
+    addTearDown(controller.dispose);
+
+    controller.addListener(() {
+      final status = controller.value;
+      if (status is RenPyImageChange) images.add(status);
+    });
+
+    controller.load(
+      '''
+transform fade_in:
+    alpha 0.0
+    linear .2 alpha 1.0
+
+label start:
+    show logo at fade_in
+    "Visible."
+''',
+      gameRoot: 'assets/game',
+      availableAssets: const {'assets/game/images/logo.png'},
+    );
+
+    await _continueUntil(controller, (status) => status is RenPyDialogue);
+
+    expect(images.single.show, 'logo');
+    expect(images.single.showAt, 'fade_in');
+    expect(
+      images.single.showPlacement,
+      const RenPyImagePlacement.position(
+        alpha: 0,
+        alphaTarget: 1,
+        alphaDuration: 0.2,
+      ),
+    );
+    expect(
+      controller.diagnostics.where(
+        (diagnostic) =>
+            diagnostic.code == RenPyDiagnosticCode.unsupportedPlacement,
+      ),
+      isEmpty,
+    );
+  });
+
   test(
     'controller carries show text displayables without image assets',
     () async {

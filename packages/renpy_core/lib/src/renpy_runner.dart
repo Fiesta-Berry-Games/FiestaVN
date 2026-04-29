@@ -1775,9 +1775,24 @@ class RenPyRunner {
 
 RenPyImagePlacement? _placementFromTransformBody(List<String> body) {
   final values = <String, _TransformValue>{};
+  _TransformValue? alphaTarget;
+  double? alphaDuration;
+
   for (final rawLine in body) {
     final line = rawLine.trim();
     if (line.isEmpty || line.startsWith('#')) continue;
+
+    final alphaTween = RegExp(
+      r'^linear\s+(\S+)\s+alpha\s+(.+)$',
+    ).firstMatch(line);
+    if (alphaTween != null) {
+      final duration = _transformValue(alphaTween.group(1)!);
+      final target = _transformValue(alphaTween.group(2)!);
+      if (duration == null || target == null) return null;
+      alphaDuration = duration.value;
+      alphaTarget = target;
+      continue;
+    }
 
     final match = RegExp(
       r'^(xpos|ypos|xanchor|yanchor|xalign|yalign|zoom|xzoom|yzoom|alpha)\s+(.+)$',
@@ -1808,6 +1823,8 @@ RenPyImagePlacement? _placementFromTransformBody(List<String> body) {
     xzoom: values['xzoom']?.value,
     yzoom: values['yzoom']?.value,
     alpha: values['alpha']?.value,
+    alphaTarget: alphaTarget?.value,
+    alphaDuration: alphaDuration,
   );
 }
 

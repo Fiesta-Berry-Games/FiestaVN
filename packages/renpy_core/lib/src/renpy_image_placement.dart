@@ -13,6 +13,8 @@ class RenPyImagePlacement {
     this.xzoom,
     this.yzoom,
     this.alpha,
+    this.alphaTarget,
+    this.alphaDuration,
     this.xanchorIsPixel = false,
     this.yanchorIsPixel = false,
   }) : expression = null;
@@ -31,7 +33,9 @@ class RenPyImagePlacement {
       zoom = null,
       xzoom = null,
       yzoom = null,
-      alpha = null;
+      alpha = null,
+      alphaTarget = null,
+      alphaDuration = null;
   final double? xpos;
   final double? ypos;
   final double? xanchor;
@@ -43,6 +47,8 @@ class RenPyImagePlacement {
   final double? xzoom;
   final double? yzoom;
   final double? alpha;
+  final double? alphaTarget;
+  final double? alphaDuration;
   final bool yposIsPixel;
   final bool xanchorIsPixel;
   final bool yanchorIsPixel;
@@ -91,6 +97,8 @@ class RenPyImagePlacement {
             xzoom == other.xzoom &&
             yzoom == other.yzoom &&
             alpha == other.alpha &&
+            alphaTarget == other.alphaTarget &&
+            alphaDuration == other.alphaDuration &&
             yposIsPixel == other.yposIsPixel &&
             xanchorIsPixel == other.xanchorIsPixel &&
             yanchorIsPixel == other.yanchorIsPixel &&
@@ -115,6 +123,8 @@ class RenPyImagePlacement {
       xzoom,
       yzoom,
       alpha,
+      alphaTarget,
+      alphaDuration,
     );
   }
 
@@ -128,7 +138,8 @@ class RenPyImagePlacement {
         'yanchor: $yanchor, xalign: $xalign, yalign: $yalign, '
         'xposIsPixel: $xposIsPixel, yposIsPixel: $yposIsPixel, '
         'xanchorIsPixel: $xanchorIsPixel, yanchorIsPixel: $yanchorIsPixel, '
-        'zoom: $zoom, xzoom: $xzoom, yzoom: $yzoom, alpha: $alpha)';
+        'zoom: $zoom, xzoom: $xzoom, yzoom: $yzoom, alpha: $alpha, '
+        'alphaTarget: $alphaTarget, alphaDuration: $alphaDuration)';
   }
 }
 
