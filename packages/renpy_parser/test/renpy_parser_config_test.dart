@@ -22,7 +22,18 @@ screen say(who, what):
 
 transform delayed_blink(delay, cycle):
     alpha 0.0
-    linear delay alpha 1.0
+    pause delay
+    block:
+        linear .2 alpha 1.0
+        pause .2
+        linear .2 alpha 0.5
+
+transform notify_appear:
+    on show:
+        alpha 0
+        linear .25 alpha 1.0
+    on hide:
+        linear .5 alpha 0.0
 
 transform small_left:
     xpos 0.25
@@ -73,7 +84,42 @@ label start:
       result.script
           .findStatements<RenPyTransformStatement>((_) => true)
           .map((stmt) => stmt.signature),
-      containsAll(['delayed_blink(delay, cycle)', 'small_left']),
+      containsAll([
+        'delayed_blink(delay, cycle)',
+        'notify_appear',
+        'small_left',
+      ]),
+    );
+    expect(
+      result.script
+          .findStatements<RenPyTransformStatement>(
+            (stmt) => stmt.signature == 'delayed_blink(delay, cycle)',
+          )
+          .single
+          .body,
+      [
+        'alpha 0.0',
+        'pause delay',
+        'block:',
+        '    linear .2 alpha 1.0',
+        '    pause .2',
+        '    linear .2 alpha 0.5',
+      ],
+    );
+    expect(
+      result.script
+          .findStatements<RenPyTransformStatement>(
+            (stmt) => stmt.signature == 'notify_appear',
+          )
+          .single
+          .body,
+      [
+        'on show:',
+        '    alpha 0',
+        '    linear .25 alpha 1.0',
+        'on hide:',
+        '    linear .5 alpha 0.0',
+      ],
     );
     expect(
       result.script

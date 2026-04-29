@@ -1789,8 +1789,10 @@ RenPyImagePlacement? _placementFromTransformBody(List<String> body) {
       final duration = _transformValue(alphaTween.group(1)!);
       final target = _transformValue(alphaTween.group(2)!);
       if (duration == null || target == null) return null;
-      alphaDuration = duration.value;
-      alphaTarget = target;
+      if (alphaTarget == null) {
+        alphaDuration = duration.value;
+        alphaTarget = target;
+      }
       continue;
     }
 
@@ -1798,6 +1800,7 @@ RenPyImagePlacement? _placementFromTransformBody(List<String> body) {
       r'^(xpos|ypos|xanchor|yanchor|xalign|yalign|zoom|xzoom|yzoom|alpha)\s+(.+)$',
     ).firstMatch(line);
     if (match == null) {
+      if (_isIgnorableAtlLine(line)) continue;
       if (values.isEmpty) return null;
       break;
     }
@@ -1826,6 +1829,13 @@ RenPyImagePlacement? _placementFromTransformBody(List<String> body) {
     alphaTarget: alphaTarget?.value,
     alphaDuration: alphaDuration,
   );
+}
+
+bool _isIgnorableAtlLine(String line) {
+  return line == 'block:' ||
+      line == 'repeat' ||
+      line.startsWith('pause ') ||
+      RegExp(r'^on\s+\w+\s*:$').hasMatch(line);
 }
 
 _TransformValue? _transformValue(String expression) {

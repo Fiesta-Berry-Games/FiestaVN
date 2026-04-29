@@ -215,7 +215,45 @@ label start:
 
     expect(
       events.single.placement,
-      const RenPyImagePlacement.position(alpha: 0.5),
+      const RenPyImagePlacement.position(
+        alpha: 0.5,
+        alphaTarget: 1,
+        alphaDuration: 0.2,
+      ),
+    );
+    expect(diagnostics, isEmpty);
+  });
+
+  test('runner resolves on-show transform alpha tween intent', () {
+    final script =
+        RenPyParser().parse('''
+transform notify_appear:
+    on show:
+        alpha 0
+        linear .25 alpha 1.0
+    on hide:
+        linear .5 alpha 0.0
+
+label start:
+    show logo at notify_appear
+''', 'image_notify_transform_alpha.rpy').script;
+    final runner = RenPyRunner(script);
+    final events = <RenPyImageEvent>[];
+    final diagnostics = <RenPyDiagnostic>[];
+
+    runner.onImageEvent = events.add;
+    runner.onDiagnostic = diagnostics.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(
+      events.single.placement,
+      const RenPyImagePlacement.position(
+        alpha: 0,
+        alphaTarget: 1,
+        alphaDuration: 0.25,
+      ),
     );
     expect(diagnostics, isEmpty);
   });

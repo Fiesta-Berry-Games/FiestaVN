@@ -1032,7 +1032,11 @@ label start:
     expect(images.single.showAt, 'delayed_blink(0.0, 1.0)');
     expect(
       images.single.showPlacement,
-      const RenPyImagePlacement.position(alpha: 0.5),
+      const RenPyImagePlacement.position(
+        alpha: 0.5,
+        alphaTarget: 1,
+        alphaDuration: 0.2,
+      ),
     );
     expect(
       controller.diagnostics.where(

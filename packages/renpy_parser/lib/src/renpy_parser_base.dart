@@ -1111,8 +1111,26 @@ class RenPyParser {
       match.group(1)!.trim(),
       line.filename,
       line.number,
-      body: [for (final blockLine in line.block) blockLine.text.trim()],
+      body: _transformBodyLines(line.block),
     );
+  }
+
+  List<String> _transformBodyLines(List<GroupedLine> block) {
+    if (block.isEmpty) return const [];
+    final baseIndent = block.first.indent;
+    final lines = <String>[];
+
+    void append(List<GroupedLine> currentBlock) {
+      for (final blockLine in currentBlock) {
+        final relativeIndent =
+            (blockLine.indent - baseIndent).clamp(0, 9999) as int;
+        lines.add('${''.padLeft(relativeIndent)}${blockLine.text.trim()}');
+        append(blockLine.block);
+      }
+    }
+
+    append(block);
+    return lines;
   }
 }
 
