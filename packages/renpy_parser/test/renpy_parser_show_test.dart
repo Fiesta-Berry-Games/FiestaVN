@@ -122,4 +122,25 @@ label start:
     expect(hide.onLayerExpression, 'abovemid');
     expect(hide.withExpression, 'dissolve');
   });
+
+  test('image statements normalize block-style transition clauses', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    show logo onlayer abovemid with longdissolve:
+        pause 1.0
+    hide logo onlayer abovemid with dissolve:
+        pause 0.5
+''', 'show_transition_block.rpy').script;
+
+    final show = script.findStatements<RenPyShowStatement>((_) => true).single;
+    final hide = script.findStatements<RenPyHideStatement>((_) => true).single;
+
+    expect(show.imageName, 'logo');
+    expect(show.onLayerExpression, 'abovemid');
+    expect(show.withExpression, 'longdissolve');
+    expect(hide.imageName, 'logo');
+    expect(hide.onLayerExpression, 'abovemid');
+    expect(hide.withExpression, 'dissolve');
+  });
 }

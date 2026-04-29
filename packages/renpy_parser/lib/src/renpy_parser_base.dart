@@ -665,7 +665,10 @@ class RenPyParser {
           0,
         );
       }
-      clauses[start.keyword] = value;
+      clauses[start.keyword] =
+          start.keyword == 'with'
+              ? _normalizeTransitionExpression(value)
+              : value;
     }
 
     return _ImageStatementParts(imageName, clauses);
@@ -850,10 +853,16 @@ class RenPyParser {
     }
 
     return RenPyWithStatement(
-      match.group(1)!.trim(),
+      _normalizeTransitionExpression(match.group(1)!.trim()),
       line.filename,
       line.number,
     );
+  }
+
+  String _normalizeTransitionExpression(String expression) {
+    final value = expression.trim();
+    if (value.endsWith(':')) return value.substring(0, value.length - 1).trim();
+    return value;
   }
 
   RenPyPythonStatement _parsePythonStatement(

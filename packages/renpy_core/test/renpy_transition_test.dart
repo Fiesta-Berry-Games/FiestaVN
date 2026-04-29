@@ -125,6 +125,38 @@ label start:
     );
   });
 
+  test('runner resolves block-style transition clauses without colon', () {
+    final script =
+        RenPyParser().parse('''
+define longerdissolve = Dissolve(2.5)
+
+label start:
+    show logo with longerdissolve:
+        pause 1.0
+    with longerdissolve:
+        pause 0.5
+''', 'transition_block.rpy').script;
+    final runner = RenPyRunner(script);
+    final transitions = <RenPyTransitionEvent>[];
+
+    runner.onTransition = transitions.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(runner.state, RenPyRunnerState.complete);
+    expect(transitions, [
+      const RenPyTransitionEvent(
+        'longerdissolve',
+        intent: RenPyTransitionIntent.dissolve(duration: 2.5),
+      ),
+      const RenPyTransitionEvent(
+        'longerdissolve',
+        intent: RenPyTransitionIntent.dissolve(duration: 2.5),
+      ),
+    ]);
+  });
+
   test('runner emits approximated punch transition intent', () {
     final script =
         RenPyParser().parse('''
