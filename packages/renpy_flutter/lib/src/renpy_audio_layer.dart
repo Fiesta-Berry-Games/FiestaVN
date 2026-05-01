@@ -231,6 +231,9 @@ class AudioplayersRenPyAudioPlayback implements RenPyAudioPlayback {
         fadeoutSeconds > 0) {
       await _fadeOut(player, _effectiveVolume(channel), fadeoutSeconds);
     }
+    if (existingPlayer != null) {
+      await player.stop();
+    }
     _channelVolumes[channel] = _trackVolume(volume);
     final effectiveVolume = _effectiveVolume(channel);
     final fadeinSeconds = double.tryParse(fadein ?? '');
@@ -382,6 +385,9 @@ class RenPyBytesAudioPlayback implements RenPyAudioPlayback {
         fadeoutSeconds != null &&
         fadeoutSeconds > 0) {
       await _fadeOut(player, _effectiveVolume(channel), fadeoutSeconds);
+    }
+    if (existingPlayer != null) {
+      await player.stop();
     }
     _channelVolumes[channel] = _trackVolume(volume);
     final effectiveVolume = _effectiveVolume(channel);
