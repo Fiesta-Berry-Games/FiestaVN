@@ -17,6 +17,8 @@ image door bg = Image("images/bg/door.jpg")
 image letter bg = Image("images/bg/letter.jpg")
 image flashback bg = im.Grayscale("images/bg/archive.jpg")
 image redcard = Solid((255, 0, 0, 255))
+image meta = Solid((0, 0, 0, 180))
+image logo = Solid((255, 255, 255, 220))
 image eri normal = Image("images/characters/eri/eri normal.png")
 image enj smile = Image("images/characters/enj/enj smile.png")
 image sha normal = Image("images/characters/sha/sha normal.png")
@@ -51,7 +53,18 @@ label start:
         "Transitions and staging.":
             "We sample the route RenPy scripts use for named transitions and positioned sprites."
         "Audio and text.":
-            "The default route should not choose this branch."
+            "The alternate route stages the Confession ending cue."
+            scene redcard
+            with flash
+            show meta
+            with longdissolve
+            show logo
+            with longdissolve
+            $ renpy.pause()
+            hide meta
+            hide logo
+            with dissolve
+            "The layered ending cue cleared cleanly."
 
     hide title
     show sha normal at Position(xpos = 0.5) behind enj

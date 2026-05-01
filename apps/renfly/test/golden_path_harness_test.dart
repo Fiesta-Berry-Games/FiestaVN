@@ -109,6 +109,56 @@ void main() {
       },
     );
 
+    test('records Reference Game 4 alternate Confession ending cue', () async {
+      final project = loadRenPyProjectFolder(Directory('assets/games/4/game'));
+
+      final result = await RenPyGoldenPathHarness(
+        project,
+        chooseMenu: (menu, trace) => menu.choices.indexOf('Audio and text.'),
+      ).runUntilComplete(maxSteps: 220);
+
+      expect(result.complete, isTrue);
+      expect(result.error, isNull);
+      expect(result.problematicDiagnostics, isEmpty);
+      expect(result.menus.single.selectedChoice, 'Audio and text.');
+      expect(
+        result.dialogue.map((line) => line.displayText),
+        containsAll([
+          'The alternate route stages the Confession ending cue.',
+          'The layered ending cue cleared cleanly.',
+          '{b}Reference Game 4 Complete{/b}.',
+        ]),
+      );
+
+      final imageChanges = result.images;
+      final redcardSceneIndex = imageChanges.indexWhere(
+        (change) => change.scene == 'redcard',
+      );
+      final metaShowIndex = imageChanges.indexWhere(
+        (change) => change.show == 'meta',
+      );
+      final logoShowIndex = imageChanges.indexWhere(
+        (change) => change.show == 'logo',
+      );
+      final metaHideIndex = imageChanges.indexWhere(
+        (change) => change.hide == 'meta',
+      );
+      final logoHideIndex = imageChanges.indexWhere(
+        (change) => change.hide == 'logo',
+      );
+
+      expect(redcardSceneIndex, isNonNegative);
+      expect(metaShowIndex, greaterThan(redcardSceneIndex));
+      expect(logoShowIndex, greaterThan(metaShowIndex));
+      expect(metaHideIndex, greaterThan(logoShowIndex));
+      expect(logoHideIndex, greaterThan(metaHideIndex));
+      expect(result.summary.pauseCount, greaterThanOrEqualTo(2));
+      expect(
+        result.transitionNames,
+        containsAll(['flash', 'longdissolve', 'dissolve']),
+      );
+    });
+
     test('groups compatibility diagnostics by code and detail', () async {
       final project = RenPyGameProject.fromFiles([
         RenPyProjectFile.text('diagnostics/game/script.rpy', '''
