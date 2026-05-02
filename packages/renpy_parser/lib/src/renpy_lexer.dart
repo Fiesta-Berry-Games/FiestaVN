@@ -20,20 +20,30 @@ class RenPyLexer {
     int lineNumber = 1;
 
     while (pos < content.length) {
-      final startPos = pos;
-      final startLine = lineNumber;
+      final skipStart = pos;
 
       // Skip whitespace and comments.
       _skipWhitespaceAndComments();
+
+      // Account for any blank or comment lines that were skipped so the
+      // logical line is reported at its true physical line.
+      for (int i = skipStart; i < pos; i++) {
+        if (content[i] == '\n') {
+          lineNumber++;
+        }
+      }
 
       if (pos >= content.length) {
         break;
       }
 
+      final startPos = pos;
+      final startLine = lineNumber;
+
       // Process the logical line.
       final logicalLine = _readLogicalLine(lineNumber);
 
-      // Count newlines to update line number.
+      // Count newlines consumed by the logical line itself.
       for (int i = startPos; i < pos; i++) {
         if (content[i] == '\n') {
           lineNumber++;
@@ -198,9 +208,6 @@ class RenPyLexer {
     // Stack for tracking open brackets/parentheses/braces.
     final openParens = <String>[];
 
-    // Flag for line continuation with backslash.
-    bool lineContinuation = false;
-
     // Triple quote state.
     bool inTripleQuote = false;
     String? tripleQuoteChar;
@@ -212,18 +219,22 @@ class RenPyLexer {
 
       // Handle end of line.
       if (char == '\n') {
-        if (openParens.isEmpty &&
-            !lineContinuation &&
-            !inTripleQuote &&
-            quoteChar == null) {
+        if (openParens.isEmpty && !inTripleQuote && quoteChar == null) {
           // End of logical line.
           pos++;
           break;
         }
 
-        // Reset line continuation flag.
-        lineContinuation = false;
         escaped = false;
+      }
+      // Check for line continuation. Drop the backslash and the following
+      // newline so the two physical lines are spliced together.
+      else if (char == '\\' &&
+          quoteChar == null &&
+          pos + 1 < content.length &&
+          content[pos + 1] == '\n') {
+        pos += 2;
+        continue;
       }
       // Handle escaped characters inside regular quoted strings.
       else if (quoteChar != null && escaped) {
@@ -234,12 +245,6 @@ class RenPyLexer {
         if (char == quoteChar) {
           quoteChar = null;
         }
-      }
-      // Check for line continuation.
-      else if (char == '\\' &&
-          pos + 1 < content.length &&
-          content[pos + 1] == '\n') {
-        lineContinuation = true;
       }
       // Handle quotes.
       else if (char == '"' || char == "'" || char == '`') {
