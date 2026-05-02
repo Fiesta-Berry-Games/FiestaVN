@@ -43,16 +43,22 @@ final class RenPyRunnerSnapshotStackFrame {
     required this.blockPath,
     required this.position,
     required this.kind,
+    this.callerLabel,
   });
 
   final List<RenPyRunnerBlockPathSegment> blockPath;
   final int position;
   final String kind;
 
+  /// The label that was current when a call frame was pushed, restored on
+  /// return. Only meaningful for call frames.
+  final String? callerLabel;
+
   Map<String, Object?> toJson() => {
     'blockPath': blockPath.map((segment) => segment.toJson()).toList(),
     'position': position,
     'kind': kind,
+    if (callerLabel != null) 'callerLabel': callerLabel,
   };
 
   factory RenPyRunnerSnapshotStackFrame.fromJson(Map<String, Object?> json) {
@@ -60,6 +66,7 @@ final class RenPyRunnerSnapshotStackFrame {
       blockPath: _blockPathFromJson(json['blockPath']),
       position: json['position']! as int,
       kind: json['kind']! as String,
+      callerLabel: json['callerLabel'] as String?,
     );
   }
 }

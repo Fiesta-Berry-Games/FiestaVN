@@ -1,5 +1,8 @@
+import 'dart:math' as math;
+
 import 'package:renpy_parser/renpy_parser.dart';
 
+import 'renpy_arithmetic.dart';
 import 'renpy_audio_event.dart';
 import 'renpy_diagnostic.dart';
 import 'renpy_dialogue_event.dart';
@@ -16,11 +19,15 @@ import 'renpy_runner_snapshot.dart';
 enum _ExecutionContextKind { block, labelFallthrough, call }
 
 class _ExecutionContext {
-  _ExecutionContext(this.block, this.position, this.kind);
+  _ExecutionContext(this.block, this.position, this.kind, {this.callerLabel});
 
   final List<RenPyStatement> block;
   final int position; // where we should resume afterwards
   final _ExecutionContextKind kind;
+
+  /// The label that was current when a call frame was pushed, restored on
+  /// return so the public [RenPyRunner.currentLabel] reports the caller.
+  final String? callerLabel;
 }
 
 class _LabelContext {
@@ -346,6 +353,26 @@ class RenPyRunner {
     return value;
   }
 
+  /// Resolve the label name for a `jump expression` / `call expression`
+  /// statement, whose target is a Python expression rather than a literal
+  /// label. Handles a bare variable holding the name, a quoted string
+  /// literal, and simple string concatenation with variable substitution.
+  String _resolveDynamicTarget(String expression) {
+    final trimmed = expression.trim();
+
+    final lookup = _lookupVariable(trimmed);
+    if (lookup.found) {
+      return lookup.value?.toString() ?? trimmed;
+    }
+
+    final evaluated = RenPyArithmetic.evaluate(trimmed, _variables);
+    if (evaluated != null) {
+      return evaluated.toString();
+    }
+
+    return _evaluateExpression(trimmed).toString();
+  }
+
   bool _evaluateCondition(String condition) {
     return RenPyExpressionEvaluator(
       lookupVariable: _lookupExpressionVariable,
@@ -382,11 +409,15 @@ class RenPyRunner {
   void run() {
     if (_state == RenPyRunnerState.complete ||
         _state == RenPyRunnerState.error) {
-      // Reset to beginning.
+      // Reset to beginning, re-initializing per-game state.
       _position = 0;
       _currentBlock = script.statements;
+      _currentLabel = null;
       _pendingDialogue = null;
+      _stack.clear();
+      _errorMessage = null;
       _state = RenPyRunnerState.ready;
+      _resetScriptState();
     }
 
     if (_state == RenPyRunnerState.ready ||
@@ -513,12 +544,8 @@ class RenPyRunner {
             : _dialogueEventForSayStatement(stmt);
 
     _position++;
-    if (_hasNoWaitTag(event.text)) {
-      _emitDialogueEvent(event);
-      _executeNext();
-      return;
-    }
 
+    // Interior {w}/{p} waits always pause, even when the line ends with {nw}.
     final waitTag = _firstInlineWaitTag(event.text);
     if (waitTag != null) {
       _pendingDialogue = _PendingDialogue(event, waitTag.end);
@@ -534,6 +561,12 @@ class RenPyRunner {
     }
 
     _emitDialogueEvent(event);
+
+    // A trailing {nw} suppresses only the terminal wait.
+    if (_hasNoWaitTag(event.text)) {
+      _executeNext();
+      return;
+    }
 
     // Wait for player input.
     _state = RenPyRunnerState.waitingForInput;
@@ -649,9 +682,11 @@ class RenPyRunner {
 
   /// Execute a jump statement.
   void _executeJumpStatement(RenPyJumpStatement stmt) {
-    final context = _findLabelContext(stmt.target);
+    final target =
+        stmt.isExpression ? _resolveDynamicTarget(stmt.target) : stmt.target;
+    final context = _findLabelContext(target);
     if (context == null) {
-      throw Exception('Label not found: ${stmt.target}');
+      throw Exception('Label not found: $target');
     }
 
     _discardNonCallContexts();
@@ -728,6 +763,20 @@ class RenPyRunner {
     final value = _variables[setVariable];
     if (value is List) {
       if (!value.contains(choice)) value.add(choice);
+      return;
+    }
+    if (value is Iterable) {
+      // Some other iterable already tracks chosen items; rebuild it as a list
+      // preserving the existing members rather than replacing it outright.
+      final items = value.toList();
+      if (!items.contains(choice)) items.add(choice);
+      _variables[setVariable] = items;
+      return;
+    }
+    if (value != null) {
+      // A pre-existing scalar is not a set/list. Preserve it as the first
+      // member instead of silently clobbering unrelated state.
+      _variables[setVariable] = <dynamic>[value, choice];
       return;
     }
     _variables[setVariable] = <String>[choice];
@@ -941,8 +990,10 @@ class RenPyRunner {
   }
 
   _PythonAugmentedAssignment? _pythonAugmentedAssignment(String code) {
+    // Order matters: the longer operators (//=, **=) must precede the single
+    // character forms so the regex does not stop at the first character.
     final match = RegExp(
-      r'^([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)\s*([+\-])=\s*(.+)$',
+      r'^([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)\s*(\/\/|\*\*|[+\-*/%])=\s*(.+)$',
       dotAll: true,
     ).firstMatch(code.trim());
     if (match == null) return null;
@@ -957,7 +1008,27 @@ class RenPyRunner {
     final lookup = _lookupVariable(assignment.name);
     final right = _evaluateExpression(assignment.expression);
     final left = lookup.found ? lookup.value : _defaultAugmentedValue(right);
-    final value = _applyPythonOperator(left, assignment.operator, right);
+    final value = _applyPythonOperator(
+      assignment.name,
+      left,
+      assignment.operator,
+      right,
+    );
+    if (value == _augmentedUnchanged) {
+      // The operation could not be applied (type mismatch, division by zero,
+      // and similar). Leave the variable untouched and surface a diagnostic
+      // rather than silently overwriting it with the right-hand value.
+      _emitDiagnostic(
+        RenPyDiagnostic(
+          code: RenPyDiagnosticCode.skippedPython,
+          message: 'Skipped unsupported augmented assignment.',
+          detail:
+              '${assignment.name} ${assignment.operator}= '
+              '${assignment.expression}',
+        ),
+      );
+      return;
+    }
     _setVariable(assignment.name, value);
   }
 
@@ -967,13 +1038,56 @@ class RenPyRunner {
     return null;
   }
 
-  dynamic _applyPythonOperator(dynamic left, String operator, dynamic right) {
-    return switch (operator) {
-      '+' when left is num && right is num => left + right,
-      '+' when left is String && right is String => left + right,
-      '-' when left is num && right is num => left - right,
-      _ => right,
-    };
+  /// Sentinel returned by [_applyPythonOperator] when the operation could not
+  /// be carried out and the target variable should be left unchanged.
+  static const Object _augmentedUnchanged = Object();
+
+  dynamic _applyPythonOperator(
+    String name,
+    dynamic left,
+    String operator,
+    dynamic right,
+  ) {
+    // Floor division and power are not exposed by RenPyArithmetic, so handle
+    // them here with the existing numeric operands.
+    if (operator == '//' || operator == '**') {
+      if (left is! num || right is! num) return _augmentedUnchanged;
+      if (operator == '//') {
+        if (right == 0) return _augmentedUnchanged;
+        final quotient = (left / right).floorToDouble();
+        return left is int && right is int ? quotient.toInt() : quotient;
+      }
+      final powered = math.pow(left, right);
+      return left is int && right is int && right >= 0
+          ? powered.toInt()
+          : powered.toDouble();
+    }
+
+    // String concatenation and repetition keep their direct handling so a
+    // non-numeric operand still composes the way Python would.
+    if (operator == '+' && left is String && right is String) {
+      return left + right;
+    }
+    if (operator == '*' && left is String && right is int) {
+      return left * right;
+    }
+    if (operator == '*' && left is int && right is String) {
+      return right * left;
+    }
+
+    if (left is! num || right is! num) return _augmentedUnchanged;
+
+    // Reuse the arithmetic layer for the remaining numeric operators. The
+    // operands are already resolved values, so feed them through dedicated
+    // variable names to avoid re-parsing literals.
+    final result = RenPyArithmetic.evaluate('__lhs__ $operator __rhs__', {
+      '__lhs__': left,
+      '__rhs__': right,
+    });
+    // RenPyArithmetic returns null on division/modulo by zero or other
+    // failures; treat that as "leave unchanged" since both operands are known
+    // numbers here.
+    return result ?? _augmentedUnchanged;
   }
 
   void _setVariable(String name, dynamic value) {
@@ -1428,6 +1542,7 @@ class RenPyRunner {
       if (ctx.kind == _ExecutionContextKind.call) {
         _currentBlock = ctx.block;
         _position = ctx.position;
+        _currentLabel = ctx.callerLabel;
         _state = RenPyRunnerState.running;
         _executeNext();
         return;
@@ -1438,9 +1553,11 @@ class RenPyRunner {
   }
 
   void _executeCallStatement(RenPyCallStatement stmt) {
-    final context = _findLabelContext(stmt.target);
+    final target =
+        stmt.isExpression ? _resolveDynamicTarget(stmt.target) : stmt.target;
+    final context = _findLabelContext(target);
     if (context == null) {
-      throw Exception('Label not found: ${stmt.target}');
+      throw Exception('Label not found: $target');
     }
 
     _stack.add(
@@ -1448,6 +1565,7 @@ class RenPyRunner {
         _currentBlock,
         _position + 1,
         _ExecutionContextKind.call,
+        callerLabel: _currentLabel,
       ),
     );
     _currentLabel = context.label.name;
@@ -1493,6 +1611,7 @@ class RenPyRunner {
                   blockPath: _pathForBlock(context.block),
                   position: context.position,
                   kind: context.kind.name,
+                  callerLabel: context.callerLabel,
                 ),
               )
               .toList(),
@@ -1521,6 +1640,7 @@ class RenPyRunner {
             _blockForPath(frame.blockPath),
             frame.position,
             _contextKindFor(frame.kind),
+            callerLabel: frame.callerLabel,
           ),
         ),
       );
@@ -1753,6 +1873,11 @@ class RenPyRunner {
   }
 
   /// Reset the runner to the beginning.
+  ///
+  /// Per-game script state is cleared and the define/default initialization is
+  /// re-run so a restart starts from a clean slate. The [_persistent]
+  /// namespace is intentionally preserved: Ren'Py persistent data (seen text,
+  /// achievements, preferences) is meant to survive across games.
   void reset() {
     _stack.clear();
     _pendingDialogue = null;
@@ -1761,6 +1886,20 @@ class RenPyRunner {
     _currentLabel = null;
     _state = RenPyRunnerState.ready;
     _errorMessage = null;
+    _resetScriptState();
+  }
+
+  /// Clears per-game state and re-applies define/default initialization.
+  ///
+  /// [_persistent] is deliberately left untouched so cross-game data persists.
+  void _resetScriptState() {
+    _variables.clear();
+    _characters.clear();
+    _audioChannels.clear();
+    _transformPlacements.clear();
+    _lastDialogueEvent = null;
+    _transitionResolver = RenPyTransitionResolver.fromScript(script);
+    _processDefines();
   }
 
   void _complete() {
