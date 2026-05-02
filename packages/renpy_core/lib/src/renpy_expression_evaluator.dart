@@ -1,3 +1,5 @@
+import 'renpy_arithmetic.dart';
+
 typedef RenPyExpressionVariableLookup =
     RenPyExpressionVariable Function(String name);
 
@@ -58,6 +60,16 @@ class RenPyExpressionEvaluator {
       }
     }
 
+    final notIn = _splitWordComparison(value, 'not in');
+    if (notIn != null) {
+      return !_evaluateMembership(notIn);
+    }
+
+    final membership = _splitWordComparison(value, 'in');
+    if (membership != null) {
+      return _evaluateMembership(membership);
+    }
+
     final variable = lookupVariable(value);
     if (!variable.found) return false;
 
@@ -80,7 +92,69 @@ class RenPyExpressionEvaluator {
     }
     final variable = lookupVariable(value);
     if (variable.found) return variable.value;
+
+    if (_hasArithmeticOperator(value)) {
+      final arithmetic = RenPyArithmetic.evaluateWith(value, _resolveOperand);
+      if (arithmetic != null) return arithmetic;
+    }
+
     return evaluateLiteral(value);
+  }
+
+  RenPyArithmeticValue _resolveOperand(String token) {
+    final variable = lookupVariable(token);
+    if (variable.found) return RenPyArithmeticValue(true, variable.value);
+
+    final literal = evaluateLiteral(token);
+    if (literal is num || literal is String) {
+      return RenPyArithmeticValue(true, literal);
+    }
+    return const RenPyArithmeticValue.unresolved();
+  }
+
+  bool _hasArithmeticOperator(String value) {
+    String? quote;
+    var escaped = false;
+    for (var index = 0; index < value.length; index += 1) {
+      final character = value[index];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (character == r'\') {
+        escaped = true;
+        continue;
+      }
+      if (quote != null) {
+        if (character == quote) quote = null;
+        continue;
+      }
+      if (character == '"' || character == "'") {
+        quote = character;
+        continue;
+      }
+      if (character == '+' ||
+          character == '-' ||
+          character == '*' ||
+          character == '/' ||
+          character == '%') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _evaluateMembership(_ConditionComparison comparison) {
+    final element = _evaluateComparable(comparison.left);
+    final container = _evaluateComparable(comparison.right);
+
+    if (container is String) {
+      if (element is String) return container.contains(element);
+      return false;
+    }
+    if (container is Map) return container.containsKey(element);
+    if (container is Iterable) return container.contains(element);
+    return false;
   }
 
   bool _evaluateOrderedComparison(
@@ -123,6 +197,9 @@ class RenPyExpressionEvaluator {
     for (final operator in const ['==', '!=', '>=', '<=', '>', '<']) {
       if (_splitComparison(current, operator) != null) return true;
     }
+
+    if (_splitWordComparison(current, 'not in') != null) return true;
+    if (_splitWordComparison(current, 'in') != null) return true;
 
     return false;
   }
@@ -225,6 +302,54 @@ class RenPyExpressionEvaluator {
 
   bool _isIdentifierCharacter(String? character) {
     return character != null && RegExp(r'[A-Za-z0-9_]').hasMatch(character);
+  }
+
+  /// Splits [condition] on the first standalone [operator] keyword (such as
+  /// `in` or `not in`), respecting quotes, brackets and word boundaries so
+  /// the operator is not matched inside an identifier or string literal.
+  _ConditionComparison? _splitWordComparison(
+    String condition,
+    String operator,
+  ) {
+    String? quote;
+    var escaped = false;
+    var depth = 0;
+
+    for (var index = 0; index <= condition.length - operator.length; index++) {
+      final character = condition[index];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (character == r'\') {
+        escaped = true;
+        continue;
+      }
+      if (quote != null) {
+        if (character == quote) quote = null;
+        continue;
+      }
+      if (character == '"' || character == "'") {
+        quote = character;
+        continue;
+      }
+      if (character == '(' || character == '[' || character == '{') {
+        depth += 1;
+        continue;
+      }
+      if (character == ')' || character == ']' || character == '}') {
+        if (depth > 0) depth -= 1;
+        continue;
+      }
+      if (depth == 0 && _isWordAt(condition, operator, index)) {
+        return _ConditionComparison(
+          condition.substring(0, index),
+          condition.substring(index + operator.length),
+        );
+      }
+    }
+
+    return null;
   }
 
   _ConditionComparison? _splitComparison(String condition, String operator) {
