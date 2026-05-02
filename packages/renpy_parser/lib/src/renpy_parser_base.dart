@@ -124,7 +124,9 @@ class RenPyParser {
     }
 
     // Parse init statement.
-    if (text.startsWith('init')) {
+    if (text == 'init' ||
+        text.startsWith('init ') ||
+        text.startsWith('init:')) {
       return _parseInitStatement(line, warnings);
     }
 
@@ -139,7 +141,9 @@ class RenPyParser {
     }
 
     // Parse menu statement.
-    if (text.startsWith('menu')) {
+    if (text == 'menu' ||
+        text.startsWith('menu ') ||
+        text.startsWith('menu:')) {
       return _parseMenuStatement(line, warnings);
     }
 
@@ -159,7 +163,9 @@ class RenPyParser {
     }
 
     // Parse scene statement.
-    if (text.startsWith('scene')) {
+    if (text == 'scene' ||
+        text.startsWith('scene ') ||
+        text.startsWith('scene:')) {
       return _parseSceneStatement(line, warnings);
     }
 
@@ -354,17 +360,40 @@ class RenPyParser {
 
   // For say statements, match:
   // - Character variable followed by quoted text: e "Hello"
+  // - Character variable with sprite attributes: e happy "Hello", e -happy "Hi"
   // - Quoted text with no character: "Hello"
   // - Character literal (quoted) followed by quoted text: "Character" "Hello"
+  //
+  // The leading character group is an identifier optionally followed by
+  // attribute tokens (`\w+`, `-word`, `+word`); the attributes are captured
+  // together in group 2 and split apart in _parseSayStatement.
   static final _sayPattern = RegExp(
-    r'''^(?:([a-zA-Z_]\w*)|"([^"]+)"|\'([^\']+)\'|`([^`]+)`)?''' // Optional speaker
+    r'''^(?:([a-zA-Z_]\w*)((?:\s+[-+]?\w+)*)|"([^"]+)"|\'([^\']+)\'|`([^`]+)`)?''' // Optional speaker + attributes
     r'\s*' // Optional whitespace
-    r'''(["\'])((?:\\.|[^\\])*?)\5''', // Quoted text
+    r'''(["\'])((?:\\.|[^\\])*?)\6''', // Quoted text
     dotAll: true,
   );
 
+  // Matches a triple-quoted say body, optionally preceded by a speaker and
+  // sprite attributes. Group 1 is the identifier speaker, group 2 the
+  // attribute run, group 3 the triple-quote delimiter and group 4 the body.
+  static final _tripleQuotedSayPattern = RegExp(
+    r'''^(?:([a-zA-Z_]\w*)((?:\s+[-+]?\w+)*))?'''
+    r'\s*'
+    r'''("""|\'\'\')([\s\S]*?)\3''',
+    dotAll: true,
+  );
+
+  // Statement keywords that may be followed by a quoted argument but must not
+  // be mistaken for a say speaker now that the say pattern accepts attribute
+  // tokens after the leading identifier (e.g. `show text "..."`).
+  static final _sayKeywordGuard = RegExp(
+    r'''^(?:show|scene|hide|play|stop|jump|call|with|nvl|menu|label|image|define|default|screen|style|transform|init|python|return|pass|if|elif|else)\b''',
+  );
+
   bool _isSayStatement(String text) {
-    return _sayPattern.hasMatch(text);
+    if (_sayKeywordGuard.hasMatch(text)) return false;
+    return _tripleQuotedSayPattern.hasMatch(text) || _sayPattern.hasMatch(text);
   }
 
   RenPyLabelStatement _parseLabelStatement(
@@ -400,6 +429,24 @@ class RenPyParser {
     List<String> warnings,
   ) {
     final text = line.text.trim();
+
+    // Triple-quoted bodies must be handled before the single/double quote
+    // pattern, which would otherwise close on the second quote and capture
+    // an empty string.
+    final tripleMatch = _tripleQuotedSayPattern.firstMatch(text);
+    if (tripleMatch != null) {
+      final speaker = tripleMatch.group(1);
+      final attributes = _splitSayAttributes(tripleMatch.group(2));
+      final speech = _unescapeString(tripleMatch.group(4) ?? '');
+      return RenPySayStatement(
+        speaker,
+        speech,
+        line.filename,
+        line.number,
+        attributes: attributes,
+      );
+    }
+
     final match = _sayPattern.firstMatch(text);
 
     if (match == null) {
@@ -411,23 +458,67 @@ class RenPyParser {
       );
     }
 
-    // Group 1-4 are different ways to specify the speaker
+    // Groups 1/3/4/5 are different ways to specify the speaker; group 2 holds
+    // the optional sprite attribute run for the identifier form.
     final speaker =
-        match.group(1) ?? match.group(2) ?? match.group(3) ?? match.group(4);
+        match.group(1) ?? match.group(3) ?? match.group(4) ?? match.group(5);
+    final attributes = _splitSayAttributes(match.group(2));
 
-    // Group 6 is the quoted text content
-    final speech = _unescapeString(match.group(6) ?? '');
+    // Group 7 is the quoted text content.
+    final speech = _unescapeString(match.group(7) ?? '');
 
-    return RenPySayStatement(speaker, speech, line.filename, line.number);
+    return RenPySayStatement(
+      speaker,
+      speech,
+      line.filename,
+      line.number,
+      attributes: attributes,
+    );
+  }
+
+  List<String> _splitSayAttributes(String? raw) {
+    if (raw == null) return const [];
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return const [];
+    return trimmed.split(RegExp(r'\s+'));
   }
 
   String _unescapeString(String value) {
-    return value
-        .replaceAll(r'\"', '"')
-        .replaceAll(r"\'", "'")
-        .replaceAll(r'\n', '\n')
-        .replaceAll(r'\t', '\t')
-        .replaceAll(r'\\', '\\');
+    // Single left-to-right scan so an escaped backslash is consumed as one
+    // unit and its following character is not re-interpreted as an escape.
+    final buffer = StringBuffer();
+    for (var i = 0; i < value.length; i += 1) {
+      final character = value[i];
+      if (character != r'\' || i + 1 >= value.length) {
+        buffer.write(character);
+        continue;
+      }
+
+      final next = value[i + 1];
+      switch (next) {
+        case r'\':
+          buffer.write(r'\');
+          break;
+        case '"':
+          buffer.write('"');
+          break;
+        case "'":
+          buffer.write("'");
+          break;
+        case 'n':
+          buffer.write('\n');
+          break;
+        case 't':
+          buffer.write('\t');
+          break;
+        default:
+          // Unknown escape: keep the backslash and the following character.
+          buffer.write(character);
+          buffer.write(next);
+      }
+      i += 1;
+    }
+    return buffer.toString();
   }
 
   RenPyMenuStatement _parseMenuStatement(
@@ -510,6 +601,20 @@ class RenPyParser {
     List<String> warnings,
   ) {
     final text = line.text.trim();
+
+    // jump expression <expr> jumps to a dynamically evaluated target.
+    final expressionMatch = RegExp(
+      r'^jump\s+expression\s+(.+)$',
+    ).firstMatch(text);
+    if (expressionMatch != null) {
+      return RenPyJumpStatement(
+        expressionMatch.group(1)!.trim(),
+        line.filename,
+        line.number,
+        isExpression: true,
+      );
+    }
+
     final jumpRegex = RegExp(r'^jump\s+([a-zA-Z_][a-zA-Z0-9_]*)');
     final match = jumpRegex.firstMatch(text);
 
@@ -531,6 +636,21 @@ class RenPyParser {
     List<String> warnings,
   ) {
     final text = line.text.trim();
+
+    // call expression <expr> calls a dynamically evaluated target. The
+    // optional `from <label>` clause is consumed but not retained here.
+    final expressionMatch = RegExp(
+      r'^call\s+expression\s+(.+?)(?:\s+from\s+[a-zA-Z_][a-zA-Z0-9_]*)?$',
+    ).firstMatch(text);
+    if (expressionMatch != null) {
+      return RenPyCallStatement(
+        expressionMatch.group(1)!.trim(),
+        line.filename,
+        line.number,
+        isExpression: true,
+      );
+    }
+
     final callRegex = RegExp(
       r'^call\s+([a-zA-Z_][a-zA-Z0-9_]*)(?:\s+from\s+[a-zA-Z_][a-zA-Z0-9_]*)?',
     );
@@ -886,7 +1006,9 @@ class RenPyParser {
       }
 
       code = pythonBlock.join('\n');
-      final isInit = text.contains('early');
+      // Only `python early:` runs in the early init phase; match `early` as a
+      // whole word rather than a substring.
+      final isInit = RegExp(r'^python\s+early\b').hasMatch(text);
 
       return RenPyPythonStatement(code, isInit, line.filename, line.number);
     }
@@ -898,7 +1020,7 @@ class RenPyParser {
   ) {
     final text = line.text.trim();
     final defineRegex = RegExp(
-      r'^define\s+([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)\s*=\s*(.+)$',
+      r'^define\s+(?:-?\d+\s+)?([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)\s*=\s*(.+)$',
       dotAll: true,
     );
     final match = defineRegex.firstMatch(text);
@@ -929,7 +1051,7 @@ class RenPyParser {
   ) {
     final text = line.text.trim();
     final defaultRegex = RegExp(
-      r'^default\s+([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)\s*=\s*(.+)$',
+      r'^default\s+(?:-?\d+\s+)?([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)\s*=\s*(.+)$',
       dotAll: true,
     );
     final match = defaultRegex.firstMatch(text);

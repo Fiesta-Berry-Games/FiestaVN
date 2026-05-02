@@ -33,9 +33,15 @@ class RenPyLabelStatement extends RenPyBlockStatement {
 class RenPySayStatement extends RenPyStatement {
   final String? character; // null for narrator
   final String? text;
+  final List<String> attributes; // sprite attributes, e.g. e happy "Hi"
 
-  RenPySayStatement(this.character, this.text, String filename, int linenumber)
-    : super(filename, linenumber);
+  RenPySayStatement(
+    this.character,
+    this.text,
+    String filename,
+    int linenumber, {
+    this.attributes = const [],
+  }) : super(filename, linenumber);
 
   @override
   String toString() {
@@ -85,9 +91,14 @@ class MenuChoice {
 /// Represents a jump statement (jump label).
 class RenPyJumpStatement extends RenPyStatement {
   final String target;
+  final bool isExpression; // true for `jump expression <expr>`
 
-  RenPyJumpStatement(this.target, String filename, int linenumber)
-    : super(filename, linenumber);
+  RenPyJumpStatement(
+    this.target,
+    String filename,
+    int linenumber, {
+    this.isExpression = false,
+  }) : super(filename, linenumber);
 
   @override
   String toString() => 'Jump to: $target';
@@ -96,9 +107,14 @@ class RenPyJumpStatement extends RenPyStatement {
 /// Represents a call statement (call label).
 class RenPyCallStatement extends RenPyStatement {
   final String target;
+  final bool isExpression; // true for `call expression <expr>`
 
-  RenPyCallStatement(this.target, String filename, int linenumber)
-    : super(filename, linenumber);
+  RenPyCallStatement(
+    this.target,
+    String filename,
+    int linenumber, {
+    this.isExpression = false,
+  }) : super(filename, linenumber);
 
   @override
   String toString() => 'Call: $target';
