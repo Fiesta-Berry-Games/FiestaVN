@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:meta/meta.dart';
 
 /// Reader for Ren'Py RPA-3 archives.
 final class RenPyRpaArchive {
@@ -49,6 +50,22 @@ final class RenPyRpaArchive {
       entry.offset,
       entry.offset + entry.length,
     );
+  }
+
+  /// Decodes a pickle LONG1 payload, a signed little-endian integer.
+  ///
+  /// The most significant byte carries the sign bit, so values with that bit
+  /// set are interpreted as two's complement and sign-extended.
+  @visibleForTesting
+  static int decodeLong1(List<int> raw) {
+    var value = 0;
+    for (var i = 0; i < raw.length; i += 1) {
+      value |= raw[i] << (8 * i);
+    }
+    if (raw.isNotEmpty && (raw[raw.length - 1] & 0x80) != 0) {
+      value -= 1 << (8 * raw.length);
+    }
+    return value;
   }
 }
 
@@ -134,7 +151,7 @@ final class _RpaIndexParser {
         return utf8.decode(bytes.sublist(_position, _position += length));
       case 0x55: // SHORT_BINSTRING
         final length = bytes[_position++];
-        return latin1.decode(bytes.sublist(_position, _position += length));
+        return utf8.decode(bytes.sublist(_position, _position += length));
       default:
         throw FormatException(
           'Unsupported RPA index string opcode 0x${opcode.toRadixString(16)}',
@@ -150,11 +167,7 @@ final class _RpaIndexParser {
       case 0x8a: // LONG1
         final length = bytes[_position++];
         final raw = bytes.sublist(_position, _position += length);
-        var value = 0;
-        for (var i = 0; i < raw.length; i += 1) {
-          value |= raw[i] << (8 * i);
-        }
-        return value;
+        return RenPyRpaArchive.decodeLong1(raw);
       default:
         throw FormatException(
           'Unsupported RPA index integer opcode 0x${opcode.toRadixString(16)}',
