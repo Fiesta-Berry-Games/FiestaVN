@@ -178,7 +178,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   final RenPyRunnerSnapshotStore? snapshotStore;
 
   RenPyRunner? _runner;
-  StreamSubscription? _ticker;
+  _RunnerTicker? _ticker;
   Timer? _pauseTimer;
   RenPyImageResolver _imageResolver = RenPyImageResolver();
   final List<RenPyDiagnostic> _diagnostics = [];
@@ -357,29 +357,31 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   }
 
   void _startTicker() {
-    _ticker = Stream.periodic(const Duration(milliseconds: 1)).listen((_) {
-      final runner = _runner;
-      if (runner == null) return;
+    _ticker = _RunnerTicker(_tick)..resume();
+  }
 
-      switch (runner.state) {
-        case RenPyRunnerState.waitingForInput:
-          _ticker?.pause();
-          break;
-        case RenPyRunnerState.complete:
-          debugPrint('Script execution complete');
-          value = RenPyComplete();
-          _ticker?.cancel();
-          onComplete?.call();
-          break;
-        case RenPyRunnerState.error:
-          debugPrint('Script execution error: ${runner.errorMessage}');
-          value = RenPyError(runner.errorMessage ?? 'Unknown error');
-          _ticker?.cancel();
-          break;
-        default:
-          runner.continueExecution();
-      }
-    });
+  void _tick() {
+    final runner = _runner;
+    if (runner == null) return;
+
+    switch (runner.state) {
+      case RenPyRunnerState.waitingForInput:
+        _ticker?.pause();
+        break;
+      case RenPyRunnerState.complete:
+        debugPrint('Script execution complete');
+        value = RenPyComplete();
+        _ticker?.cancel();
+        onComplete?.call();
+        break;
+      case RenPyRunnerState.error:
+        debugPrint('Script execution error: ${runner.errorMessage}');
+        value = RenPyError(runner.errorMessage ?? 'Unknown error');
+        _ticker?.cancel();
+        break;
+      default:
+        runner.continueExecution();
+    }
   }
 
   void _onDialogueEvent(RenPyDialogueEvent event) {
@@ -407,6 +409,8 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     String? caption,
   ) {
     debugPrint('Menu with choices: $choices');
+    _pauseTimer?.cancel();
+    _pauseTimer = null;
     _ticker?.pause();
     value = RenPyMenu(choices, (i) {
       debugPrint('Menu choice selected: ${choices[i]}');
@@ -943,6 +947,52 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     _ticker?.cancel();
     _pauseTimer?.cancel();
     super.dispose();
+  }
+}
+
+/// Drains the runner one step per microtask while resumed.
+///
+/// Mirrors the [pause]/[resume]/[cancel] surface the controller relied on when
+/// the ticker was a periodic stream subscription, but only schedules work while
+/// running so it never busy-spins. The [onTick] callback is expected to pause
+/// the ticker once the runner reaches a wait point and to cancel it on
+/// completion or error.
+class _RunnerTicker {
+  _RunnerTicker(this.onTick);
+
+  final void Function() onTick;
+
+  bool _paused = true;
+  bool _cancelled = false;
+  bool _scheduled = false;
+
+  void resume() {
+    if (_cancelled || !_paused) return;
+    _paused = false;
+    _schedule();
+  }
+
+  void pause() {
+    _paused = true;
+  }
+
+  void cancel() {
+    _cancelled = true;
+    _paused = true;
+  }
+
+  void _schedule() {
+    if (_scheduled) return;
+    _scheduled = true;
+    scheduleMicrotask(_drain);
+  }
+
+  void _drain() {
+    _scheduled = false;
+    if (_cancelled || _paused) return;
+    onTick();
+    if (_cancelled || _paused) return;
+    _schedule();
   }
 }
 
