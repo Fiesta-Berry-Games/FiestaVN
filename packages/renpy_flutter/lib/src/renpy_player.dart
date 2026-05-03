@@ -683,8 +683,11 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
     if (!identical(oldWidget.project, widget.project) ||
         !identical(oldWidget.audioPlayback, widget.audioPlayback) ||
         !identical(oldWidget.fontRegistrar, widget.fontRegistrar)) {
-      _ownedAudioPlayback?.dispose();
+      // Stop and dispose the previous owned backend before the new one starts,
+      // so the two cannot race over the same channels.
+      final previousAudio = _ownedAudioPlayback;
       _configureOwnedAudio();
+      previousAudio?.dispose();
       _bootstrapProject();
     }
   }

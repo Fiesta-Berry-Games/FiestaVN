@@ -57,6 +57,9 @@ class _RenPyAudioLayerState extends State<RenPyAudioLayer> {
       }
       _playback = widget.playback ?? AudioplayersRenPyAudioPlayback();
       _ownsPlayback = widget.playback == null;
+      // The new backend starts with no playing tracks, so the ifChanged dedup
+      // cache from the previous backend must not suppress replaying them.
+      _playingAssetSourcePaths.clear();
     }
 
     if (oldWidget.musicMuted != widget.musicMuted ||
@@ -202,13 +205,34 @@ abstract interface class RenPyAudioPlayback {
   Future<void> dispose();
 }
 
-/// Production audio backend backed by the web-compatible audioplayers plugin.
-class AudioplayersRenPyAudioPlayback implements RenPyAudioPlayback {
+/// Shared mixer, fade, and per-channel serialization logic for the audio
+/// backends that drive real [audio.AudioPlayer]s.
+abstract class _AudioPlayersRenPyAudioPlaybackBase
+    implements RenPyAudioPlayback {
   final Map<String, audio.AudioPlayer> _players = {};
   final Map<String, bool> _muted = {};
   final Map<String, _AudioMixerState> _mixers = {};
   final Map<String, String> _channelMixers = {};
   final Map<String, double> _channelVolumes = {};
+  // Serializes play/stop on a per-channel basis so a rapid second operation
+  // cannot drive a player that an earlier sequence is still disposing.
+  final Map<String, Future<void>> _channelLocks = {};
+  bool _disposed = false;
+
+  /// Resolves the audioplayers source for the requested asset, or null when the
+  /// asset cannot be located.
+  audio.Source? _sourceFor({
+    required String asset,
+    required String assetSourcePath,
+  });
+
+  /// Runs [operation] only after any pending operation on [channel] completes.
+  Future<void> _serialize(String channel, Future<void> Function() operation) {
+    final pending = _channelLocks[channel] ?? Future<void>.value();
+    final next = pending.then((_) => operation());
+    _channelLocks[channel] = next.catchError((_) {});
+    return next;
+  }
 
   @override
   Future<void> play({
@@ -220,51 +244,73 @@ class AudioplayersRenPyAudioPlayback implements RenPyAudioPlayback {
     String? fadein,
     String? mixer,
     bool? loop,
-  }) async {
-    if (mixer != null) _channelMixers[channel] = mixer;
-    final existingPlayer = _players[channel];
-    final player = existingPlayer ?? audio.AudioPlayer();
-    _players[channel] = player;
-    final fadeoutSeconds = double.tryParse(fadeout ?? '');
-    if (existingPlayer != null &&
-        fadeoutSeconds != null &&
-        fadeoutSeconds > 0) {
-      await _fadeOut(player, _effectiveVolume(channel), fadeoutSeconds);
-    }
-    if (existingPlayer != null) {
-      await player.stop();
-    }
-    _channelVolumes[channel] = _trackVolume(volume);
-    final effectiveVolume = _effectiveVolume(channel);
-    final fadeinSeconds = double.tryParse(fadein ?? '');
-    await player.setVolume(
-      fadeinSeconds != null && fadeinSeconds > 0 ? 0 : effectiveVolume,
-    );
-    await player.setReleaseMode(
-      (loop ?? channel == 'music')
-          ? audio.ReleaseMode.loop
-          : audio.ReleaseMode.release,
-    );
-    await player.play(audio.AssetSource(assetSourcePath));
-    if (fadeinSeconds != null && fadeinSeconds > 0) {
-      await _fadeIn(player, effectiveVolume, fadeinSeconds);
-    }
+  }) {
+    return _serialize(channel, () async {
+      if (_disposed) return;
+      final source = _sourceFor(asset: asset, assetSourcePath: assetSourcePath);
+      if (source == null) return;
+
+      if (mixer != null) _channelMixers[channel] = mixer;
+      final existingPlayer = _players[channel];
+      final player = existingPlayer ?? audio.AudioPlayer();
+      _players[channel] = player;
+      final fadeoutSeconds = double.tryParse(fadeout ?? '');
+      if (existingPlayer != null &&
+          fadeoutSeconds != null &&
+          fadeoutSeconds > 0) {
+        await _fadeOut(player, _effectiveVolume(channel), fadeoutSeconds);
+        if (!_isCurrentPlayer(channel, player)) return;
+      }
+      if (existingPlayer != null) {
+        await existingPlayer.stop();
+        if (!_isCurrentPlayer(channel, player)) return;
+      }
+      _channelVolumes[channel] = _trackVolume(volume);
+      final effectiveVolume = _effectiveVolume(channel);
+      final fadeinSeconds = double.tryParse(fadein ?? '');
+      await player.setVolume(
+        fadeinSeconds != null && fadeinSeconds > 0 ? 0 : effectiveVolume,
+      );
+      if (!_isCurrentPlayer(channel, player)) return;
+      await player.setReleaseMode(
+        (loop ?? channel == 'music')
+            ? audio.ReleaseMode.loop
+            : audio.ReleaseMode.release,
+      );
+      if (!_isCurrentPlayer(channel, player)) return;
+      await player.play(source);
+      if (fadeinSeconds != null && fadeinSeconds > 0) {
+        if (!_isCurrentPlayer(channel, player)) return;
+        await _fadeIn(player, effectiveVolume, fadeinSeconds);
+      }
+    });
   }
 
   @override
-  Future<void> stop({required String channel, String? fadeout}) async {
-    final player = _players.remove(channel);
-    if (player == null) return;
+  Future<void> stop({required String channel, String? fadeout}) {
+    return _serialize(channel, () async {
+      final player = _players[channel];
+      if (player == null) return;
 
-    final fadeoutSeconds = double.tryParse(fadeout ?? '');
-    if (fadeoutSeconds != null && fadeoutSeconds > 0) {
-      await _fadeOut(player, _effectiveVolume(channel), fadeoutSeconds);
-    }
+      final fadeoutSeconds = double.tryParse(fadeout ?? '');
+      if (fadeoutSeconds != null && fadeoutSeconds > 0) {
+        await _fadeOut(player, _effectiveVolume(channel), fadeoutSeconds);
+        if (!_isCurrentPlayer(channel, player)) return;
+      }
 
-    await player.stop();
-    _channelMixers.remove(channel);
-    _channelVolumes.remove(channel);
-    await player.dispose();
+      await player.stop();
+      if (!_isCurrentPlayer(channel, player)) return;
+      _players.remove(channel);
+      _channelMixers.remove(channel);
+      _channelVolumes.remove(channel);
+      await player.dispose();
+    });
+  }
+
+  /// Whether [player] is still the player registered for [channel]; once a
+  /// later operation replaced or removed it we must not keep driving it.
+  bool _isCurrentPlayer(String channel, audio.AudioPlayer player) {
+    return !_disposed && identical(_players[channel], player);
   }
 
   @override
@@ -329,21 +375,51 @@ class AudioplayersRenPyAudioPlayback implements RenPyAudioPlayback {
     );
 
     for (var step = steps - 1; step >= 0; step -= 1) {
+      if (_disposed) return;
       await player.setVolume(volume * step / steps);
+      await Future<void>.delayed(stepDuration);
+    }
+  }
+
+  Future<void> _fadeIn(
+    audio.AudioPlayer player,
+    double targetVolume,
+    double seconds,
+  ) async {
+    const steps = 10;
+    final stepDuration = Duration(
+      milliseconds: (seconds * Duration.millisecondsPerSecond / steps).round(),
+    );
+    for (var step = 1; step <= steps; step += 1) {
+      if (_disposed) return;
+      await player.setVolume(targetVolume * step / steps);
       await Future<void>.delayed(stepDuration);
     }
   }
 
   @override
   Future<void> dispose() async {
+    _disposed = true;
     final players = _players.values.toList();
     _players.clear();
     await Future.wait(players.map((player) => player.dispose()));
   }
 }
 
+/// Production audio backend backed by the web-compatible audioplayers plugin.
+class AudioplayersRenPyAudioPlayback
+    extends _AudioPlayersRenPyAudioPlaybackBase {
+  @override
+  audio.Source? _sourceFor({
+    required String asset,
+    required String assetSourcePath,
+  }) {
+    return audio.AssetSource(assetSourcePath);
+  }
+}
+
 /// Audio backend for externally loaded project files held in memory.
-class RenPyBytesAudioPlayback implements RenPyAudioPlayback {
+class RenPyBytesAudioPlayback extends _AudioPlayersRenPyAudioPlaybackBase {
   RenPyBytesAudioPlayback(
     Map<String, Uint8List> assets, {
     Uint8List? Function(String assetPath)? readAsset,
@@ -352,130 +428,19 @@ class RenPyBytesAudioPlayback implements RenPyAudioPlayback {
 
   final Map<String, Uint8List> _assets;
   final Uint8List? Function(String assetPath)? _readAsset;
-  final Map<String, audio.AudioPlayer> _players = {};
-  final Map<String, bool> _muted = {};
-  final Map<String, _AudioMixerState> _mixers = {};
-  final Map<String, String> _channelMixers = {};
-  final Map<String, double> _channelVolumes = {};
 
   @override
-  Future<void> play({
-    required String channel,
-    String? mixer,
-    bool? loop,
-    String? fadeout,
-    String? volume,
-    String? fadein,
+  audio.Source? _sourceFor({
     required String asset,
     required String assetSourcePath,
-  }) async {
+  }) {
     final bytes =
         _assets[assetSourcePath] ??
         _assets[asset] ??
         _readAsset?.call(assetSourcePath) ??
         _readAsset?.call(asset);
-    if (bytes == null) return;
-
-    if (mixer != null) _channelMixers[channel] = mixer;
-    final existingPlayer = _players[channel];
-    final player = existingPlayer ?? audio.AudioPlayer();
-    _players[channel] = player;
-    final fadeoutSeconds = double.tryParse(fadeout ?? '');
-    if (existingPlayer != null &&
-        fadeoutSeconds != null &&
-        fadeoutSeconds > 0) {
-      await _fadeOut(player, _effectiveVolume(channel), fadeoutSeconds);
-    }
-    if (existingPlayer != null) {
-      await player.stop();
-    }
-    _channelVolumes[channel] = _trackVolume(volume);
-    final effectiveVolume = _effectiveVolume(channel);
-    final fadeinSeconds = double.tryParse(fadein ?? '');
-    await player.setVolume(
-      fadeinSeconds != null && fadeinSeconds > 0 ? 0 : effectiveVolume,
-    );
-    await player.setReleaseMode(
-      (loop ?? channel == 'music')
-          ? audio.ReleaseMode.loop
-          : audio.ReleaseMode.release,
-    );
-    await player.play(audio.BytesSource(bytes));
-    if (fadeinSeconds != null && fadeinSeconds > 0) {
-      await _fadeIn(player, effectiveVolume, fadeinSeconds);
-    }
-  }
-
-  @override
-  Future<void> stop({required String channel, String? fadeout}) async {
-    final player = _players.remove(channel);
-    if (player == null) return;
-    final fadeoutSeconds = double.tryParse(fadeout ?? '');
-    if (fadeoutSeconds != null && fadeoutSeconds > 0) {
-      await _fadeOut(player, _effectiveVolume(channel), fadeoutSeconds);
-    }
-    await player.stop();
-    await player.dispose();
-    _channelMixers.remove(channel);
-    _channelVolumes.remove(channel);
-  }
-
-  @override
-  Future<void> setMuted({required String channel, required bool muted}) async {
-    _muted[channel] = muted;
-    await setMixer(
-      channel: channel,
-      volume: _mixers[channel]?.volume ?? 1,
-      muted: muted,
-    );
-  }
-
-  @override
-  Future<void> setMixer({
-    required String channel,
-    required double volume,
-    required bool muted,
-  }) async {
-    _mixers[channel] = _AudioMixerState(volume: volume, muted: muted);
-    await _applyMixerToPlayers(channel);
-  }
-
-  Future<void> _applyMixerToPlayers(String mixer) async {
-    final futures = <Future<void>>[];
-    for (final entry in _players.entries) {
-      if (mixer == RenPyPlayerPreferences.mainMixer ||
-          _mixerForChannel(entry.key) == mixer) {
-        futures.add(entry.value.setVolume(_effectiveVolume(entry.key)));
-      }
-    }
-    await Future.wait(futures);
-  }
-
-  double _effectiveVolume(String channel) {
-    final main =
-        _mixers[RenPyPlayerPreferences.mainMixer] ?? const _AudioMixerState();
-    final mixer =
-        _mixers[_mixerForChannel(channel)] ?? const _AudioMixerState();
-    if (main.muted || mixer.muted || (_muted[channel] ?? false)) return 0;
-    return main.volume * mixer.volume * (_channelVolumes[channel] ?? 1);
-  }
-
-  String _mixerForChannel(String channel) {
-    final registeredMixer = _channelMixers[channel];
-    if (registeredMixer != null) return registeredMixer;
-    return switch (channel) {
-      'sound' => RenPyPlayerPreferences.sfxMixer,
-      'voice' => RenPyPlayerPreferences.voiceMixer,
-      'music' => RenPyPlayerPreferences.musicMixer,
-      _ => channel,
-    };
-  }
-
-  @override
-  Future<void> dispose() async {
-    final players = _players.values.toList();
-    _players.clear();
-    await Future.wait(players.map((player) => player.dispose()));
+    if (bytes == null) return null;
+    return audio.BytesSource(bytes);
   }
 }
 
@@ -512,22 +477,6 @@ class RenPyNoOpAudioPlayback implements RenPyAudioPlayback {
   Future<void> dispose() async {}
 }
 
-Future<void> _fadeOut(
-  audio.AudioPlayer player,
-  double volume,
-  double seconds,
-) async {
-  const steps = 10;
-  final stepDuration = Duration(
-    milliseconds: (seconds * Duration.millisecondsPerSecond / steps).round(),
-  );
-
-  for (var step = steps - 1; step >= 0; step -= 1) {
-    await player.setVolume(volume * step / steps);
-    await Future<void>.delayed(stepDuration);
-  }
-}
-
 double _trackVolume(String? volume) {
   final parsed = double.tryParse(volume ?? '');
   if (parsed == null) return 1;
@@ -541,19 +490,4 @@ final class _AudioMixerState {
 
   final double volume;
   final bool muted;
-}
-
-Future<void> _fadeIn(
-  audio.AudioPlayer player,
-  double targetVolume,
-  double seconds,
-) async {
-  const steps = 10;
-  final stepDuration = Duration(
-    milliseconds: (seconds * Duration.millisecondsPerSecond / steps).round(),
-  );
-  for (var step = 1; step <= steps; step += 1) {
-    await player.setVolume(targetVolume * step / steps);
-    await Future<void>.delayed(stepDuration);
-  }
 }
