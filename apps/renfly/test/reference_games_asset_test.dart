@@ -115,6 +115,11 @@ const _referenceGameImageAssets = [
 
 const _referenceGameAudioAssets = [
   'assets/games/3/game/sun-flower-slow-drag.mid',
+  'assets/games/4/game/SE/Z1.opus',
+  'assets/games/4/game/music/She End.opus',
+  'assets/games/4/game/ME/rain_2.opus',
+  'assets/games/4/game/se/ZS4.opus',
+  'assets/games/the_question/game/illurock.opus',
 ];
 
 const _bundledDemoGames = [

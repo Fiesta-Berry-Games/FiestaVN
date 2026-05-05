@@ -326,11 +326,8 @@ label writing:
     e "Ren'Py supports music, such as what's playing in the
        background..."
 
-    # This plays a sound effect.
-    $ renpy.play("18005551212.wav")
-    
-    e "... and sound effects, like the one that just played."
-    
+    e "... and sound effects, played alongside the music."
+
     e "Ren'Py also includes a number of control statements, and even
        lets you include python code."
 

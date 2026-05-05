@@ -97,16 +97,6 @@ void main() {
       driver.dialogue,
       contains("We can't wait to see what you do with this. Good luck!"),
     );
-    expect(
-      playback.calls,
-      contains(
-        const _AudioCall(
-          channel: 'sound',
-          asset: '18005551212.wav',
-          assetSourcePath: 'games/3/game/18005551212.wav',
-        ),
-      ),
-    );
   });
 
   testWidgets('launcher can auto-play Reference Game 4 to completion', (

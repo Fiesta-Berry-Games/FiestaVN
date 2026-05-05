@@ -20,7 +20,6 @@ label start:
                     Thoughts "Ahh!"
                     Thoughts "I'd better go fast."
                     show S7
-                    play sound "audio/Effects/Voice/Hmm.ogg"
                     Riley "Huh?{p=0.3}{nw}"
                     $ AyyNoticed1 = True
                     $ AyyInfo.L += 1
