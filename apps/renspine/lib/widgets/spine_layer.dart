@@ -75,23 +75,13 @@ class _SpineLayerState extends State<SpineLayer> {
                 ? '$skin-movement/idle-front.spine'
                 : '$skin-emotes/$anim.spine';
 
-        // Check if we already have a sprite for this character.
-        if (_sprites.containsKey(name)) {
-          // Character already exists, just update the existing widget.
-          // We need to create a new widget but with a stable key.
-          _sprites[name] = SpineSprite(
-            key: ValueKey(name), // Use character name as key, not animation.
-            imageName: file,
-            atLeft: atLeft,
-          );
-        } else {
-          // New character, create sprite.
-          _sprites[name] = SpineSprite(
-            key: ValueKey(name), // Use character name as key, not animation.
-            imageName: file,
-            atLeft: atLeft,
-          );
-        }
+        // Create or update the sprite for this character. A stable key keyed
+        // on the character name keeps the same widget across animations.
+        _sprites[name] = SpineSprite(
+          key: ValueKey(name),
+          imageName: file,
+          atLeft: atLeft,
+        );
       }
     });
   }

@@ -60,10 +60,22 @@ class GameScreen extends StatelessWidget {
   const GameScreen({super.key, required this.assetPath});
   final String assetPath;
 
+  /// Derives a title from the asset path. Prefers the segment after "games/"
+  /// (e.g. "assets/games/1/game/script.rpy" -> "1"), otherwise falls back to
+  /// the file name so unexpected layouts never throw.
+  String get _title {
+    final segments = assetPath.split('/').where((s) => s.isNotEmpty).toList();
+    final gamesIdx = segments.indexOf('games');
+    if (gamesIdx != -1 && gamesIdx + 1 < segments.length) {
+      return segments[gamesIdx + 1];
+    }
+    return segments.isNotEmpty ? segments.last : assetPath;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(assetPath.split('/').elementAt(2))),
+      appBar: AppBar(title: Text(_title)),
       body: RenPyAssetPlayer(
         scriptAsset: assetPath,
         backgroundColor: Colors.grey.shade900,

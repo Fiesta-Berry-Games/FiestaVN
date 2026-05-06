@@ -41,37 +41,41 @@ class _SpineSpriteState extends State<SpineSprite> {
     }
   }
 
+  // Default skin used when an image name carries no skin prefix.
+  static const _fallbackSkin = 'spineboy';
+
+  /// Parses `"<skin>-<animation>.spine"` into (skin, animation).
+  static ({String skin, String anim}) _parse(String imageName) {
+    final file = imageName.replaceFirst('.spine', '');
+    final lastDash = file.lastIndexOf('-');
+
+    if (lastDash == -1) {
+      return (skin: _fallbackSkin, anim: 'movement/idle-front');
+    }
+
+    // Split on the last dash to handle paths like "erikari-movement/idle-front".
+    final beforeDash = file.substring(0, lastDash);
+    final afterDash = file.substring(lastDash + 1);
+
+    // Check if this looks like a path (contains /).
+    if (beforeDash.contains('/')) {
+      // This means we have something like "erikari-movement/idle-front".
+      // We need to find the skin name differently.
+      final parts = file.split('-');
+      return (skin: parts[0], anim: parts.sublist(1).join('-'));
+    }
+    return (skin: beforeDash, anim: afterDash);
+  }
+
   void _setImageAndAnimation(String imageName) {
     try {
       debugPrint(
         'SpineSprite: Setting $imageName at ${widget.atLeft ? "left" : "right"}',
       );
 
-      // Parse "<skin>-<animation>.spine".
-      final file = imageName.replaceFirst('.spine', '');
-      final lastDash = file.lastIndexOf('-');
-
-      String skinName, animName;
-      if (lastDash == -1) {
-        skinName = 'spineboy';
-        animName = 'movement/idle-front';
-      } else {
-        // Split on the last dash to handle paths like "erikari-movement/idle-front".
-        final beforeDash = file.substring(0, lastDash);
-        final afterDash = file.substring(lastDash + 1);
-
-        // Check if this looks like a path (contains /).
-        if (beforeDash.contains('/')) {
-          // This means we have something like "erikari-movement/idle-front".
-          // We need to find the skin name differently.
-          final parts = file.split('-');
-          skinName = parts[0]; // First part should be skin.
-          animName = parts.sublist(1).join('-'); // Rest is animation.
-        } else {
-          skinName = beforeDash;
-          animName = afterDash;
-        }
-      }
+      final parsed = _parse(imageName);
+      final skinName = parsed.skin;
+      final animName = parsed.anim;
 
       debugPrint('SpineSprite: Parsed - skin: $skinName, animation: $animName');
 
@@ -180,9 +184,10 @@ class _SpineSpriteState extends State<SpineSprite> {
           _atlas,
           _skel,
           _ctrl,
-          // Use broader bounds to ensure nothing is clipped.
+          // Size bounds to whatever skin this sprite actually shows, falling
+          // back to the default skin so the fallback sprite is sized correctly.
           boundsProvider: spine.SkinAndAnimationBounds(
-            skins: const ['erikari', 'harri'],
+            skins: [_parse(widget.imageName).skin, _fallbackSkin],
           ),
         ),
       ),

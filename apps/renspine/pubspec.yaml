@@ -41,9 +41,7 @@ dependencies:
   renpy_flutter:
     path: ../../packages/renpy_flutter
 
-  # File handling.
-  file_picker: ^6.1.1
-  path: ^1.8.3
+  # Spine 2D runtime.
   spine_flutter: ^4.2.36
 
 dependency_overrides:
