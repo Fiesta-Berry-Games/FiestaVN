@@ -41,6 +41,7 @@ dependencies:
   renpy_flutter:
     path: ../../packages/renpy_flutter
   file_picker: ^11.0.2
+  web: ^1.1.1
 
 dependency_overrides:
   renpy_parser:
