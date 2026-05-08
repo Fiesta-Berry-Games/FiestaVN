@@ -11,6 +11,7 @@ import 'renpy_image_event.dart';
 import 'renpy_image_placement.dart';
 import 'renpy_pause_event.dart';
 import 'renpy_persistent_store.dart';
+import 'renpy_python.dart';
 import 'renpy_transition_event.dart';
 import 'renpy_transition_intent.dart';
 import 'renpy_transition_resolver.dart';
@@ -220,6 +221,17 @@ class RenPyRunner {
   late RenPyTransitionResolver _transitionResolver;
   final Map<String, RenPyImagePlacement> _transformPlacements = {};
 
+  /// The Python-subset expression evaluator and the scope view that shares the
+  /// runner's own `_variables`/`_persistent` maps. Reads and in-place mutations
+  /// (such as `list.append`) flow straight through to engine state. The
+  /// `config`/`gui` scopes are kept here so scoped names resolve, though the
+  /// runner does not yet seed them from `define`/`default`.
+  static const RenPyPythonEvaluator _pythonEvaluator = RenPyPythonEvaluator();
+  late final RenPyMapScope _pythonScope = RenPyMapScope(
+    store: _variables,
+    persistent: _persistent,
+  );
+
   /// Callbacks for various events
   DialogueCallback? onDialogue;
   DialogueEventCallback? onDialogueEvent;
@@ -333,13 +345,30 @@ class RenPyRunner {
 
   dynamic _evaluateExpression(String expression) {
     final value = expression.trim();
+
+    // The imagemap shim and the older literal handling predate the Python
+    // evaluator; keep them ahead so their existing behavior is preserved.
+    final imagemapResult = _renpyImagemapResult(value);
+    if (imagemapResult != null) return imagemapResult;
+
+    // Try the real Python-subset evaluator first; it covers calls, methods,
+    // subscripts, comprehensions, f-strings and the like. Anything outside the
+    // supported subset (including an unknown bare name) throws, and we fall
+    // back to the previous literal/passthrough handling so nothing regresses.
+    try {
+      return _pythonEvaluator.evaluate(value, _pythonScope);
+    } on RenPyPythonError {
+      // Fall through to the legacy handling below.
+    }
+
+    return _evaluateExpressionFallback(value);
+  }
+
+  dynamic _evaluateExpressionFallback(String value) {
     if (value == 'True' || value == 'true') return true;
     if (value == 'False' || value == 'false') return false;
     if (value == 'None' || value == 'null') return null;
     if (RegExp(r'^\[\s*\]$').hasMatch(value)) return <dynamic>[];
-
-    final imagemapResult = _renpyImagemapResult(value);
-    if (imagemapResult != null) return imagemapResult;
 
     final quoted = RegExp(r'''^["'](.*)["']$''').firstMatch(value);
     if (quoted != null) return quoted.group(1);
@@ -374,6 +403,18 @@ class RenPyRunner {
   }
 
   bool _evaluateCondition(String condition) {
+    // Prefer the Python-subset evaluator, which understands calls, method
+    // calls, subscripting and richer comparisons than the legacy condition
+    // splitter. On any unsupported construct fall back to the older evaluator
+    // so previously-passing conditions keep working.
+    try {
+      return RenPyPythonEvaluator.truthy(
+        _pythonEvaluator.evaluate(condition, _pythonScope),
+      );
+    } on RenPyPythonError {
+      // Fall through to the legacy condition evaluator.
+    }
+
     return RenPyExpressionEvaluator(
       lookupVariable: _lookupExpressionVariable,
       evaluateLiteral: _evaluateExpression,
@@ -948,6 +989,16 @@ class RenPyRunner {
       return;
     }
 
+    // A bare expression-statement (e.g. `items.append(3)`) is in scope: run it
+    // for its side effects. Only treat it as handled when the Python-subset
+    // evaluator accepts it; otherwise fall through to the diagnostic so genuine
+    // statements (control flow, `def`, multi-line blocks) are not swallowed.
+    if (_tryEvaluatePythonExpressionStatement(stmt.code)) {
+      _position++;
+      _executeNext();
+      return;
+    }
+
     // TODO: Execute Python code.
     // For now, we'll just print it and continue.
     print(
@@ -978,6 +1029,25 @@ class RenPyRunner {
 
   void _emitDiagnostic(RenPyDiagnostic diagnostic) {
     onDiagnostic?.call(diagnostic);
+  }
+
+  /// Evaluates [code] as a single Python expression for its side effects,
+  /// such as `items.append(x)` or `data.update(other)`. Returns `true` when the
+  /// evaluator accepted the expression (so the caller advances), `false` when
+  /// it falls outside the supported subset (so the caller can diagnose it).
+  bool _tryEvaluatePythonExpressionStatement(String code) {
+    final trimmed = code.trim();
+    if (trimmed.isEmpty) return false;
+    // Skip anything containing a statement-level construct the expression
+    // evaluator must not interpret (assignments are handled separately, and
+    // semicolons/newlines indicate multiple statements).
+    if (trimmed.contains('\n') || trimmed.contains(';')) return false;
+    try {
+      _pythonEvaluator.evaluate(trimmed, _pythonScope);
+      return true;
+    } on RenPyPythonError {
+      return false;
+    }
   }
 
   _PythonAssignment? _pythonAssignment(String code) {

@@ -12,6 +12,7 @@ export 'renpy_resolved_image.dart';
 export 'renpy_rpa_archive.dart';
 export 'renpy_presentation_snapshot.dart';
 export 'renpy_persistent_store.dart';
+export 'renpy_python.dart';
 export 'renpy_styled_text.dart';
 export 'renpy_transition_event.dart';
 export 'renpy_transition_intent.dart';
