@@ -157,6 +157,7 @@ class ExternalGameScreen extends StatelessWidget {
               onControllerCreated: onControllerCreated,
               persistentStore: stores.persistent,
               snapshotStore: stores.snapshot,
+              slotStore: stores.slots,
               preferenceStore: stores.preferences,
             ),
       ),
@@ -181,11 +182,13 @@ final class _GameStores {
   const _GameStores({
     required this.persistent,
     required this.snapshot,
+    required this.slots,
     required this.preferences,
   });
 
   final RenPyPersistentStore persistent;
   final RenPyRunnerSnapshotStore snapshot;
+  final RenPyRunnerSnapshotSlotStore slots;
   final RenPyPreferenceStore preferences;
 }
 
@@ -199,12 +202,16 @@ class _PersistentStoreLoaderState extends State<_PersistentStoreLoader> {
     final snapshotStore = await RenPySharedPreferencesSnapshotStore.create(
       key: _snapshotStoreKey(widget.identifier),
     );
+    final slotStore = await RenPySharedPreferencesSnapshotSlotStore.create(
+      keyPrefix: _slotStoreKeyPrefix(widget.identifier),
+    );
     final preferenceStore = await RenPySharedPreferencesPreferenceStore.create(
       key: _preferenceStoreKey(widget.identifier),
     );
     return _GameStores(
       persistent: persistentStore,
       snapshot: snapshotStore,
+      slots: slotStore,
       preferences: preferenceStore,
     );
   }
@@ -233,6 +240,10 @@ String _persistentStoreKey(String identifier) {
 
 String _snapshotStoreKey(String identifier) {
   return 'renfly.snapshot.${Uri.encodeComponent(identifier)}';
+}
+
+String _slotStoreKeyPrefix(String identifier) {
+  return 'renfly.slot.${Uri.encodeComponent(identifier)}';
 }
 
 String _preferenceStoreKey(String identifier) {
@@ -268,6 +279,7 @@ class GameScreen extends StatelessWidget {
               onControllerCreated: onControllerCreated,
               persistentStore: stores.persistent,
               snapshotStore: stores.snapshot,
+              slotStore: stores.slots,
               preferenceStore: stores.preferences,
             ),
       ),

@@ -11,6 +11,7 @@ import 'renpy_chrome.dart';
 import 'renpy_flutter_controller.dart';
 import 'renpy_image_layer.dart';
 import 'renpy_preference_store.dart';
+import 'renpy_save_browser.dart';
 
 typedef RenPyLayerBuilder =
     Widget Function(BuildContext context, RenPyFlutterController controller);
@@ -219,8 +220,10 @@ class RenPyPlayer extends StatelessWidget {
         setMixerVolume,
       ) {
         return _RenPyGameMenu(
+          controller: controller,
           preferences: preferences,
           canSaveLoad: controller.hasSnapshotStore,
+          canBrowseSlots: controller.hasSlotStore,
           canRestart: showRestartButton && onRestart != null,
           onResume: closeGameMenu,
           onMixerMutedChanged: setMixerMuted,
@@ -236,6 +239,7 @@ class RenPyPlayer extends StatelessWidget {
             closeGameMenu();
             restart();
           },
+          onSlotLoaded: closeGameMenu,
         );
       },
       onKeyEvent: (event) => _handleKeyEvent(context, event),
@@ -409,10 +413,14 @@ class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
   }
 }
 
+enum _RenPyGameMenuView { root, preferences, save, load }
+
 class _RenPyGameMenu extends StatefulWidget {
   const _RenPyGameMenu({
+    required this.controller,
     required this.preferences,
     required this.canSaveLoad,
+    required this.canBrowseSlots,
     required this.canRestart,
     required this.onResume,
     required this.onMixerMutedChanged,
@@ -420,10 +428,13 @@ class _RenPyGameMenu extends StatefulWidget {
     required this.onSave,
     required this.onLoad,
     required this.onRestart,
+    required this.onSlotLoaded,
   });
 
+  final RenPyFlutterController controller;
   final RenPyPlayerPreferences preferences;
   final bool canSaveLoad;
+  final bool canBrowseSlots;
   final bool canRestart;
   final VoidCallback onResume;
   final _RenPyMixerMutedSetter onMixerMutedChanged;
@@ -431,13 +442,14 @@ class _RenPyGameMenu extends StatefulWidget {
   final VoidCallback onSave;
   final VoidCallback onLoad;
   final VoidCallback onRestart;
+  final VoidCallback onSlotLoaded;
 
   @override
   State<_RenPyGameMenu> createState() => _RenPyGameMenuState();
 }
 
 class _RenPyGameMenuState extends State<_RenPyGameMenu> {
-  bool _showPreferences = false;
+  _RenPyGameMenuView _view = _RenPyGameMenuView.root;
 
   @override
   Widget build(BuildContext context) {
@@ -447,23 +459,41 @@ class _RenPyGameMenuState extends State<_RenPyGameMenu> {
         color: Colors.black54,
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 320),
+            constraints: const BoxConstraints(maxWidth: 320, maxHeight: 480),
             child: Material(
               color: colorScheme.surface,
               elevation: 8,
               borderRadius: BorderRadius.circular(8),
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child:
-                    _showPreferences
-                        ? _buildPreferences(context)
-                        : _buildRootMenu(context),
+                child: _buildView(context),
               ),
             ),
           ),
         ),
       ),
     );
+  }
+
+  Widget _buildView(BuildContext context) {
+    switch (_view) {
+      case _RenPyGameMenuView.preferences:
+        return _buildPreferences(context);
+      case _RenPyGameMenuView.save:
+        return RenPySaveBrowser(
+          controller: widget.controller,
+          mode: RenPySaveBrowserMode.save,
+          onClose: () => setState(() => _view = _RenPyGameMenuView.root),
+        );
+      case _RenPyGameMenuView.load:
+        return RenPySaveBrowser(
+          controller: widget.controller,
+          mode: RenPySaveBrowserMode.load,
+          onClose: widget.onSlotLoaded,
+        );
+      case _RenPyGameMenuView.root:
+        return _buildRootMenu(context);
+    }
   }
 
   Widget _buildRootMenu(BuildContext context) {
@@ -484,11 +514,25 @@ class _RenPyGameMenuState extends State<_RenPyGameMenu> {
         ),
         const SizedBox(height: 8),
         OutlinedButton.icon(
-          onPressed: () => setState(() => _showPreferences = true),
+          onPressed:
+              () => setState(() => _view = _RenPyGameMenuView.preferences),
           icon: const Icon(Icons.tune),
           label: const Text('Preferences'),
         ),
-        if (widget.canSaveLoad) ...[
+        if (widget.canBrowseSlots) ...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () => setState(() => _view = _RenPyGameMenuView.save),
+            icon: const Icon(Icons.save),
+            label: const Text('Save'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () => setState(() => _view = _RenPyGameMenuView.load),
+            icon: const Icon(Icons.folder_open),
+            label: const Text('Load'),
+          ),
+        ] else if (widget.canSaveLoad) ...[
           const SizedBox(height: 8),
           OutlinedButton.icon(
             onPressed: widget.onSave,
@@ -557,7 +601,7 @@ class _RenPyGameMenuState extends State<_RenPyGameMenu> {
         ),
         const SizedBox(height: 8),
         OutlinedButton.icon(
-          onPressed: () => setState(() => _showPreferences = false),
+          onPressed: () => setState(() => _view = _RenPyGameMenuView.root),
           icon: const Icon(Icons.arrow_back),
           label: const Text('Back'),
         ),
@@ -597,6 +641,7 @@ class RenPyAssetPlayer extends StatefulWidget {
     this.backgroundColor = const Color(0xFF212121),
     this.persistentStore,
     this.snapshotStore,
+    this.slotStore,
     this.showRestartButton = true,
     this.imageLayerBuilder,
     this.audioPlayback,
@@ -614,6 +659,7 @@ class RenPyAssetPlayer extends StatefulWidget {
   final bool showRestartButton;
   final RenPyLayerBuilder? imageLayerBuilder;
   final RenPyRunnerSnapshotStore? snapshotStore;
+  final RenPyRunnerSnapshotSlotStore? slotStore;
   final RenPyAudioPlayback? audioPlayback;
   final RenPyLoadingBuilder? loadingBuilder;
   final RenPyPersistentStore? persistentStore;
@@ -639,6 +685,7 @@ class RenPyProjectPlayer extends StatefulWidget {
     this.onControllerCreated,
     this.persistentStore,
     this.snapshotStore,
+    this.slotStore,
     this.preferenceStore,
   });
 
@@ -652,6 +699,7 @@ class RenPyProjectPlayer extends StatefulWidget {
   final ValueChanged<RenPyFlutterController>? onControllerCreated;
   final RenPyPersistentStore? persistentStore;
   final RenPyRunnerSnapshotStore? snapshotStore;
+  final RenPyRunnerSnapshotSlotStore? slotStore;
 
   final RenPyPreferenceStore? preferenceStore;
   @override
@@ -669,6 +717,7 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
     _controller = RenPyFlutterController(
       persistentStore: widget.persistentStore,
       snapshotStore: widget.snapshotStore,
+      slotStore: widget.slotStore,
     );
     widget.onControllerCreated?.call(_controller);
     _configureOwnedAudio();
@@ -838,6 +887,7 @@ class _RenPyAssetPlayerState extends State<RenPyAssetPlayer> {
     _controller = RenPyFlutterController(
       persistentStore: widget.persistentStore,
       snapshotStore: widget.snapshotStore,
+      slotStore: widget.slotStore,
     );
     widget.onControllerCreated?.call(_controller);
     _availableAssets = widget.availableAssets ?? const {};

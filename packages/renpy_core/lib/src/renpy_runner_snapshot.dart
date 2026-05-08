@@ -279,6 +279,105 @@ abstract interface class RenPyRunnerSnapshotStore {
   Future<void> clear();
 }
 
+/// Human-readable metadata describing a saved slot, used to render a browser
+/// without deserializing the full snapshot.
+final class RenPyRunnerSlotMetadata {
+  const RenPyRunnerSlotMetadata({
+    required this.slot,
+    required this.savedAt,
+    this.label,
+    this.preview,
+  });
+
+  /// The slot identifier, such as `quick` or `1`.
+  final String slot;
+
+  /// When the slot was last written.
+  final DateTime savedAt;
+
+  /// The current label or scene at save time, when known.
+  final String? label;
+
+  /// A short, human-readable preview such as the latest dialogue line.
+  final String? preview;
+
+  Map<String, Object?> toJson() => {
+    'slot': slot,
+    'savedAt': savedAt.toUtc().toIso8601String(),
+    if (label != null) 'label': label,
+    if (preview != null) 'preview': preview,
+  };
+
+  factory RenPyRunnerSlotMetadata.fromJson(Map<String, Object?> json) {
+    return RenPyRunnerSlotMetadata(
+      slot: json['slot']! as String,
+      savedAt: DateTime.parse(json['savedAt']! as String),
+      label: json['label'] as String?,
+      preview: json['preview'] as String?,
+    );
+  }
+}
+
+/// A snapshot paired with the metadata describing its slot.
+final class RenPyRunnerSlotEntry {
+  const RenPyRunnerSlotEntry({required this.metadata, required this.snapshot});
+
+  final RenPyRunnerSlotMetadata metadata;
+  final RenPyRunnerSnapshot snapshot;
+
+  Map<String, Object?> toJson() => {
+    'metadata': metadata.toJson(),
+    'snapshot': snapshot.toJson(),
+  };
+
+  factory RenPyRunnerSlotEntry.fromJson(Map<String, Object?> json) {
+    return RenPyRunnerSlotEntry(
+      metadata: RenPyRunnerSlotMetadata.fromJson(
+        _mapFromJson(json['metadata']),
+      ),
+      snapshot: RenPyRunnerSnapshot.fromJson(_mapFromJson(json['snapshot'])),
+    );
+  }
+}
+
+/// A snapshot store addressed by named slots, each carrying its own metadata.
+abstract interface class RenPyRunnerSnapshotSlotStore {
+  Future<RenPyRunnerSlotEntry?> load(String slot);
+
+  Future<void> save(String slot, RenPyRunnerSlotEntry entry);
+
+  Future<void> delete(String slot);
+
+  Future<List<RenPyRunnerSlotMetadata>> list();
+}
+
+final class RenPyMemoryRunnerSnapshotSlotStore
+    implements RenPyRunnerSnapshotSlotStore {
+  final Map<String, RenPyRunnerSlotEntry> _slots = {};
+
+  @override
+  Future<RenPyRunnerSlotEntry?> load(String slot) async {
+    final entry = _slots[slot];
+    if (entry == null) return null;
+    return RenPyRunnerSlotEntry.fromJson(entry.toJson());
+  }
+
+  @override
+  Future<void> save(String slot, RenPyRunnerSlotEntry entry) async {
+    _slots[slot] = RenPyRunnerSlotEntry.fromJson(entry.toJson());
+  }
+
+  @override
+  Future<void> delete(String slot) async {
+    _slots.remove(slot);
+  }
+
+  @override
+  Future<List<RenPyRunnerSlotMetadata>> list() async {
+    return _slots.values.map((entry) => entry.metadata).toList();
+  }
+}
+
 final class RenPyMemoryRunnerSnapshotStore implements RenPyRunnerSnapshotStore {
   RenPyRunnerSnapshot? _snapshot;
 

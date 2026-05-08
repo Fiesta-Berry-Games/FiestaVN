@@ -170,12 +170,14 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     this.onDiagnostic,
     this.persistentStore,
     this.snapshotStore,
+    this.slotStore,
   }) : super(RenPyIdle());
 
   final VoidCallback? onComplete;
   final RenPyDiagnosticCallback? onDiagnostic;
   final RenPyPersistentStore? persistentStore;
   final RenPyRunnerSnapshotStore? snapshotStore;
+  final RenPyRunnerSnapshotSlotStore? slotStore;
 
   RenPyRunner? _runner;
   _RunnerTicker? _ticker;
@@ -210,6 +212,8 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   Map<String, dynamic> get persistent => _runner?.persistent ?? const {};
 
   bool get hasSnapshotStore => snapshotStore != null;
+
+  bool get hasSlotStore => slotStore != null;
 
   bool get canRollback => _rollbackHistory.isNotEmpty;
 
@@ -278,15 +282,10 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
 
   Future<bool> saveGame() async {
     final store = snapshotStore;
-    final runner = _runner;
-    if (store == null || runner == null) return false;
-    if (runner.state != RenPyRunnerState.waitingForInput) return false;
+    final snapshot = _captureSnapshot();
+    if (store == null || snapshot == null) return false;
 
-    await store.save(
-      runner.snapshot().withPresentation(
-        _presentationSnapshot(includeTransientAudio: false),
-      ),
-    );
+    await store.save(snapshot);
     return true;
   }
 
@@ -300,6 +299,76 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
 
     restoreSnapshot(snapshot);
     return true;
+  }
+
+  /// Writes the current state into the named [slot], capturing metadata so a
+  /// browser can describe the save without decoding the full snapshot.
+  Future<bool> saveToSlot(String slot) async {
+    final store = slotStore;
+    final snapshot = _captureSnapshot();
+    if (store == null || snapshot == null) return false;
+
+    await store.save(
+      slot,
+      RenPyRunnerSlotEntry(
+        metadata: RenPyRunnerSlotMetadata(
+          slot: slot,
+          savedAt: DateTime.now(),
+          label: snapshot.currentLabel,
+          preview: _slotPreview(snapshot),
+        ),
+        snapshot: snapshot,
+      ),
+    );
+    return true;
+  }
+
+  /// Restores the snapshot stored in the named [slot], if any.
+  Future<bool> loadFromSlot(String slot) async {
+    final store = slotStore;
+    final runner = _runner;
+    if (store == null || runner == null) return false;
+
+    final entry = await store.load(slot);
+    if (entry == null) return false;
+
+    restoreSnapshot(entry.snapshot);
+    return true;
+  }
+
+  /// Removes the snapshot stored in the named [slot].
+  Future<bool> deleteSlot(String slot) async {
+    final store = slotStore;
+    if (store == null) return false;
+
+    await store.delete(slot);
+    return true;
+  }
+
+  /// Lists the metadata for every populated save slot.
+  Future<List<RenPyRunnerSlotMetadata>> listSaveSlots() async {
+    final store = slotStore;
+    if (store == null) return const [];
+
+    return store.list();
+  }
+
+  RenPyRunnerSnapshot? _captureSnapshot() {
+    final runner = _runner;
+    if (runner == null) return null;
+    if (runner.state != RenPyRunnerState.waitingForInput) return null;
+
+    return runner.snapshot().withPresentation(
+      _presentationSnapshot(includeTransientAudio: false),
+    );
+  }
+
+  String? _slotPreview(RenPyRunnerSnapshot snapshot) {
+    final dialogue = snapshot.lastDialogue;
+    if (dialogue == null) return null;
+    final name = dialogue.displayName;
+    final text = dialogue.text;
+    return name == null || name.isEmpty ? text : '$name: $text';
   }
 
   bool rollback() {
