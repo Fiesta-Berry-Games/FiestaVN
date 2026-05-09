@@ -227,6 +227,7 @@ class RenPyRunner {
   /// `config`/`gui` scopes are kept here so scoped names resolve, though the
   /// runner does not yet seed them from `define`/`default`.
   static const RenPyPythonEvaluator _pythonEvaluator = RenPyPythonEvaluator();
+  static const RenPyPythonExecutor _pythonExecutor = RenPyPythonExecutor();
   late final RenPyMapScope _pythonScope = RenPyMapScope(
     store: _variables,
     persistent: _persistent,
@@ -902,7 +903,10 @@ class RenPyRunner {
 
   void _executeImageStatement(RenPyImageStatement stmt) {
     onImageDefinition?.call(
-      RenPyImageDefinitionEvent(name: stmt.name, expression: stmt.expression),
+      RenPyImageDefinitionEvent(
+        name: stmt.name,
+        expression: stmt.expression,
+      ),
     );
 
     _position++;
@@ -939,6 +943,28 @@ class RenPyRunner {
 
   /// Execute a Python statement.
   void _executePythonStatement(RenPyPythonStatement stmt) {
+    // A multi-line `python:` block is never a single assignment/audio/pause
+    // statement, so route it straight to the statement executor. The
+    // single-statement fast paths below use `dotAll` regexes that would
+    // otherwise misread the whole block as one giant assignment value.
+    if (stmt.code.contains('\n')) {
+      if (_tryExecutePythonBlock(stmt.code)) {
+        _position++;
+        _executeNext();
+        return;
+      }
+      _emitDiagnostic(
+        RenPyDiagnostic(
+          code: RenPyDiagnosticCode.skippedPython,
+          message: 'Skipped unsupported Python statement.',
+          detail: stmt.code,
+        ),
+      );
+      _position++;
+      _executeNext();
+      return;
+    }
+
     final assignment = _pythonAssignment(stmt.code);
     if (assignment != null) {
       final value = _evaluateExpression(assignment.expression);
@@ -999,11 +1025,17 @@ class RenPyRunner {
       return;
     }
 
-    // TODO: Execute Python code.
-    // For now, we'll just print it and continue.
-    print(
-      '_executePythonStatement Unimplemented: skipping code `${stmt.code}`',
-    );
+    // General Python statement execution: multi-line `python:` blocks plus any
+    // `$` statement the targeted fast paths above did not claim (control flow,
+    // `def`, subscript/attribute assignment, tuple unpacking, ...). On any
+    // unsupported construct or runtime failure this throws and we fall through
+    // to the skip diagnostic, so an unsupported block never aborts the script.
+    if (_tryExecutePythonBlock(stmt.code)) {
+      _position++;
+      _executeNext();
+      return;
+    }
+
     _emitDiagnostic(
       RenPyDiagnostic(
         code: RenPyDiagnosticCode.skippedPython,
@@ -1014,6 +1046,22 @@ class RenPyRunner {
 
     _position++;
     _executeNext();
+  }
+
+  /// Runs [code] through the Python statement executor against the live store.
+  /// Returns `true` when it executed cleanly, `false` when the executor threw a
+  /// [RenPyPythonError] (so the caller falls back to the skip diagnostic).
+  bool _tryExecutePythonBlock(String code) {
+    if (code.trim().isEmpty) return true;
+    try {
+      _pythonExecutor.execute(code, _pythonScope);
+      // A block may have written `persistent.*`; persist those changes since
+      // the scope writes the map directly without going through _setVariable.
+      _flushPersistent();
+      return true;
+    } on RenPyPythonError {
+      return false;
+    }
   }
 
   void _diagnosePlacement(RenPyImagePlacement? placement) {

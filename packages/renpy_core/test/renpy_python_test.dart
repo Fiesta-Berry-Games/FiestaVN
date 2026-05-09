@@ -309,4 +309,170 @@ void main() {
       );
     });
   });
+
+  group('statement executor', () {
+    const executor = RenPyPythonExecutor();
+
+    Map<String, Object?> run(String source, [Map<String, Object?>? store]) {
+      final s = store ?? <String, Object?>{};
+      executor.execute(source, scopeWith(s));
+      return s;
+    }
+
+    test('plain and chained assignment', () {
+      final store = run('a = 1\nb = c = a + 1');
+      expect(store['a'], 1);
+      expect(store['b'], 2);
+      expect(store['c'], 2);
+    });
+
+    test('tuple unpacking and swap', () {
+      final store = run('a, b = 1, 2\na, b = b, a');
+      expect(store['a'], 2);
+      expect(store['b'], 1);
+    });
+
+    test('augmented assignment on subscript and attribute targets', () {
+      final store = run('d["n"] += 5\nlst[0] *= 3', {
+        'd': <Object?, Object?>{'n': 10},
+        'lst': [4, 5],
+      });
+      expect((store['d'] as Map)['n'], 15);
+      expect((store['lst'] as List)[0], 12);
+    });
+
+    test('for with tuple unpack and accumulation', () {
+      final store = run(
+        '''
+total = 0
+for k, v in pairs:
+    total += v
+''',
+        {
+          'pairs': [
+            ['a', 1],
+            ['b', 2],
+            ['c', 3],
+          ],
+        },
+      );
+      expect(store['total'], 6);
+    });
+
+    test('for ... else runs when no break', () {
+      final store = run('''
+found = False
+for x in [1, 2, 3]:
+    if x == 9:
+        found = True
+        break
+else:
+    found = None
+''');
+      expect(store['found'], isNull);
+    });
+
+    test('while with break and continue', () {
+      final store = run('''
+i = 0
+acc = 0
+while i < 10:
+    i += 1
+    if i % 2 == 0:
+        continue
+    if i > 7:
+        break
+    acc += i
+''');
+      expect(store['acc'], 1 + 3 + 5 + 7);
+    });
+
+    test('if/elif/else chains', () {
+      final store = run(
+        '''
+if n > 10:
+    bucket = "big"
+elif n > 5:
+    bucket = "mid"
+else:
+    bucket = "small"
+''',
+        {'n': 7},
+      );
+      expect(store['bucket'], 'mid');
+    });
+
+    test('def with defaults, closure and recursion-free call', () {
+      final store = run('''
+def scaled(x, factor=2):
+    return x * factor
+a = scaled(5)
+b = scaled(5, 3)
+''');
+      expect(store['a'], 10);
+      expect(store['b'], 15);
+    });
+
+    test('def reads store globals and global writes back', () {
+      final store = run('''
+gold = 0
+def earn(amount):
+    global gold
+    gold += amount
+earn(5)
+earn(7)
+''');
+      expect(store['gold'], 12);
+    });
+
+    test('function locals do not leak into the store', () {
+      final store = run('''
+def helper():
+    temp = 99
+    return temp
+result = helper()
+''');
+      expect(store['result'], 99);
+      expect(store.containsKey('temp'), isFalse);
+    });
+
+    test('star-args and kwargs collectors', () {
+      final store = run('''
+def collect(first, *rest, **opts):
+    return [first, rest, opts]
+out = collect(1, 2, 3, mode="x")
+''');
+      final out = store['out'] as List;
+      expect(out[0], 1);
+      expect(out[1], [2, 3]);
+      expect(out[2], {'mode': 'x'});
+    });
+
+    test('pass and semicolon-joined statements', () {
+      final store = run('pass\na = 1; b = 2');
+      expect(store['a'], 1);
+      expect(store['b'], 2);
+    });
+
+    test('persistent writes flow through the scope', () {
+      final persistent = <String, Object?>{};
+      executor.execute(
+        'persistent.coins = 3\npersistent.coins += 4',
+        RenPyMapScope(store: <String, Object?>{}, persistent: persistent),
+      );
+      expect(persistent['coins'], 7);
+    });
+
+    test('unsupported constructs raise RenPyPythonError', () {
+      expect(
+        () => run('class Foo:\n    pass\n'),
+        throwsA(isA<RenPyPythonError>()),
+      );
+      expect(() => run('import os\n'), throwsA(isA<RenPyPythonError>()));
+      expect(
+        () => run('try:\n    a = 1\nexcept:\n    a = 2\n'),
+        throwsA(isA<RenPyPythonError>()),
+      );
+    });
+  });
 }

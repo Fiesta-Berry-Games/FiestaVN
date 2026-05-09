@@ -138,6 +138,44 @@ class RenPyPythonEvaluator {
   static bool truthy(Object? value) => _Interpreter.truthy(value);
 }
 
+/// Executes a Python STATEMENT subset on top of [RenPyPythonEvaluator].
+///
+/// It reuses the evaluator's lexer and expression parser/interpreter for every
+/// expression fragment (right-hand sides, conditions, iterables, call
+/// arguments) and adds a thin statement layer: indentation-based block parsing,
+/// assignment targets (name, attribute, subscript, tuple and chained), `for` /
+/// `while` / `if`-`elif`-`else`, `break` / `continue`, `def` / `return` and
+/// `pass` / `global`. Anything outside that subset throws a [RenPyPythonError]
+/// so the runner can fall back to skipping the block.
+class RenPyPythonExecutor {
+  const RenPyPythonExecutor();
+
+  /// Parses and executes [source] against [scope].
+  ///
+  /// Writes to bare names and scoped names (`persistent.x`, ...) flow straight
+  /// through [scope], so the runner's live store sees every mutation. Throws
+  /// [RenPyPythonError] on an unsupported construct or runtime failure.
+  void execute(String source, RenPyPythonScope scope) {
+    try {
+      final statements = _StatementParser(source).parseModule();
+      final interp = _Interpreter(scope);
+      for (final statement in statements) {
+        statement.exec(interp);
+      }
+    } on RenPyPythonError {
+      rethrow;
+    } on _ReturnSignal {
+      // `return` at module level is meaningless in real RenPy too; ignore it
+      // rather than letting the control-flow signal escape.
+    } on _LoopSignal {
+      // A stray break/continue outside a loop: treat as a no-op rather than a
+      // fatal error so the surrounding script keeps running.
+    } catch (e) {
+      throw RenPyPythonError('execution failed: $e');
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Lexer
 // ---------------------------------------------------------------------------
@@ -668,6 +706,81 @@ class _Parser {
   }
 
   _Node parseExpression() => _parseTernary();
+
+  /// Whether the parser has consumed every token.
+  bool get atEnd => _current.type == _TokenType.eof;
+
+  /// The current token's raw value, for the statement layer to peek at.
+  String get currentValue => _current.value;
+
+  bool get currentIsName => _current.type == _TokenType.name;
+
+  bool isOp(String value) => _isOp(value);
+
+  bool isKeyword(String value) => _isKeyword(value);
+
+  void advance() => _advance();
+
+  void expectOp(String value) => _expectOp(value);
+
+  /// Parses one or more comma-separated assignment targets, returning a single
+  /// target node or a synthetic tuple when several appear. A trailing comma
+  /// (`a, = ...`) still yields a tuple target.
+  _Node parseTargetList() {
+    final first = parseExpression();
+    if (!_isOp(',')) return first;
+    final elements = <_Node>[first];
+    while (_isOp(',')) {
+      _advance();
+      if (_isOp('=') || atEnd) break;
+      elements.add(parseExpression());
+    }
+    return _TupleNode(elements);
+  }
+
+  /// Parses a `def` parameter list (already positioned after `(`), supporting
+  /// positional params, defaults and `*args` / `**kwargs`.
+  _ParamSpec parseParamSpec() {
+    _expectOp('(');
+    final params = <String>[];
+    final defaults = <String, _Node>{};
+    String? varargs;
+    String? kwargs;
+    while (!_isOp(')')) {
+      if (_isOp('**')) {
+        _advance();
+        kwargs = _expectName();
+      } else if (_isOp('*')) {
+        _advance();
+        varargs = _expectName();
+      } else {
+        final name = _expectName();
+        if (_isOp('=')) {
+          _advance();
+          defaults[name] = parseExpression();
+        } else if (defaults.isNotEmpty) {
+          throw RenPyPythonError(
+            'non-default argument `$name` follows default argument',
+          );
+        }
+        params.add(name);
+      }
+      if (_isOp(',')) {
+        _advance();
+      } else {
+        break;
+      }
+    }
+    _expectOp(')');
+    return _ParamSpec(params, defaults, varargs, kwargs);
+  }
+
+  String _expectName() {
+    if (_current.type != _TokenType.name) {
+      throw RenPyPythonError('expected a name, found `${_current.value}`');
+    }
+    return _advance().value;
+  }
 
   _Node _parseTernary() {
     final body = _parseOr();
@@ -1444,11 +1557,82 @@ class _Interpreter {
     if (callee is _BuiltinFunction) {
       return callee.invoke(this, positional, keywords);
     }
+    if (callee is _UserFunction) {
+      return callee.invoke(positional, keywords);
+    }
     if (callee is _BoundMethod) {
+      if (callee.receiver is _UserFunction) {
+        throw RenPyPythonError('object is not callable');
+      }
       return _callMethod(callee.receiver, callee.name, positional, keywords);
     }
     throw RenPyPythonError('object is not callable');
   }
+
+  /// Assigns [value] to the target expression [target], supporting bare names,
+  /// attribute targets, subscript targets and tuple/list unpacking. Used by the
+  /// statement executor for `=` and the resolved result of augmented `+=` etc.
+  void assign(_Node target, Object? value) {
+    if (target is _NameNode) {
+      scope.write(target.name, value);
+      return;
+    }
+    if (target is _AttributeNode) {
+      final full = target.fullName;
+      if (full != null && _isScopedName(full)) {
+        scope.write(full, value);
+        return;
+      }
+      final receiver = target.target.eval(this);
+      if (receiver is Map) {
+        receiver[target.attribute] = value;
+        return;
+      }
+      throw RenPyPythonError(
+        'cannot assign attribute `${target.attribute}` on ${_typeName(receiver)}',
+      );
+    }
+    if (target is _SubscriptNode) {
+      final receiver = target.target.eval(this);
+      final index = target.index.eval(this);
+      if (index is _Slice) {
+        throw RenPyPythonError('slice assignment is not supported');
+      }
+      if (receiver is List) {
+        final i = _intIndex(index, receiver.length);
+        receiver[i] = value;
+        return;
+      }
+      if (receiver is Map) {
+        receiver[index] = value;
+        return;
+      }
+      throw RenPyPythonError('object does not support item assignment');
+    }
+    if (target is _TupleNode || target is _ListNode) {
+      final targets =
+          target is _TupleNode
+              ? target.elements
+              : (target as _ListNode).elements;
+      final values = _asIterable(value).toList();
+      if (values.length != targets.length) {
+        throw RenPyPythonError(
+          'cannot unpack ${values.length} values into ${targets.length} targets',
+        );
+      }
+      for (var i = 0; i < targets.length; i += 1) {
+        assign(targets[i], values[i]);
+      }
+      return;
+    }
+    throw RenPyPythonError('invalid assignment target');
+  }
+
+  /// Reads the current value of an assignment target, for augmented assignment.
+  Object? readTarget(_Node target) => target.eval(this);
+
+  /// Exposes Python iteration semantics for the statement executor's `for`.
+  Iterable<Object?> iterableFor(Object? value) => _asIterable(value);
 
   Object? comprehension(_ComprehensionNode node) {
     final iterable = _asIterable(node.iterable.eval(this));
@@ -2135,4 +2319,879 @@ class _BoundMethod {
 
   final Object? receiver;
   final String name;
+}
+
+// ---------------------------------------------------------------------------
+// Statement execution: control-flow signals
+// ---------------------------------------------------------------------------
+
+/// Thrown by `return` to unwind a function body up to its call frame.
+class _ReturnSignal {
+  _ReturnSignal(this.value);
+  final Object? value;
+}
+
+/// Thrown by `break` / `continue` and caught by the nearest enclosing loop.
+class _LoopSignal {
+  _LoopSignal(this.isBreak);
+  final bool isBreak;
+}
+
+// ---------------------------------------------------------------------------
+// Statement execution: scopes
+// ---------------------------------------------------------------------------
+
+/// A scope layering a function's locals over its enclosing (closure) scope.
+///
+/// Reads fall through to the parent when a name is not local, so a function
+/// body sees the store's globals; writes land in the local map unless the name
+/// was declared `global`, in which case they pass through to the parent so
+/// stat-tracking functions can update the live store.
+class _LocalsScope implements RenPyPythonScope {
+  _LocalsScope(this._parent);
+
+  final RenPyPythonScope _parent;
+  final Map<String, Object?> _locals = {};
+  final Set<String> _globals = {};
+
+  /// Marks [name] as referring to the enclosing scope rather than a local.
+  void declareGlobal(String name) => _globals.add(name);
+
+  /// Seeds a parameter binding directly into the local map.
+  void bindLocal(String name, Object? value) => _locals[name] = value;
+
+  bool _isLocal(String name) =>
+      !_globals.contains(name) && _locals.containsKey(name);
+
+  @override
+  bool has(String name) {
+    if (_isLocal(name)) return true;
+    return _parent.has(name);
+  }
+
+  @override
+  Object? read(String name) {
+    if (_isLocal(name)) return _locals[name];
+    return _parent.read(name);
+  }
+
+  @override
+  void write(String name, Object? value) {
+    // Scoped names (persistent.x, ...) and explicitly-global names always
+    // resolve against the store; everything else is a function local.
+    if (_globals.contains(name) ||
+        name.startsWith('persistent.') ||
+        name.startsWith('config.') ||
+        name.startsWith('gui.')) {
+      _parent.write(name, value);
+      return;
+    }
+    _locals[name] = value;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Statement execution: user functions
+// ---------------------------------------------------------------------------
+
+/// The parsed signature of a `def`: positional names, their defaults and the
+/// optional `*args` / `**kwargs` collectors.
+class _ParamSpec {
+  _ParamSpec(this.params, this.defaults, this.varargs, this.kwargs);
+
+  final List<String> params;
+  final Map<String, _Node> defaults;
+  final String? varargs;
+  final String? kwargs;
+}
+
+/// A user-defined function value, callable from the expression evaluator.
+///
+/// It closes over the scope in which it was defined so nested helpers and
+/// store access keep working, and binds a fresh [_LocalsScope] per call.
+class _UserFunction {
+  _UserFunction(this.name, this.spec, this.body, this.closure);
+
+  final String name;
+  final _ParamSpec spec;
+  final List<_Statement> body;
+  final RenPyPythonScope closure;
+
+  Object? invoke(List<Object?> positional, Map<String, Object?> keywords) {
+    final locals = _LocalsScope(closure);
+    _bindArguments(locals, positional, keywords);
+    final interp = _Interpreter(locals);
+    try {
+      for (final statement in body) {
+        statement.exec(interp);
+      }
+    } on _ReturnSignal catch (signal) {
+      return signal.value;
+    }
+    return null;
+  }
+
+  void _bindArguments(
+    _LocalsScope locals,
+    List<Object?> positional,
+    Map<String, Object?> keywords,
+  ) {
+    final remainingKeywords = Map<String, Object?>.of(keywords);
+    final defaultsInterp = _Interpreter(closure);
+
+    for (var i = 0; i < spec.params.length; i += 1) {
+      final paramName = spec.params[i];
+      if (i < positional.length) {
+        locals.bindLocal(paramName, positional[i]);
+      } else if (remainingKeywords.containsKey(paramName)) {
+        locals.bindLocal(paramName, remainingKeywords.remove(paramName));
+      } else if (spec.defaults.containsKey(paramName)) {
+        locals.bindLocal(
+          paramName,
+          spec.defaults[paramName]!.eval(defaultsInterp),
+        );
+      } else {
+        throw RenPyPythonError(
+          "$name() missing required argument '$paramName'",
+        );
+      }
+    }
+
+    final extraPositional =
+        positional.length > spec.params.length
+            ? positional.sublist(spec.params.length)
+            : const <Object?>[];
+    if (spec.varargs != null) {
+      locals.bindLocal(spec.varargs!, List<Object?>.of(extraPositional));
+    } else if (extraPositional.isNotEmpty) {
+      throw RenPyPythonError('$name() takes too many positional arguments');
+    }
+
+    if (spec.kwargs != null) {
+      locals.bindLocal(spec.kwargs!, remainingKeywords);
+    } else if (remainingKeywords.isNotEmpty) {
+      throw RenPyPythonError(
+        "$name() got an unexpected keyword argument "
+        "'${remainingKeywords.keys.first}'",
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Statement AST
+// ---------------------------------------------------------------------------
+
+abstract class _Statement {
+  void exec(_Interpreter interp);
+}
+
+class _PassStatement implements _Statement {
+  const _PassStatement();
+  @override
+  void exec(_Interpreter interp) {}
+}
+
+class _ExpressionStatement implements _Statement {
+  _ExpressionStatement(this.expression);
+  final _Node expression;
+  @override
+  void exec(_Interpreter interp) {
+    expression.eval(interp);
+  }
+}
+
+class _AssignStatement implements _Statement {
+  _AssignStatement(this.targets, this.value);
+
+  /// One or more targets; `a = b = expr` records both `a` and `b`.
+  final List<_Node> targets;
+  final _Node value;
+  @override
+  void exec(_Interpreter interp) {
+    final result = value.eval(interp);
+    for (final target in targets) {
+      interp.assign(target, result);
+    }
+  }
+}
+
+class _AugmentedAssignStatement implements _Statement {
+  _AugmentedAssignStatement(this.target, this.op, this.value);
+  final _Node target;
+  final String op; // '+', '-', '*', '/', '//', '%', '**'
+  final _Node value;
+  @override
+  void exec(_Interpreter interp) {
+    final current = interp.readTarget(target);
+    final operand = value.eval(interp);
+    interp.assign(target, interp.binary(op, current, operand));
+  }
+}
+
+class _GlobalStatement implements _Statement {
+  _GlobalStatement(this.names);
+  final List<String> names;
+  @override
+  void exec(_Interpreter interp) {
+    final scope = interp.scope;
+    if (scope is _LocalsScope) {
+      for (final name in names) {
+        scope.declareGlobal(name);
+      }
+    }
+  }
+}
+
+class _ReturnStatement implements _Statement {
+  _ReturnStatement(this.value);
+  final _Node? value;
+  @override
+  void exec(_Interpreter interp) {
+    throw _ReturnSignal(value?.eval(interp));
+  }
+}
+
+class _BreakStatement implements _Statement {
+  const _BreakStatement();
+  @override
+  void exec(_Interpreter interp) => throw _LoopSignal(true);
+}
+
+class _ContinueStatement implements _Statement {
+  const _ContinueStatement();
+  @override
+  void exec(_Interpreter interp) => throw _LoopSignal(false);
+}
+
+class _DefStatement implements _Statement {
+  _DefStatement(this.name, this.spec, this.body);
+  final String name;
+  final _ParamSpec spec;
+  final List<_Statement> body;
+  @override
+  void exec(_Interpreter interp) {
+    interp.scope.write(name, _UserFunction(name, spec, body, interp.scope));
+  }
+}
+
+class _IfStatement implements _Statement {
+  _IfStatement(this.branches, this.orElse);
+
+  /// Ordered `if` / `elif` branches, each a condition and its body.
+  final List<MapEntry<_Node, List<_Statement>>> branches;
+  final List<_Statement>? orElse;
+  @override
+  void exec(_Interpreter interp) {
+    for (final branch in branches) {
+      if (_Interpreter.truthy(branch.key.eval(interp))) {
+        _execBody(branch.value, interp);
+        return;
+      }
+    }
+    if (orElse != null) _execBody(orElse!, interp);
+  }
+}
+
+class _WhileStatement implements _Statement {
+  _WhileStatement(this.condition, this.body, this.orElse);
+  final _Node condition;
+  final List<_Statement> body;
+  final List<_Statement>? orElse;
+  @override
+  void exec(_Interpreter interp) {
+    var broke = false;
+    while (_Interpreter.truthy(condition.eval(interp))) {
+      try {
+        _execBody(body, interp);
+      } on _LoopSignal catch (signal) {
+        if (signal.isBreak) {
+          broke = true;
+          break;
+        }
+        continue;
+      }
+    }
+    if (!broke && orElse != null) _execBody(orElse!, interp);
+  }
+}
+
+class _ForStatement implements _Statement {
+  _ForStatement(this.target, this.iterable, this.body, this.orElse);
+  final _Node target;
+  final _Node iterable;
+  final List<_Statement> body;
+  final List<_Statement>? orElse;
+  @override
+  void exec(_Interpreter interp) {
+    final items = interp.iterableFor(iterable.eval(interp));
+    var broke = false;
+    for (final item in items) {
+      interp.assign(target, item);
+      try {
+        _execBody(body, interp);
+      } on _LoopSignal catch (signal) {
+        if (signal.isBreak) {
+          broke = true;
+          break;
+        }
+        continue;
+      }
+    }
+    if (!broke && orElse != null) _execBody(orElse!, interp);
+  }
+}
+
+void _execBody(List<_Statement> body, _Interpreter interp) {
+  for (final statement in body) {
+    statement.exec(interp);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Statement parser
+// ---------------------------------------------------------------------------
+
+/// A single source line with its indentation depth, used to build the block
+/// structure before each line is handed to the expression tokenizer.
+class _SourceLine {
+  _SourceLine(this.indent, this.text);
+  final int indent;
+  final String text;
+}
+
+/// Parses an indentation-structured Python statement body into [_Statement]s.
+///
+/// It works line by line: it splits the source into logical lines (joining
+/// bracket/quote continuations), tracks indentation, and reuses [_Lexer] /
+/// [_Parser] for every expression fragment so the expression grammar is never
+/// duplicated.
+class _StatementParser {
+  _StatementParser(String source) : _lines = _splitLines(source);
+
+  final List<_SourceLine> _lines;
+  int _index = 0;
+
+  List<_Statement> parseModule() {
+    if (_lines.isEmpty) return const [];
+    return _parseBlockAt(_lines.first.indent);
+  }
+
+  /// Parses consecutive lines at exactly [blockIndent] into statements,
+  /// stopping when indentation drops below it. A deeper line with no compound
+  /// header above it is malformed and aborts parsing.
+  List<_Statement> _parseBlockAt(int blockIndent) {
+    final statements = <_Statement>[];
+    while (_index < _lines.length) {
+      final line = _lines[_index];
+      if (line.indent < blockIndent) break;
+      if (line.indent != blockIndent) {
+        throw RenPyPythonError('unexpected indentation');
+      }
+      statements.addAll(_parseLine());
+    }
+    return statements;
+  }
+
+  /// Parses the indented body of a compound statement whose header sat at
+  /// [headerIndent]. The body's own indentation is taken from its first line.
+  List<_Statement> _parseBody(int headerIndent) {
+    if (_index >= _lines.length || _lines[_index].indent <= headerIndent) {
+      throw RenPyPythonError('expected an indented block');
+    }
+    return _parseBlockAt(_lines[_index].indent);
+  }
+
+  /// Parses the line at [_index], advancing past it (and any nested block for a
+  /// compound statement). Returns the statements it produced; a simple line
+  /// joined with `;` yields several.
+  List<_Statement> _parseLine() {
+    final line = _lines[_index];
+    final text = line.text;
+    final keyword = _leadingKeyword(text);
+
+    switch (keyword) {
+      case 'if':
+        return [_parseIf(line.indent)];
+      case 'while':
+        return [_parseWhile(line.indent)];
+      case 'for':
+        return [_parseFor(line.indent)];
+      case 'def':
+        return [_parseDef(line.indent)];
+    }
+
+    // A simple (non-compound) statement, possibly several split by `;`.
+    _index += 1;
+    final result = <_Statement>[];
+    for (final piece in _splitSimpleStatements(text)) {
+      result.add(_parseSimpleStatement(piece));
+    }
+    return result;
+  }
+
+  _Statement _parseIf(int indent) {
+    final branches = <MapEntry<_Node, List<_Statement>>>[];
+    List<_Statement>? orElse;
+
+    // First `if`.
+    branches.add(_parseConditionalHeader('if', indent));
+    while (_index < _lines.length && _lines[_index].indent == indent) {
+      final text = _lines[_index].text;
+      final keyword = _leadingKeyword(text);
+      if (keyword == 'elif') {
+        branches.add(_parseConditionalHeader('elif', indent));
+      } else if (keyword == 'else') {
+        orElse = _parseElse(indent);
+        break;
+      } else {
+        break;
+      }
+    }
+    return _IfStatement(branches, orElse);
+  }
+
+  MapEntry<_Node, List<_Statement>> _parseConditionalHeader(
+    String keyword,
+    int indent,
+  ) {
+    final header = _lines[_index].text;
+    final condition = _parseHeaderExpression(header, keyword);
+    _index += 1;
+    final body = _parseBody(indent);
+    if (body.isEmpty) throw RenPyPythonError('empty `$keyword` body');
+    return MapEntry(condition, body);
+  }
+
+  List<_Statement> _parseElse(int indent) {
+    final header = _lines[_index].text.trim();
+    if (header != 'else:') throw RenPyPythonError('malformed `else`');
+    _index += 1;
+    final body = _parseBody(indent);
+    if (body.isEmpty) throw RenPyPythonError('empty `else` body');
+    return body;
+  }
+
+  _Statement _parseWhile(int indent) {
+    final header = _lines[_index].text;
+    final condition = _parseHeaderExpression(header, 'while');
+    _index += 1;
+    final body = _parseBody(indent);
+    if (body.isEmpty) throw RenPyPythonError('empty `while` body');
+    final orElse = _parseOptionalElse(indent);
+    return _WhileStatement(condition, body, orElse);
+  }
+
+  _Statement _parseFor(int indent) {
+    final header = _stripColon(_lines[_index].text, 'for');
+    // Split `<targets> in <iterable>` at the top-level `in` keyword. The
+    // target side must be parsed without treating `in` as a comparison, so the
+    // textual split happens before tokenizing each side.
+    final split = _splitForHeader(header);
+    final target = _parseTargetFragment(split.target);
+    final iterable = _parseFragment(split.iterable);
+    _index += 1;
+    final body = _parseBody(indent);
+    if (body.isEmpty) throw RenPyPythonError('empty `for` body');
+    final orElse = _parseOptionalElse(indent);
+    return _ForStatement(target, iterable, body, orElse);
+  }
+
+  List<_Statement>? _parseOptionalElse(int indent) {
+    if (_index < _lines.length &&
+        _lines[_index].indent == indent &&
+        _leadingKeyword(_lines[_index].text) == 'else') {
+      return _parseElse(indent);
+    }
+    return null;
+  }
+
+  _Statement _parseDef(int indent) {
+    final header = _lines[_index].text.trim();
+    if (!header.endsWith(':')) {
+      throw RenPyPythonError('expected `:` ending `def` header');
+    }
+    final signature = header.substring(0, header.length - 1).trim();
+    final match = RegExp(r'^def\s+([A-Za-z_]\w*)\s*\(').firstMatch(signature);
+    if (match == null) throw RenPyPythonError('malformed `def` header');
+    final name = match.group(1)!;
+    final paramText = signature.substring(match.end - 1);
+    final parser = _Parser(_Lexer(paramText).tokenize());
+    final spec = parser.parseParamSpec();
+    if (!parser.atEnd) {
+      throw RenPyPythonError('trailing tokens in `def` header');
+    }
+    _index += 1;
+    final body = _parseBody(indent);
+    if (body.isEmpty) throw RenPyPythonError('empty `def` body');
+    return _DefStatement(name, spec, body);
+  }
+
+  _Statement _parseSimpleStatement(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty || trimmed == 'pass') return const _PassStatement();
+    if (trimmed == 'break') return const _BreakStatement();
+    if (trimmed == 'continue') return const _ContinueStatement();
+
+    if (trimmed == 'return' || trimmed.startsWith('return ')) {
+      final rest = trimmed.substring('return'.length).trim();
+      if (rest.isEmpty) return _ReturnStatement(null);
+      return _ReturnStatement(_parseFragment(rest));
+    }
+
+    if (trimmed.startsWith('global ')) {
+      final names =
+          trimmed
+              .substring('global '.length)
+              .split(',')
+              .map((n) => n.trim())
+              .where((n) => n.isNotEmpty)
+              .toList();
+      return _GlobalStatement(names);
+    }
+
+    if (trimmed.startsWith('import ') ||
+        trimmed.startsWith('from ') ||
+        trimmed.startsWith('class ') ||
+        trimmed.startsWith('with ') ||
+        trimmed.startsWith('try') ||
+        trimmed.startsWith('raise ') ||
+        trimmed.startsWith('assert ') ||
+        trimmed.startsWith('del ') ||
+        trimmed.startsWith('yield') ||
+        trimmed.startsWith('async ') ||
+        trimmed.startsWith('nonlocal ')) {
+      throw RenPyPythonError('unsupported statement `$trimmed`');
+    }
+
+    final augmented = _matchAugmented(trimmed);
+    if (augmented != null) {
+      final target = _parseTargetFragment(augmented.target);
+      final value = _parseFragment(augmented.expression);
+      return _AugmentedAssignStatement(target, augmented.op, value);
+    }
+
+    final assignParts = _splitAssignment(trimmed);
+    if (assignParts != null) {
+      final targets = [
+        for (final part in assignParts.targets) _parseTargetFragment(part),
+      ];
+      final value = _parseValueFragment(assignParts.value);
+      return _AssignStatement(targets, value);
+    }
+
+    return _ExpressionStatement(_parseFragment(trimmed));
+  }
+
+  // -- expression fragment helpers -----------------------------------------
+
+  _Node _parseFragment(String text) {
+    final parser = _Parser(_Lexer(text).tokenize());
+    final node = parser.parseExpression();
+    parser.expectEnd();
+    return node;
+  }
+
+  /// Parses a right-hand-side value, allowing a bare top-level tuple such as
+  /// `5, 6` (Python's `a, b = 5, 6`). The resulting [_TupleNode] evaluates to a
+  /// list, which the unpacking assignment then distributes across its targets.
+  _Node _parseValueFragment(String text) {
+    final parser = _Parser(_Lexer(text).tokenize());
+    final node = parser.parseTargetList();
+    if (!parser.atEnd) {
+      throw RenPyPythonError('invalid expression `$text`');
+    }
+    return node;
+  }
+
+  _Node _parseTargetFragment(String text) {
+    final parser = _Parser(_Lexer(text).tokenize());
+    final node = parser.parseTargetList();
+    if (!parser.atEnd) {
+      throw RenPyPythonError('invalid assignment target `$text`');
+    }
+    return node;
+  }
+
+  _Node _parseHeaderExpression(String header, String keyword) {
+    final body = _stripColon(header, keyword);
+    return _parseFragment(body);
+  }
+
+  _ForHeader _splitForHeader(String header) {
+    var depth = 0;
+    String? quote;
+    for (var i = 0; i < header.length; i += 1) {
+      final ch = header[i];
+      if (quote != null) {
+        if (ch == quote) quote = null;
+        continue;
+      }
+      if (ch == '"' || ch == "'") {
+        quote = ch;
+      } else if (ch == '(' || ch == '[' || ch == '{') {
+        depth += 1;
+      } else if (ch == ')' || ch == ']' || ch == '}') {
+        depth -= 1;
+      } else if (depth == 0 &&
+          header.startsWith('in', i) &&
+          _isWordBoundary(header, i - 1) &&
+          _isWordBoundary(header, i + 2)) {
+        return _ForHeader(
+          header.substring(0, i).trim(),
+          header.substring(i + 2).trim(),
+        );
+      }
+    }
+    throw RenPyPythonError('expected `in` in `for` statement');
+  }
+
+  bool _isWordBoundary(String s, int index) {
+    if (index < 0 || index >= s.length) return true;
+    final ch = s[index];
+    return !RegExp(r'[A-Za-z0-9_]').hasMatch(ch);
+  }
+
+  String _stripColon(String header, String keyword) {
+    var text = header.trim();
+    if (text.startsWith('$keyword ') || text.startsWith('$keyword:')) {
+      text = text.substring(keyword.length).trim();
+    }
+    if (!text.endsWith(':')) {
+      throw RenPyPythonError('expected `:` ending `$keyword` header');
+    }
+    return text.substring(0, text.length - 1).trim();
+  }
+
+  // -- assignment splitting -------------------------------------------------
+
+  _AugmentedMatch? _matchAugmented(String text) {
+    final match = RegExp(
+      r'^(.+?)\s*(\/\/|\*\*|[+\-*/%])=\s*(.+)$',
+      dotAll: true,
+    ).firstMatch(text);
+    if (match == null) return null;
+    // Guard against matching `==`, `<=`, `!=` etc. - those are handled as
+    // expressions, never as augmented assignment.
+    return _AugmentedMatch(
+      match.group(1)!.trim(),
+      match.group(2)!,
+      match.group(3)!.trim(),
+    );
+  }
+
+  /// Splits `a = b = expr` into its target chain and the final value. Returns
+  /// `null` when there is no top-level `=`, when it is really a comparison
+  /// (`==`, `<=`, ...), or when an augmented operator precedes the `=`.
+  _AssignSplit? _splitAssignment(String text) {
+    final positions = _topLevelAssignPositions(text);
+    if (positions.isEmpty) return null;
+    final targets = <String>[];
+    var start = 0;
+    for (final pos in positions) {
+      targets.add(text.substring(start, pos).trim());
+      start = pos + 1;
+    }
+    final value = text.substring(start).trim();
+    if (value.isEmpty) return null;
+    return _AssignSplit(targets, value);
+  }
+
+  /// Returns the indices of every top-level `=` that is a real assignment
+  /// (not part of `==`, `<=`, `>=`, `!=` or an augmented operator).
+  List<int> _topLevelAssignPositions(String text) {
+    final positions = <int>[];
+    var depth = 0;
+    String? quote;
+    for (var i = 0; i < text.length; i += 1) {
+      final ch = text[i];
+      if (quote != null) {
+        if (ch == quote) quote = null;
+        continue;
+      }
+      if (ch == '"' || ch == "'") {
+        quote = ch;
+      } else if (ch == '(' || ch == '[' || ch == '{') {
+        depth += 1;
+      } else if (ch == ')' || ch == ']' || ch == '}') {
+        depth -= 1;
+      } else if (depth == 0 && ch == '=') {
+        final prev = i > 0 ? text[i - 1] : '';
+        final next = i + 1 < text.length ? text[i + 1] : '';
+        if (next == '=') {
+          i += 1; // skip `==`
+          continue;
+        }
+        if (prev == '=' ||
+            prev == '!' ||
+            prev == '<' ||
+            prev == '>' ||
+            prev == '+' ||
+            prev == '-' ||
+            prev == '*' ||
+            prev == '/' ||
+            prev == '%') {
+          continue;
+        }
+        positions.add(i);
+      }
+    }
+    return positions;
+  }
+
+  // -- line splitting -------------------------------------------------------
+
+  List<String> _splitSimpleStatements(String text) {
+    // Split on top-level semicolons so `a = 1; b = 2` becomes two statements.
+    final pieces = <String>[];
+    final buffer = StringBuffer();
+    var depth = 0;
+    String? quote;
+    for (var i = 0; i < text.length; i += 1) {
+      final ch = text[i];
+      if (quote != null) {
+        buffer.write(ch);
+        if (ch == quote) quote = null;
+        continue;
+      }
+      if (ch == '"' || ch == "'") {
+        quote = ch;
+        buffer.write(ch);
+      } else if (ch == '(' || ch == '[' || ch == '{') {
+        depth += 1;
+        buffer.write(ch);
+      } else if (ch == ')' || ch == ']' || ch == '}') {
+        depth -= 1;
+        buffer.write(ch);
+      } else if (depth == 0 && ch == ';') {
+        pieces.add(buffer.toString());
+        buffer.clear();
+      } else {
+        buffer.write(ch);
+      }
+    }
+    if (buffer.toString().trim().isNotEmpty) pieces.add(buffer.toString());
+    return pieces.isEmpty ? [''] : pieces;
+  }
+
+  String _leadingKeyword(String text) {
+    final match = RegExp(r'^([A-Za-z_]\w*)').firstMatch(text.trimLeft());
+    return match?.group(1) ?? '';
+  }
+
+  /// Splits [source] into logical lines, dropping blanks/comments and joining
+  /// physical lines that continue inside brackets, across a trailing backslash,
+  /// or within a triple-quoted string.
+  static List<_SourceLine> _splitLines(String source) {
+    final physical = source.split('\n');
+    final result = <_SourceLine>[];
+    var i = 0;
+    while (i < physical.length) {
+      var raw = physical[i];
+      var indent = _indentOf(raw);
+      var content = raw.substring(indent);
+      i += 1;
+
+      // Join continuations while brackets are open, a backslash trails, or a
+      // triple-quoted string is unterminated.
+      while (_needsContinuation(content) && i < physical.length) {
+        if (content.endsWith('\\')) {
+          content = content.substring(0, content.length - 1);
+        }
+        content = '$content\n${physical[i]}';
+        i += 1;
+      }
+
+      final stripped = content.trimLeft();
+      if (stripped.isEmpty || stripped.startsWith('#')) continue;
+      result.add(_SourceLine(indent, _stripTrailingComment(content)));
+    }
+    return result;
+  }
+
+  static int _indentOf(String line) {
+    var indent = 0;
+    while (indent < line.length &&
+        (line[indent] == ' ' || line[indent] == '\t')) {
+      indent += 1;
+    }
+    return indent;
+  }
+
+  static bool _needsContinuation(String content) {
+    if (content.trimRight().endsWith('\\')) return true;
+    var depth = 0;
+    String? quote;
+    var tripleOpen = false;
+    for (var i = 0; i < content.length; i += 1) {
+      final ch = content[i];
+      if (tripleOpen) {
+        if (i + 2 < content.length + 1 && content.startsWith(quote! * 3, i)) {
+          tripleOpen = false;
+          quote = null;
+          i += 2;
+        }
+        continue;
+      }
+      if (quote != null) {
+        if (ch == quote) quote = null;
+        continue;
+      }
+      if ((ch == '"' || ch == "'")) {
+        if (content.startsWith(ch * 3, i)) {
+          tripleOpen = true;
+          quote = ch;
+          i += 2;
+        } else {
+          quote = ch;
+        }
+      } else if (ch == '(' || ch == '[' || ch == '{') {
+        depth += 1;
+      } else if (ch == ')' || ch == ']' || ch == '}') {
+        depth -= 1;
+      }
+    }
+    return depth > 0 || tripleOpen;
+  }
+
+  static String _stripTrailingComment(String content) {
+    var depth = 0;
+    String? quote;
+    for (var i = 0; i < content.length; i += 1) {
+      final ch = content[i];
+      if (quote != null) {
+        if (ch == quote) quote = null;
+        continue;
+      }
+      if (ch == '"' || ch == "'") {
+        quote = ch;
+      } else if (ch == '(' || ch == '[' || ch == '{') {
+        depth += 1;
+      } else if (ch == ')' || ch == ']' || ch == '}') {
+        depth -= 1;
+      } else if (ch == '#' && depth == 0) {
+        return content.substring(0, i).trimRight();
+      }
+    }
+    return content.trimRight();
+  }
+}
+
+class _AugmentedMatch {
+  _AugmentedMatch(this.target, this.op, this.expression);
+  final String target;
+  final String op;
+  final String expression;
+}
+
+class _AssignSplit {
+  _AssignSplit(this.targets, this.value);
+  final List<String> targets;
+  final String value;
+}
+
+class _ForHeader {
+  _ForHeader(this.target, this.iterable);
+  final String target;
+  final String iterable;
 }
