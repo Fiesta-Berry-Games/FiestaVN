@@ -124,6 +124,10 @@ class RenPyPlayer extends StatelessWidget {
     BuildContext context,
     RenPyPlayerPreferences preferences,
   ) {
+    controller
+      ..autoDelay = preferences.autoDelay
+      ..skipEnabled = preferences.skip
+      ..autoForwardEnabled = preferences.autoForward;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -149,6 +153,7 @@ class RenPyPlayer extends StatelessWidget {
           gui: gui,
           imageProvider: dialogueImageProvider,
           imageResolver: dialogueImageResolver,
+          textCps: preferences.textCps,
         ),
         RenPyMenuSelector(controller: controller),
         ValueListenableBuilder<RenPyGameStatus>(
@@ -218,6 +223,7 @@ class RenPyPlayer extends StatelessWidget {
         preferences,
         setMixerMuted,
         setMixerVolume,
+        pacing,
       ) {
         return _RenPyGameMenu(
           controller: controller,
@@ -228,6 +234,7 @@ class RenPyPlayer extends StatelessWidget {
           onResume: closeGameMenu,
           onMixerMutedChanged: setMixerMuted,
           onMixerVolumeChanged: setMixerVolume,
+          pacing: pacing,
           onSave: () => unawaited(_saveGame(context)),
           onLoad: () {
             closeGameMenu();
@@ -260,6 +267,21 @@ class RenPyPlayer extends StatelessWidget {
 typedef _RenPyMixerMutedSetter = void Function(String mixer, bool muted);
 typedef _RenPyMixerVolumeSetter = void Function(String mixer, double volume);
 
+/// Setters for the playback-pacing preferences shared by the menu and chrome.
+class _RenPyPacingSetters {
+  const _RenPyPacingSetters({
+    required this.setTextCps,
+    required this.setAutoDelay,
+    required this.setAutoForward,
+    required this.setSkip,
+  });
+
+  final ValueChanged<double> setTextCps;
+  final ValueChanged<double> setAutoDelay;
+  final ValueChanged<bool> setAutoForward;
+  final ValueChanged<bool> setSkip;
+}
+
 class _RenPyInputSurface extends StatefulWidget {
   const _RenPyInputSurface({
     required this.childBuilder,
@@ -275,6 +297,7 @@ class _RenPyInputSurface extends StatefulWidget {
     RenPyPlayerPreferences preferences,
     _RenPyMixerMutedSetter setMixerMuted,
     _RenPyMixerVolumeSetter setMixerVolume,
+    _RenPyPacingSetters pacing,
   )
   gameMenuBuilder;
   final KeyEventResult Function(KeyEvent event) onKeyEvent;
@@ -346,6 +369,46 @@ class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
     _savePreferences();
   }
 
+  void _setTextCps(double cps) {
+    final updated = _preferences.setTextCps(cps);
+    if (updated.textCps == _preferences.textCps) return;
+    setState(() => _preferences = updated);
+    _savePreferences();
+  }
+
+  void _setAutoDelay(double delay) {
+    final updated = _preferences.setAutoDelay(delay);
+    if (updated.autoDelay == _preferences.autoDelay) return;
+    setState(() => _preferences = updated);
+    _savePreferences();
+  }
+
+  void _setAutoForward(bool enabled) {
+    if (_preferences.autoForward == enabled) return;
+    setState(() {
+      _preferences = _preferences.setAutoForward(enabled);
+      // Skip and auto are mutually exclusive, matching Ren'Py.
+      if (enabled) _preferences = _preferences.setSkip(false);
+    });
+    _savePreferences();
+  }
+
+  void _setSkip(bool enabled) {
+    if (_preferences.skip == enabled) return;
+    setState(() {
+      _preferences = _preferences.setSkip(enabled);
+      if (enabled) _preferences = _preferences.setAutoForward(false);
+    });
+    _savePreferences();
+  }
+
+  _RenPyPacingSetters get _pacingSetters => _RenPyPacingSetters(
+    setTextCps: _setTextCps,
+    setAutoDelay: _setAutoDelay,
+    setAutoForward: _setAutoForward,
+    setSkip: _setSkip,
+  );
+
   void _savePreferences() {
     widget.preferenceStore?.save(_preferences.toJson());
   }
@@ -399,15 +462,70 @@ class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
           fit: StackFit.expand,
           children: [
             widget.childBuilder(_preferences),
+            if (!_gameMenuOpen)
+              _RenPyPacingToggles(
+                skip: _preferences.skip,
+                autoForward: _preferences.autoForward,
+                onSkipChanged: _setSkip,
+                onAutoForwardChanged: _setAutoForward,
+              ),
             if (_gameMenuOpen)
               widget.gameMenuBuilder(
                 _closeGameMenu,
                 _preferences,
                 _setMixerMuted,
                 _setMixerVolume,
+                _pacingSetters,
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// On-screen Skip and Auto toggles shown over the player chrome.
+class _RenPyPacingToggles extends StatelessWidget {
+  const _RenPyPacingToggles({
+    required this.skip,
+    required this.autoForward,
+    required this.onSkipChanged,
+    required this.onAutoForwardChanged,
+  });
+
+  final bool skip;
+  final bool autoForward;
+  final ValueChanged<bool> onSkipChanged;
+  final ValueChanged<bool> onAutoForwardChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return PositionedDirectional(
+      start: 16,
+      top: 16,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton.small(
+            key: const ValueKey('renpy-toggle-skip'),
+            tooltip: 'Skip',
+            heroTag: null,
+            backgroundColor:
+                skip ? Theme.of(context).colorScheme.primary : null,
+            onPressed: () => onSkipChanged(!skip),
+            child: const Icon(Icons.fast_forward),
+          ),
+          const SizedBox(height: 8),
+          FloatingActionButton.small(
+            key: const ValueKey('renpy-toggle-auto'),
+            tooltip: 'Auto',
+            heroTag: null,
+            backgroundColor:
+                autoForward ? Theme.of(context).colorScheme.primary : null,
+            onPressed: () => onAutoForwardChanged(!autoForward),
+            child: const Icon(Icons.play_circle_outline),
+          ),
+        ],
       ),
     );
   }
@@ -425,6 +543,7 @@ class _RenPyGameMenu extends StatefulWidget {
     required this.onResume,
     required this.onMixerMutedChanged,
     required this.onMixerVolumeChanged,
+    required this.pacing,
     required this.onSave,
     required this.onLoad,
     required this.onRestart,
@@ -433,6 +552,7 @@ class _RenPyGameMenu extends StatefulWidget {
 
   final RenPyFlutterController controller;
   final RenPyPlayerPreferences preferences;
+  final _RenPyPacingSetters pacing;
   final bool canSaveLoad;
   final bool canBrowseSlots;
   final bool canRestart;
@@ -559,51 +679,111 @@ class _RenPyGameMenuState extends State<_RenPyGameMenu> {
   }
 
   Widget _buildPreferences(BuildContext context) {
+    return SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Preferences',
+            style: Theme.of(context).textTheme.titleLarge,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Music Muted'),
+            value: widget.preferences.musicMuted,
+            onChanged: (value) {
+              if (value == null) return;
+              widget.onMixerMutedChanged(
+                RenPyPlayerPreferences.musicMixer,
+                value,
+              );
+            },
+          ),
+          const SizedBox(height: 8),
+          _buildMixerSlider(
+            label: 'Music Volume',
+            mixer: RenPyPlayerPreferences.musicMixer,
+            key: const ValueKey('renpy-preference-music-volume'),
+          ),
+          const SizedBox(height: 8),
+          _buildMixerSlider(
+            label: 'Sound Volume',
+            mixer: RenPyPlayerPreferences.sfxMixer,
+            key: const ValueKey('renpy-preference-sound-volume'),
+          ),
+          const SizedBox(height: 8),
+          _buildMixerSlider(
+            label: 'Voice Volume',
+            mixer: RenPyPlayerPreferences.voiceMixer,
+            key: const ValueKey('renpy-preference-voice-volume'),
+          ),
+          const SizedBox(height: 8),
+          _buildTextSpeedSlider(),
+          const SizedBox(height: 8),
+          _buildAutoDelaySlider(),
+          const SizedBox(height: 8),
+          CheckboxListTile(
+            key: const ValueKey('renpy-preference-skip'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Skip'),
+            value: widget.preferences.skip,
+            onChanged: (value) {
+              if (value == null) return;
+              widget.pacing.setSkip(value);
+            },
+          ),
+          CheckboxListTile(
+            key: const ValueKey('renpy-preference-auto-forward'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Auto Forward'),
+            value: widget.preferences.autoForward,
+            onChanged: (value) {
+              if (value == null) return;
+              widget.pacing.setAutoForward(value);
+            },
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () => setState(() => _view = _RenPyGameMenuView.root),
+            icon: const Icon(Icons.arrow_back),
+            label: const Text('Back'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTextSpeedSlider() {
+    final cps = widget.preferences.textCps;
     return Column(
-      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          'Preferences',
-          style: Theme.of(context).textTheme.titleLarge,
-          textAlign: TextAlign.center,
+        Text(cps <= 0 ? 'Text Speed (Instant)' : 'Text Speed'),
+        Slider(
+          key: const ValueKey('renpy-preference-text-speed'),
+          value: cps,
+          min: 0,
+          max: RenPyPlayerPreferences.maxTextCps,
+          onChanged: widget.pacing.setTextCps,
         ),
-        const SizedBox(height: 16),
-        CheckboxListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Music Muted'),
-          value: widget.preferences.musicMuted,
-          onChanged: (value) {
-            if (value == null) return;
-            widget.onMixerMutedChanged(
-              RenPyPlayerPreferences.musicMixer,
-              value,
-            );
-          },
-        ),
-        const SizedBox(height: 8),
-        _buildMixerSlider(
-          label: 'Music Volume',
-          mixer: RenPyPlayerPreferences.musicMixer,
-          key: const ValueKey('renpy-preference-music-volume'),
-        ),
-        const SizedBox(height: 8),
-        _buildMixerSlider(
-          label: 'Sound Volume',
-          mixer: RenPyPlayerPreferences.sfxMixer,
-          key: const ValueKey('renpy-preference-sound-volume'),
-        ),
-        const SizedBox(height: 8),
-        _buildMixerSlider(
-          label: 'Voice Volume',
-          mixer: RenPyPlayerPreferences.voiceMixer,
-          key: const ValueKey('renpy-preference-voice-volume'),
-        ),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(
-          onPressed: () => setState(() => _view = _RenPyGameMenuView.root),
-          icon: const Icon(Icons.arrow_back),
-          label: const Text('Back'),
+      ],
+    );
+  }
+
+  Widget _buildAutoDelaySlider() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text('Auto-Forward Delay'),
+        Slider(
+          key: const ValueKey('renpy-preference-auto-delay'),
+          value: widget.preferences.autoDelay,
+          min: RenPyPlayerPreferences.minAutoDelay,
+          max: RenPyPlayerPreferences.maxAutoDelay,
+          onChanged: widget.pacing.setAutoDelay,
         ),
       ],
     );

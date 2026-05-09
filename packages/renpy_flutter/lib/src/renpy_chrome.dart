@@ -18,7 +18,7 @@ final class RenPyDialogueResolvedImage {
 }
 
 /// Displays RenPy dialogue and errors over the current scene.
-class RenPyDialogueView extends StatelessWidget {
+class RenPyDialogueView extends StatefulWidget {
   const RenPyDialogueView({
     super.key,
     required this.controller,
@@ -27,6 +27,7 @@ class RenPyDialogueView extends StatelessWidget {
     this.gui,
     this.imageProvider,
     this.imageResolver,
+    this.textCps = 0,
   });
 
   final RenPyFlutterController controller;
@@ -36,8 +37,42 @@ class RenPyDialogueView extends StatelessWidget {
   final RenPyImageProviderFactory? imageProvider;
   final RenPyDialogueImageResolver? imageResolver;
 
+  /// Characters-per-second typewriter speed; zero reveals lines instantly.
+  final double textCps;
+
+  @override
+  State<RenPyDialogueView> createState() => _RenPyDialogueViewState();
+}
+
+class _RenPyDialogueViewState extends State<RenPyDialogueView> {
+  final RenPyTextRevealController _reveal = RenPyTextRevealController();
+
+  @override
+  void dispose() {
+    _reveal.dispose();
+    super.dispose();
+  }
+
+  /// Completes the reveal first, then advances on the following input,
+  /// mirroring standard visual novel behavior. Skip mode bypasses the reveal.
+  void _advance() {
+    if (!_reveal.isComplete && !widget.controller.skipEnabled) {
+      _reveal.complete();
+      return;
+    }
+    widget.controller.continueGame();
+  }
+
+  void _onRevealed() => widget.controller.notifyTextRevealed();
+
   @override
   Widget build(BuildContext context) {
+    final controller = widget.controller;
+    final dialogueStyle = widget.dialogueStyle;
+    final screenSize = widget.screenSize;
+    final gui = widget.gui;
+    final imageProvider = widget.imageProvider;
+    final imageResolver = widget.imageResolver;
     return ValueListenableBuilder<RenPyGameStatus>(
       valueListenable: controller,
       builder: (context, status, _) {
@@ -70,7 +105,7 @@ class RenPyDialogueView extends StatelessWidget {
               );
               if (guiGeometry != null) {
                 return GestureDetector(
-                  onTap: controller.continueGame,
+                  onTap: _advance,
                   behavior: HitTestBehavior.opaque,
                   child: SizedBox.expand(
                     child: Stack(
@@ -97,6 +132,9 @@ class RenPyDialogueView extends StatelessWidget {
                               whoColor: whoColor,
                               theme: theme,
                               style: effectiveDialogueStyle,
+                              textCps: widget.textCps,
+                              revealController: _reveal,
+                              onRevealed: _onRevealed,
                               padding: EdgeInsets.fromLTRB(
                                 guiGeometry.dialogueLeft,
                                 guiGeometry.dialogueTop,
@@ -114,7 +152,7 @@ class RenPyDialogueView extends StatelessWidget {
                 );
               }
               return GestureDetector(
-                onTap: controller.continueGame,
+                onTap: _advance,
                 behavior: HitTestBehavior.opaque,
                 child: Align(
                   alignment: Alignment.bottomCenter,
@@ -133,6 +171,9 @@ class RenPyDialogueView extends StatelessWidget {
                         whoColor: whoColor,
                         theme: theme,
                         style: effectiveDialogueStyle,
+                        textCps: widget.textCps,
+                        revealController: _reveal,
+                        onRevealed: _onRevealed,
                       ),
                     ),
                   ),
@@ -213,6 +254,9 @@ Widget _dialogueContent({
   required Color whoColor,
   required ThemeData theme,
   required TextStyle? style,
+  required double textCps,
+  required RenPyTextRevealController revealController,
+  required VoidCallback onRevealed,
   EdgeInsets padding = EdgeInsets.zero,
   double? width,
   bool alignToBottom = false,
@@ -228,7 +272,14 @@ Widget _dialogueContent({
         ),
         const SizedBox(height: 4),
       ],
-      RenPyText(text, style: style),
+      RenPyTextReveal(
+        text,
+        key: ValueKey('renpy-dialogue-text:$text'),
+        cps: textCps,
+        controller: revealController,
+        onRevealed: onRevealed,
+        style: style,
+      ),
     ],
   );
 

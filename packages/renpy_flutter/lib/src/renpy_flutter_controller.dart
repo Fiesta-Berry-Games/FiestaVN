@@ -182,6 +182,17 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   RenPyRunner? _runner;
   _RunnerTicker? _ticker;
   Timer? _pauseTimer;
+  Timer? _autoTimer;
+
+  bool _skipEnabled = false;
+  bool _autoForwardEnabled = false;
+  double _autoDelay = 1.0;
+
+  /// Per-line auto-forward base delay before applying the user's multiplier.
+  static const _autoForwardBaseDelay = Duration(milliseconds: 1400);
+
+  /// Fixed delay between skipped lines so audio and visuals can keep up.
+  static const _skipLineDelay = Duration(milliseconds: 40);
   RenPyImageResolver _imageResolver = RenPyImageResolver();
   final List<RenPyDiagnostic> _diagnostics = [];
   String? _gameRoot;
@@ -229,6 +240,8 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     debugPrint('Loading RenPy script...');
     _ticker?.cancel();
     _pauseTimer?.cancel();
+    _autoTimer?.cancel();
+    _autoTimer = null;
     _runner = null;
     _diagnostics.clear();
     _gameRoot = gameRoot;
@@ -273,11 +286,80 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       debugPrint('Continuing game execution...');
       _pauseTimer?.cancel();
       _pauseTimer = null;
+      _autoTimer?.cancel();
+      _autoTimer = null;
       _recordRollbackBoundary(runner);
       _pendingTransientAudio.clear();
       runner.continueExecution();
       _ticker?.resume();
     }
+  }
+
+  /// Whether skip mode is currently fast-forwarding dialogue.
+  bool get skipEnabled => _skipEnabled;
+
+  /// Whether auto-forward advances dialogue after each line is revealed.
+  bool get autoForwardEnabled => _autoForwardEnabled;
+
+  /// Enables or disables skip mode, scheduling the next advance immediately.
+  set skipEnabled(bool value) {
+    if (_skipEnabled == value) return;
+    _skipEnabled = value;
+    if (value) {
+      _autoForwardEnabled = false;
+      _maybeScheduleSkip();
+    } else {
+      _autoTimer?.cancel();
+      _autoTimer = null;
+    }
+  }
+
+  /// Enables or disables auto-forward. Auto only advances after a line has
+  /// finished revealing; the view signals that through [notifyTextRevealed].
+  set autoForwardEnabled(bool value) {
+    if (_autoForwardEnabled == value) return;
+    _autoForwardEnabled = value;
+    if (value) {
+      _skipEnabled = false;
+    } else {
+      _autoTimer?.cancel();
+      _autoTimer = null;
+    }
+  }
+
+  /// Updates the auto-forward delay multiplier applied to the base per-line
+  /// delay. Values are taken as-is; clamping is handled by the preference.
+  set autoDelay(double value) => _autoDelay = value;
+
+  /// Called by the dialogue view once the current line is fully revealed so
+  /// auto-forward can begin its delay. Has no effect unless auto is enabled.
+  void notifyTextRevealed() {
+    if (!_autoForwardEnabled) return;
+    _maybeScheduleAuto();
+  }
+
+  void _maybeScheduleSkip() {
+    if (!_skipEnabled || !_canAutoAdvance) return;
+    _autoTimer?.cancel();
+    _autoTimer = Timer(_skipLineDelay, continueGame);
+  }
+
+  void _maybeScheduleAuto() {
+    if (!_autoForwardEnabled || !_canAutoAdvance) return;
+    _autoTimer?.cancel();
+    final base = _autoForwardBaseDelay.inMilliseconds * _autoDelay;
+    _autoTimer = Timer(Duration(milliseconds: base.round()), continueGame);
+  }
+
+  /// Whether skip/auto may advance the current line. Only dialogue and
+  /// input pauses qualify; menus stop both modes, and an active {w}/{nw}
+  /// auto-continue timer already owns the advance.
+  bool get _canAutoAdvance {
+    final runner = _runner;
+    if (runner == null) return false;
+    if (runner.state != RenPyRunnerState.waitingForInput) return false;
+    if (_pauseTimer != null) return false;
+    return value is RenPyDialogue || value is RenPyPause;
   }
 
   Future<bool> saveGame() async {
@@ -389,6 +471,8 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
 
     _pauseTimer?.cancel();
     _pauseTimer = null;
+    _autoTimer?.cancel();
+    _autoTimer = null;
     _ticker?.pause();
 
     runner.restoreSnapshot(snapshot);
@@ -436,6 +520,8 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     switch (runner.state) {
       case RenPyRunnerState.waitingForInput:
         _ticker?.pause();
+        // Now that the runner is parked, skip can fast-forward this line.
+        _maybeScheduleSkip();
         break;
       case RenPyRunnerState.complete:
         debugPrint('Script execution complete');
@@ -457,6 +543,8 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     debugPrint('Dialogue: ${event.displayName ?? "Narrator"}: ${event.text}');
     _pauseTimer?.cancel();
     _pauseTimer = null;
+    _autoTimer?.cancel();
+    _autoTimer = null;
     value = RenPyDialogue(
       event.displayName,
       event.text,
@@ -465,11 +553,14 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       color: event.color,
     );
 
+    // Skip is scheduled from _tick once the runner parks at this line, and
+    // auto-forward waits for the view to report the line fully revealed.
     final duration = event.autoContinueDuration;
     if (duration == null) return;
-    _pauseTimer = Timer(Duration(milliseconds: (duration * 1000).round()), () {
-      continueGame();
-    });
+    _pauseTimer = Timer(
+      Duration(milliseconds: (duration * 1000).round()),
+      continueGame,
+    );
   }
 
   void _onMenu(
@@ -480,6 +571,11 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     debugPrint('Menu with choices: $choices');
     _pauseTimer?.cancel();
     _pauseTimer = null;
+    _autoTimer?.cancel();
+    _autoTimer = null;
+    // Skip and auto-forward both stop at menus so the player can choose.
+    _skipEnabled = false;
+    _autoForwardEnabled = false;
     _ticker?.pause();
     value = RenPyMenu(choices, (i) {
       debugPrint('Menu choice selected: ${choices[i]}');
@@ -495,14 +591,26 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
 
   void _onPause(RenPyPauseEvent event) {
     debugPrint('Pause: ${event.duration ?? "input"}');
+    _autoTimer?.cancel();
+    _autoTimer = null;
     _ticker?.pause();
     value = RenPyPause(duration: event.duration);
 
     final duration = event.duration;
-    if (duration == null) return;
-    _pauseTimer?.cancel();
-    _pauseTimer = Timer(Duration(milliseconds: (duration * 1000).round()), () {
-      continueGame();
+    if (duration != null) {
+      _pauseTimer?.cancel();
+      _pauseTimer = Timer(
+        Duration(milliseconds: (duration * 1000).round()),
+        continueGame,
+      );
+      return;
+    }
+
+    // A pause that waits for input also accepts skip/auto advancement. Defer
+    // so the runner has settled into its wait state before we schedule.
+    scheduleMicrotask(() {
+      _maybeScheduleSkip();
+      _maybeScheduleAuto();
     });
   }
 
@@ -1015,6 +1123,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   void dispose() {
     _ticker?.cancel();
     _pauseTimer?.cancel();
+    _autoTimer?.cancel();
     super.dispose();
   }
 }

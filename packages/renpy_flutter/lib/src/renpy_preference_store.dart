@@ -59,10 +59,26 @@ class RenPyMixerPreference {
 /// Mutable Ren'Py-style preferences understood by the Flutter player.
 class RenPyPlayerPreferences {
   const RenPyPlayerPreferences({Map<String, RenPyMixerPreference>? mixers})
-    : _mixers = mixers;
+    : _mixers = mixers,
+      textCps = defaultTextCps,
+      autoDelay = defaultAutoDelay,
+      autoForward = false,
+      skip = false;
+
+  const RenPyPlayerPreferences._({
+    Map<String, RenPyMixerPreference>? mixers,
+    this.textCps = defaultTextCps,
+    this.autoDelay = defaultAutoDelay,
+    this.autoForward = false,
+    this.skip = false,
+  }) : _mixers = mixers;
 
   static const musicMutedKey = 'musicMuted';
   static const mixersKey = 'mixers';
+  static const textCpsKey = 'textCps';
+  static const autoDelayKey = 'autoDelay';
+  static const autoForwardKey = 'autoForward';
+  static const skipKey = 'skip';
 
   static const mainMixer = 'main';
   static const musicMixer = 'music';
@@ -76,7 +92,32 @@ class RenPyPlayerPreferences {
     voiceMixer,
   ];
 
+  /// Characters-per-second reveal speed. Zero reveals the line instantly.
+  static const defaultTextCps = 0.0;
+
+  /// Maximum selectable characters-per-second before snapping to instant.
+  static const maxTextCps = 80.0;
+
+  /// Auto-forward delay multiplier applied to the per-line pause.
+  static const defaultAutoDelay = 1.0;
+
+  /// Bounds for the auto-forward delay multiplier slider.
+  static const minAutoDelay = 0.0;
+  static const maxAutoDelay = 4.0;
+
   final Map<String, RenPyMixerPreference>? _mixers;
+
+  /// Characters revealed per second; zero means show the full line at once.
+  final double textCps;
+
+  /// Multiplier applied to the auto-forward delay between lines.
+  final double autoDelay;
+
+  /// Whether auto-forward advances dialogue without user input.
+  final bool autoForward;
+
+  /// Whether skip fast-forwards dialogue until a menu or user input.
+  final bool skip;
 
   bool get musicMuted => isMixerMuted(musicMixer);
 
@@ -107,7 +148,23 @@ class RenPyPlayerPreferences {
     String mixer,
     RenPyMixerPreference preference,
   ) {
-    return RenPyPlayerPreferences(mixers: {...?_mixers, mixer: preference});
+    return _copyWith(mixers: {...?_mixers, mixer: preference});
+  }
+
+  RenPyPlayerPreferences setTextCps(double cps) {
+    return _copyWith(textCps: _clampTextCps(cps));
+  }
+
+  RenPyPlayerPreferences setAutoDelay(double delay) {
+    return _copyWith(autoDelay: _clampAutoDelay(delay));
+  }
+
+  RenPyPlayerPreferences setAutoForward(bool enabled) {
+    return _copyWith(autoForward: enabled);
+  }
+
+  RenPyPlayerPreferences setSkip(bool enabled) {
+    return _copyWith(skip: enabled);
   }
 
   RenPyPlayerPreferences copyWith({bool? musicMuted}) {
@@ -115,11 +172,31 @@ class RenPyPlayerPreferences {
     return setMixerMuted(musicMixer, musicMuted);
   }
 
+  RenPyPlayerPreferences _copyWith({
+    Map<String, RenPyMixerPreference>? mixers,
+    double? textCps,
+    double? autoDelay,
+    bool? autoForward,
+    bool? skip,
+  }) {
+    return RenPyPlayerPreferences._(
+      mixers: mixers ?? _mixers,
+      textCps: textCps ?? this.textCps,
+      autoDelay: autoDelay ?? this.autoDelay,
+      autoForward: autoForward ?? this.autoForward,
+      skip: skip ?? this.skip,
+    );
+  }
+
   Map<String, Object?> toJson() {
     return {
       mixersKey: {
         for (final entry in mixers.entries) entry.key: entry.value.toJson(),
       },
+      textCpsKey: textCps,
+      autoDelayKey: autoDelay,
+      autoForwardKey: autoForward,
+      skipKey: skip,
     };
   }
 
@@ -139,6 +216,30 @@ class RenPyPlayerPreferences {
           .copyWith(muted: true);
     }
 
-    return RenPyPlayerPreferences(mixers: mixers);
+    return RenPyPlayerPreferences._(
+      mixers: mixers,
+      textCps: _readTextCps(json[textCpsKey]),
+      autoDelay: _readAutoDelay(json[autoDelayKey]),
+      autoForward: json[autoForwardKey] == true,
+      skip: json[skipKey] == true,
+    );
+  }
+
+  static double _readTextCps(Object? value) {
+    if (value is num) return _clampTextCps(value.toDouble());
+    return defaultTextCps;
+  }
+
+  static double _readAutoDelay(Object? value) {
+    if (value is num) return _clampAutoDelay(value.toDouble());
+    return defaultAutoDelay;
+  }
+
+  static double _clampTextCps(double value) {
+    return value.clamp(0, maxTextCps).toDouble();
+  }
+
+  static double _clampAutoDelay(double value) {
+    return value.clamp(minAutoDelay, maxAutoDelay).toDouble();
   }
 }
