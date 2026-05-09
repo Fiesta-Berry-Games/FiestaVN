@@ -8,7 +8,11 @@ class RenPyLexer {
   /// Current position in the content
   int pos = 0;
 
-  RenPyLexer(this.content, this.filename);
+  RenPyLexer(String content, this.filename)
+    // Strip a leading UTF-8 BOM (U+FEFF). When present it precedes the first
+    // statement and defeats the `^`-anchored statement matchers for the whole
+    // file (e.g. `init`), which made BOM-prefixed files unparseable.
+    : content = content.startsWith('\u{FEFF}') ? content.substring(1) : content;
 
   /// Lists the logical lines in the script
   ///
@@ -245,6 +249,17 @@ class RenPyLexer {
         if (char == quoteChar) {
           quoteChar = null;
         }
+      }
+      // A `#` outside any string begins a comment that runs to the end of the
+      // physical line. This holds even inside an open bracket pair (Python
+      // permits comments inside collection/call literals), so skip the comment
+      // text rather than tokenising it; otherwise stray quotes or brackets in a
+      // comment corrupt the quote/bracket state and abort the whole file.
+      else if (!inTripleQuote && quoteChar == null && char == '#') {
+        while (pos < content.length && content[pos] != '\n') {
+          pos++;
+        }
+        continue;
       }
       // Handle quotes.
       else if (char == '"' || char == "'" || char == '`') {

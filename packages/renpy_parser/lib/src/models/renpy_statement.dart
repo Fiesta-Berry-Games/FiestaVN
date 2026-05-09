@@ -304,20 +304,58 @@ class RenPyGenericStatement extends RenPyStatement {
   String toString() => 'Generic: $text';
 }
 
-/// Represents an image statement (image name = expression).
+/// Represents an image statement.
+///
+/// Two forms are supported: `image name = expression` (where [expression] is
+/// the right-hand side) and `image name:` with an ATL body (where [expression]
+/// is empty and [body] holds the indented ATL lines).
 class RenPyImageStatement extends RenPyStatement {
   final String name;
   final String expression;
+  final List<String> body;
 
   RenPyImageStatement(
     this.name,
     this.expression,
     String filename,
-    int linenumber,
-  ) : super(filename, linenumber);
+    int linenumber, {
+    this.body = const [],
+  }) : super(filename, linenumber);
 
   @override
-  String toString() => 'Image: $name = $expression';
+  String toString() =>
+      expression.isNotEmpty ? 'Image: $name = $expression' : 'Image: $name';
+}
+
+/// Represents a bare `window` control statement (`window show`, `window hide`,
+/// or `window auto`), optionally with a trailing transition expression.
+class RenPyWindowStatement extends RenPyStatement {
+  final RenPyWindowAction action;
+  final String? transition;
+
+  RenPyWindowStatement(
+    this.action,
+    String filename,
+    int linenumber, {
+    this.transition,
+  }) : super(filename, linenumber);
+
+  @override
+  String toString() => 'Window: ${action.name}';
+}
+
+enum RenPyWindowAction { show, hide, auto }
+
+/// Represents a `pause [duration]` statement. [duration] is the raw argument
+/// text (e.g. `0.25`, `.25`, `delay`) or null for a bare `pause`.
+class RenPyPauseStatement extends RenPyStatement {
+  final String? duration;
+
+  RenPyPauseStatement(this.duration, String filename, int linenumber)
+    : super(filename, linenumber);
+
+  @override
+  String toString() => 'Pause${duration != null ? ': $duration' : ''}';
 }
 
 /// Represents an audio playback statement (e.g.  'play sound "foo.ogg"').

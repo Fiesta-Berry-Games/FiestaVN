@@ -105,7 +105,13 @@ class RenPyParser {
     // Dollar-prefixed single-line statements.
     if (text.startsWith('\$')) {
       final code = text.substring(1).trim(); // drop leading $
-      final assign = RegExp(r'^([a-zA-Z_]\w*)\s*=\s*(.+)$').firstMatch(code);
+      // `dotAll` so a right-hand side that spans several physical lines (a
+      // collection literal joined across newlines while inside brackets) is
+      // captured whole rather than rejected.
+      final assign = RegExp(
+        r'^([a-zA-Z_]\w*)\s*=\s*(.+)$',
+        dotAll: true,
+      ).firstMatch(code);
 
       // If it looks like a plain assignment, treat it as a "define".
       if (assign != null) {
@@ -189,6 +195,19 @@ class RenPyParser {
       return _parseNvlStatement(line, warnings);
     }
 
+    // Parse bare window control statements (window show / hide / auto).
+    if (text == 'window' ||
+        text.startsWith('window show') ||
+        text.startsWith('window hide') ||
+        text.startsWith('window auto')) {
+      return _parseWindowStatement(line, warnings);
+    }
+
+    // Parse pause statements (pause, pause 1.0, pause .25).
+    if (text == 'pause' || text.startsWith('pause ')) {
+      return _parsePauseStatement(line, warnings);
+    }
+
     // Parse python statement.
     if (text.startsWith('python') || text.startsWith('\$')) {
       return _parsePythonStatement(line, warnings);
@@ -243,26 +262,39 @@ class RenPyParser {
   ) {
     final text = line.text.trim();
 
-    // Modified to handle both formats:
+    // Handles the assignment forms:
     // 1. image name = expression
     // 2. image name = Image("path")
-    final imageRegex = RegExp(r'^image\s+(.+?)\s*=\s*(.+)$');
+    final imageRegex = RegExp(r'^image\s+(.+?)\s*=\s*(.+)$', dotAll: true);
     final match = imageRegex.firstMatch(text);
 
-    if (match == null) {
-      throw RenPyParseError(
-        'Invalid image statement syntax',
+    if (match != null) {
+      return RenPyImageStatement(
+        match.group(1)!.trim(), // full image name (may contain spaces)
+        match.group(2)!.trim(), // right-hand expression
         line.filename,
         line.number,
-        0,
       );
     }
 
-    return RenPyImageStatement(
-      match.group(1)!.trim(), // full image name (may contain spaces)
-      match.group(2)!.trim(), // right-hand expression
+    // Block form: `image name:` with an indented ATL body. Capture the body
+    // as text like transform does rather than crashing on it.
+    final blockMatch = RegExp(r'^image\s+(.+?)\s*:$').firstMatch(text);
+    if (blockMatch != null) {
+      return RenPyImageStatement(
+        blockMatch.group(1)!.trim(),
+        '',
+        line.filename,
+        line.number,
+        body: _transformBodyLines(line.block),
+      );
+    }
+
+    throw RenPyParseError(
+      'Invalid image statement syntax',
       line.filename,
       line.number,
+      0,
     );
   }
 
@@ -287,6 +319,56 @@ class RenPyParser {
     );
   }
 
+  RenPyWindowStatement _parseWindowStatement(
+    GroupedLine line,
+    List<String> warnings,
+  ) {
+    final text = line.text.trim();
+    final match = RegExp(
+      r'^window(?:\s+(show|hide|auto))?(?:\s+(.+))?$',
+    ).firstMatch(text);
+
+    if (match == null) {
+      throw RenPyParseError(
+        'Invalid window statement syntax',
+        line.filename,
+        line.number,
+        0,
+      );
+    }
+
+    final action = switch (match.group(1)) {
+      'hide' => RenPyWindowAction.hide,
+      'auto' => RenPyWindowAction.auto,
+      _ => RenPyWindowAction.show,
+    };
+    final transition = match.group(2)?.trim();
+
+    return RenPyWindowStatement(
+      action,
+      line.filename,
+      line.number,
+      transition: transition == null || transition.isEmpty ? null : transition,
+    );
+  }
+
+  RenPyPauseStatement _parsePauseStatement(
+    GroupedLine line,
+    List<String> warnings,
+  ) {
+    final text = line.text.trim();
+    if (text == 'pause') {
+      return RenPyPauseStatement(null, line.filename, line.number);
+    }
+
+    final argument = text.substring('pause'.length).trim();
+    return RenPyPauseStatement(
+      argument.isEmpty ? null : argument,
+      line.filename,
+      line.number,
+    );
+  }
+
   RenPyStatement _parseInitStatement(GroupedLine line, List<String> warnings) {
     final text = line.text.trim();
     final offsetMatch = RegExp(
@@ -301,7 +383,7 @@ class RenPyParser {
     }
 
     final initMatch = RegExp(
-      r'''^init(\s+(-?\d+))?(\s+python)?\s*:''',
+      r'''^init(\s+(-?\d+))?(\s+python(\s+in\s+[a-zA-Z_]\w*)?)?\s*:''',
     ).firstMatch(text);
 
     if (initMatch == null) {
@@ -388,7 +470,7 @@ class RenPyParser {
   // be mistaken for a say speaker now that the say pattern accepts attribute
   // tokens after the leading identifier (e.g. `show text "..."`).
   static final _sayKeywordGuard = RegExp(
-    r'''^(?:show|scene|hide|play|stop|jump|call|with|nvl|menu|label|image|define|default|screen|style|transform|init|python|return|pass|if|elif|else)\b''',
+    r'''^(?:show|scene|hide|play|stop|jump|call|with|nvl|window|pause|menu|label|image|define|default|screen|style|transform|init|python|return|pass|if|elif|else)\b''',
   );
 
   bool _isSayStatement(String text) {
@@ -997,13 +1079,14 @@ class RenPyParser {
       code = text.substring(1).trim();
       return RenPyPythonStatement(code, false, line.filename, line.number);
     } else {
-      // Multi-line Python block.
+      // Multi-line Python block. The grouping step strips each line's
+      // indentation and nests deeper lines under their parent, so reconstruct
+      // the body recursively and re-indent it relative to the block's own
+      // first line. This preserves the nested structure that `for`/`if`/`def`
+      // bodies rely on when the statement interpreter later executes them.
       final pythonBlock = <String>[];
-
-      // Get code from the block.
-      for (final pythonLine in line.block) {
-        pythonBlock.add(pythonLine.text);
-      }
+      final baseIndent = line.block.isEmpty ? 0 : line.block.first.indent;
+      _collectPythonBlockLines(line.block, baseIndent, pythonBlock);
 
       code = pythonBlock.join('\n');
       // Only `python early:` runs in the early init phase; match `early` as a
@@ -1011,6 +1094,24 @@ class RenPyParser {
       final isInit = RegExp(r'^python\s+early\b').hasMatch(text);
 
       return RenPyPythonStatement(code, isInit, line.filename, line.number);
+    }
+  }
+
+  /// Flattens a grouped Python block back into indented source lines. Each
+  /// line is re-indented by `(line.indent - baseIndent)` spaces so the body
+  /// keeps its relative nesting while starting at column zero.
+  void _collectPythonBlockLines(
+    List<GroupedLine> lines,
+    int baseIndent,
+    List<String> out,
+  ) {
+    for (final line in lines) {
+      final relative = line.indent - baseIndent;
+      final padding = relative > 0 ? ' ' * relative : '';
+      out.add('$padding${line.text}');
+      if (line.block.isNotEmpty) {
+        _collectPythonBlockLines(line.block, baseIndent, out);
+      }
     }
   }
 
@@ -1253,8 +1354,7 @@ class RenPyParser {
 
     void append(List<GroupedLine> currentBlock) {
       for (final blockLine in currentBlock) {
-        final relativeIndent =
-            (blockLine.indent - baseIndent).clamp(0, 9999) as int;
+        final relativeIndent = (blockLine.indent - baseIndent).clamp(0, 9999);
         lines.add('${''.padLeft(relativeIndent)}${blockLine.text.trim()}');
         append(blockLine.block);
       }
