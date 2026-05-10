@@ -511,6 +511,126 @@ final class _RenPyDialogueColor {
   }
 }
 
+/// Scrollable overlay listing the dialogue lines shown so far, oldest at the
+/// top and newest at the bottom, mirroring a standard visual novel backlog.
+class RenPyBacklogView extends StatefulWidget {
+  const RenPyBacklogView({
+    super.key,
+    required this.controller,
+    required this.onClose,
+    this.dialogueStyle,
+  });
+
+  final RenPyFlutterController controller;
+  final VoidCallback onClose;
+  final TextStyle? dialogueStyle;
+
+  @override
+  State<RenPyBacklogView> createState() => _RenPyBacklogViewState();
+}
+
+class _RenPyBacklogViewState extends State<RenPyBacklogView> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToBottom());
+  }
+
+  void _jumpToBottom() {
+    if (!_scrollController.hasClients) return;
+    _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final baseStyle =
+        theme.textTheme.bodyLarge?.copyWith(color: Colors.white) ??
+        const TextStyle(color: Colors.white);
+    final textStyle =
+        widget.dialogueStyle == null
+            ? baseStyle
+            : baseStyle.merge(widget.dialogueStyle);
+    return Positioned.fill(
+      key: const ValueKey('renpy-backlog-view'),
+      child: ColoredBox(
+        color: Colors.black.withValues(alpha: 0.86),
+        child: SafeArea(
+          child: Column(
+            children: [
+              Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: IconButton(
+                    key: const ValueKey('renpy-backlog-close'),
+                    tooltip: 'Close',
+                    color: Colors.white,
+                    icon: const Icon(Icons.close),
+                    onPressed: widget.onClose,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: ValueListenableBuilder<List<RenPyBacklogEntry>>(
+                  valueListenable: widget.controller.dialogueHistoryListenable,
+                  builder: (context, entries, _) {
+                    if (entries.isEmpty) {
+                      return Center(
+                        child: Text('No dialogue yet.', style: baseStyle),
+                      );
+                    }
+                    return ListView.separated(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                      itemCount: entries.length,
+                      separatorBuilder:
+                          (context, _) => const SizedBox(height: 16),
+                      itemBuilder: (context, index) {
+                        return _buildEntry(theme, textStyle, entries[index]);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEntry(
+    ThemeData theme,
+    TextStyle textStyle,
+    RenPyBacklogEntry entry,
+  ) {
+    final who = entry.character;
+    final whoColor = _RenPyDialogueColor.parse(entry.color) ?? Colors.white;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (who != null && who.isNotEmpty) ...[
+          Text(
+            who,
+            style: theme.textTheme.titleMedium?.copyWith(color: whoColor),
+          ),
+          const SizedBox(height: 4),
+        ],
+        RenPyText(entry.text, style: textStyle),
+      ],
+    );
+  }
+}
+
 /// Overlay that shows RenPy in-game menus.
 class RenPyMenuSelector extends StatelessWidget {
   const RenPyMenuSelector({super.key, required this.controller});

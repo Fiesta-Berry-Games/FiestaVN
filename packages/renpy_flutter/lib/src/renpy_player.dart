@@ -123,6 +123,7 @@ class RenPyPlayer extends StatelessWidget {
   Widget _buildGameStage(
     BuildContext context,
     RenPyPlayerPreferences preferences,
+    VoidCallback onOpenBacklog,
   ) {
     controller
       ..autoDelay = preferences.autoDelay
@@ -160,11 +161,6 @@ class RenPyPlayer extends StatelessWidget {
           valueListenable: controller,
           builder: (context, status, child) {
             final hasRestart = showRestartButton && onRestart != null;
-            final hasActions =
-                controller.canRollback ||
-                controller.hasSnapshotStore ||
-                hasRestart;
-            if (!hasActions) return const SizedBox.shrink();
 
             return PositionedDirectional(
               end: 16,
@@ -172,7 +168,15 @@ class RenPyPlayer extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  FloatingActionButton.small(
+                    key: const ValueKey('renpy-open-backlog'),
+                    tooltip: 'History',
+                    heroTag: null,
+                    onPressed: onOpenBacklog,
+                    child: const Icon(Icons.history),
+                  ),
                   if (controller.canRollback) ...[
+                    const SizedBox(height: 8),
                     FloatingActionButton.small(
                       tooltip: 'Rollback',
                       heroTag: null,
@@ -181,7 +185,7 @@ class RenPyPlayer extends StatelessWidget {
                     ),
                   ],
                   if (controller.hasSnapshotStore) ...[
-                    if (controller.canRollback) const SizedBox(height: 8),
+                    const SizedBox(height: 8),
                     FloatingActionButton.small(
                       tooltip: 'Save',
                       heroTag: null,
@@ -197,8 +201,7 @@ class RenPyPlayer extends StatelessWidget {
                     ),
                   ],
                   if (hasRestart) ...[
-                    if (controller.canRollback || controller.hasSnapshotStore)
-                      const SizedBox(height: 8),
+                    const SizedBox(height: 8),
                     FloatingActionButton(
                       tooltip: 'Restart',
                       onPressed: onRestart,
@@ -249,14 +252,21 @@ class RenPyPlayer extends StatelessWidget {
           onSlotLoaded: closeGameMenu,
         );
       },
+      backlogBuilder: (closeBacklog) {
+        return RenPyBacklogView(
+          controller: controller,
+          onClose: closeBacklog,
+          dialogueStyle: dialogueStyle,
+        );
+      },
       onKeyEvent: (event) => _handleKeyEvent(context, event),
       onPointerSignal: (event) => _handlePointerSignal(context, event),
-      childBuilder: (preferences) {
+      childBuilder: (preferences, openBacklog) {
         return Stack(
           fit: StackFit.expand,
           children: [
             ColoredBox(color: backgroundColor),
-            _buildStageBox(_buildGameStage(context, preferences)),
+            _buildStageBox(_buildGameStage(context, preferences, openBacklog)),
           ],
         );
       },
@@ -286,12 +296,17 @@ class _RenPyInputSurface extends StatefulWidget {
   const _RenPyInputSurface({
     required this.childBuilder,
     required this.gameMenuBuilder,
+    required this.backlogBuilder,
     required this.onKeyEvent,
     required this.onPointerSignal,
     this.preferenceStore,
   });
 
-  final Widget Function(RenPyPlayerPreferences preferences) childBuilder;
+  final Widget Function(
+    RenPyPlayerPreferences preferences,
+    VoidCallback openBacklog,
+  )
+  childBuilder;
   final Widget Function(
     VoidCallback closeGameMenu,
     RenPyPlayerPreferences preferences,
@@ -300,6 +315,7 @@ class _RenPyInputSurface extends StatefulWidget {
     _RenPyPacingSetters pacing,
   )
   gameMenuBuilder;
+  final Widget Function(VoidCallback closeBacklog) backlogBuilder;
   final KeyEventResult Function(KeyEvent event) onKeyEvent;
   final ValueChanged<PointerSignalEvent> onPointerSignal;
   final RenPyPreferenceStore? preferenceStore;
@@ -312,6 +328,7 @@ class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
   late final FocusNode _focusNode;
   late RenPyPlayerPreferences _preferences;
   bool _gameMenuOpen = false;
+  bool _backlogOpen = false;
 
   @override
   void initState() {
@@ -349,6 +366,18 @@ class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
   void _closeGameMenu() {
     if (!_gameMenuOpen) return;
     setState(() => _gameMenuOpen = false);
+    _requestFocus();
+  }
+
+  void _openBacklog() {
+    if (_backlogOpen) return;
+    setState(() => _backlogOpen = true);
+    _requestFocus();
+  }
+
+  void _closeBacklog() {
+    if (!_backlogOpen) return;
+    setState(() => _backlogOpen = false);
     _requestFocus();
   }
 
@@ -421,9 +450,14 @@ class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
   KeyEventResult _handleKeyEvent(KeyEvent event) {
     if ((event is KeyDownEvent || event is KeyRepeatEvent) &&
         event.logicalKey == LogicalKeyboardKey.escape) {
-      _gameMenuOpen ? _closeGameMenu() : _openGameMenu();
+      if (_backlogOpen) {
+        _closeBacklog();
+      } else {
+        _gameMenuOpen ? _closeGameMenu() : _openGameMenu();
+      }
       return KeyEventResult.handled;
     }
+    if (_backlogOpen) return KeyEventResult.handled;
     if (!_gameMenuOpen &&
         (event is KeyDownEvent || event is KeyRepeatEvent) &&
         event.logicalKey == LogicalKeyboardKey.keyM) {
@@ -435,11 +469,12 @@ class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
 
   void _handlePointerDown(PointerDownEvent event) {
     _requestFocus();
+    if (_backlogOpen) return;
     if ((event.buttons & kSecondaryMouseButton) != 0) _openGameMenu();
   }
 
   void _handlePointerSignal(PointerSignalEvent event) {
-    if (_gameMenuOpen) return;
+    if (_gameMenuOpen || _backlogOpen) return;
     widget.onPointerSignal(event);
   }
 
@@ -461,8 +496,8 @@ class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            widget.childBuilder(_preferences),
-            if (!_gameMenuOpen)
+            widget.childBuilder(_preferences, _openBacklog),
+            if (!_gameMenuOpen && !_backlogOpen)
               _RenPyPacingToggles(
                 skip: _preferences.skip,
                 autoForward: _preferences.autoForward,
@@ -477,6 +512,7 @@ class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
                 _setMixerVolume,
                 _pacingSetters,
               ),
+            if (_backlogOpen) widget.backlogBuilder(_closeBacklog),
           ],
         ),
       ),

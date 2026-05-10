@@ -153,6 +153,38 @@ final class RenPyTransitionChange extends RenPyGameStatus {
   String toString() => 'RenPyTransitionChange($name, intent: $intent)';
 }
 
+/// A single dialogue line recorded in the player's backlog/history.
+final class RenPyBacklogEntry {
+  const RenPyBacklogEntry({required this.text, this.character, this.color});
+
+  /// The resolved display name shown to the player, or null for narration.
+  final String? character;
+
+  /// The raw dialogue text, including any inline RenPy tags.
+  final String text;
+
+  /// The raw RenPy color expression for the character, usually `#rrggbb`.
+  final String? color;
+
+  @override
+  bool operator ==(Object other) =>
+      other is RenPyBacklogEntry &&
+      other.character == character &&
+      other.text == text &&
+      other.color == color;
+
+  @override
+  int get hashCode => Object.hash(character, text, color);
+
+  @override
+  String toString() {
+    final name = character;
+    return name == null || name.isEmpty
+        ? 'RenPyBacklogEntry($text)'
+        : 'RenPyBacklogEntry($name: $text)';
+  }
+}
+
 /// The game finished running normally.
 final class RenPyComplete extends RenPyGameStatus {}
 
@@ -171,7 +203,15 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     this.persistentStore,
     this.snapshotStore,
     this.slotStore,
+    this.backlogLimit = defaultBacklogLimit,
   }) : super(RenPyIdle());
+
+  /// Default maximum number of dialogue lines kept in the backlog.
+  static const defaultBacklogLimit = 200;
+
+  /// Maximum number of dialogue lines retained in [dialogueHistory]. The
+  /// oldest entries are dropped once this is exceeded to bound memory.
+  final int backlogLimit;
 
   final VoidCallback? onComplete;
   final RenPyDiagnosticCallback? onDiagnostic;
@@ -186,6 +226,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
 
   bool _skipEnabled = false;
   bool _autoForwardEnabled = false;
+  bool _suppressBacklog = false;
   double _autoDelay = 1.0;
 
   /// Per-line auto-forward base delay before applying the user's multiplier.
@@ -204,6 +245,10 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   final List<RenPyTransientAudioSnapshot> _pendingTransientAudio = [];
 
   final List<RenPyRunnerSnapshot> _rollbackHistory = [];
+
+  final List<RenPyBacklogEntry> _dialogueHistory = [];
+  final ValueNotifier<List<RenPyBacklogEntry>> _dialogueHistoryNotifier =
+      ValueNotifier<List<RenPyBacklogEntry>>(const []);
 
   static const _masterLayer = 'master';
   static const _defaultSpritePlacement = RenPyImagePlacement.position(
@@ -228,6 +273,14 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
 
   bool get canRollback => _rollbackHistory.isNotEmpty;
 
+  /// The dialogue lines shown so far, oldest first, capped at [backlogLimit].
+  List<RenPyBacklogEntry> get dialogueHistory =>
+      List.unmodifiable(_dialogueHistory);
+
+  /// Notifies when [dialogueHistory] changes so a viewer can rebuild.
+  ValueListenable<List<RenPyBacklogEntry>> get dialogueHistoryListenable =>
+      _dialogueHistoryNotifier;
+
   /// Loads a `.rpy` script and immediately jumps to `start` when present.
   ///
   /// Calling [load] again cleanly restarts the controller with the new script.
@@ -247,6 +300,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     _gameRoot = gameRoot;
     _availableAssets = availableAssets;
     _rollbackHistory.clear();
+    _clearBacklog();
     value = RenPyIdle();
     _clearPresentationSnapshot();
 
@@ -475,9 +529,29 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     _autoTimer = null;
     _ticker?.pause();
 
-    runner.restoreSnapshot(snapshot);
-    _restorePresentation(snapshot.presentation);
-    _presentRestoredRunner(snapshot, runner);
+    // Restoring re-presents the current line through the normal dialogue
+    // path. Reset the backlog to a clean state and seed it with the restored
+    // line so the viewer never shows lines ahead of the current position.
+    _clearBacklog();
+    _suppressBacklog = true;
+    try {
+      runner.restoreSnapshot(snapshot);
+      _restorePresentation(snapshot.presentation);
+      _presentRestoredRunner(snapshot, runner);
+    } finally {
+      _suppressBacklog = false;
+    }
+
+    final restored = snapshot.lastDialogue;
+    if (restored != null) {
+      _recordBacklog(
+        RenPyBacklogEntry(
+          character: restored.displayName,
+          text: restored.text,
+          color: restored.color,
+        ),
+      );
+    }
   }
 
   void _presentRestoredRunner(
@@ -545,6 +619,13 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     _pauseTimer = null;
     _autoTimer?.cancel();
     _autoTimer = null;
+    _recordBacklog(
+      RenPyBacklogEntry(
+        character: event.displayName,
+        text: event.text,
+        color: event.color,
+      ),
+    );
     value = RenPyDialogue(
       event.displayName,
       event.text,
@@ -703,6 +784,30 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   void _onTransition(RenPyTransitionEvent event) {
     debugPrint('Transition command - ${event.name}');
     value = RenPyTransitionChange(event.name, intent: event.intent);
+  }
+
+  /// Appends [entry] to the backlog unless it merely re-presents the current
+  /// line (snapshot/rollback restore) or duplicates the last recorded line.
+  /// Enforces [backlogLimit] by dropping the oldest entries.
+  void _recordBacklog(RenPyBacklogEntry entry) {
+    if (_suppressBacklog) return;
+    if (_dialogueHistory.isNotEmpty && _dialogueHistory.last == entry) return;
+
+    _dialogueHistory.add(entry);
+    while (_dialogueHistory.length > backlogLimit && backlogLimit >= 0) {
+      _dialogueHistory.removeAt(0);
+    }
+    _publishBacklog();
+  }
+
+  void _clearBacklog() {
+    if (_dialogueHistory.isEmpty) return;
+    _dialogueHistory.clear();
+    _publishBacklog();
+  }
+
+  void _publishBacklog() {
+    _dialogueHistoryNotifier.value = List.unmodifiable(_dialogueHistory);
   }
 
   void _recordRollbackBoundary(RenPyRunner runner) {
@@ -1124,6 +1229,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     _ticker?.cancel();
     _pauseTimer?.cancel();
     _autoTimer?.cancel();
+    _dialogueHistoryNotifier.dispose();
     super.dispose();
   }
 }
