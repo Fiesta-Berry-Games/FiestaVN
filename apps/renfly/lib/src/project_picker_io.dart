@@ -13,12 +13,23 @@ final class DesktopRenPyProjectPicker implements RenPyProjectPicker {
   const DesktopRenPyProjectPicker();
 
   @override
-  Future<RenPyGameProject?> pickProject() async {
+  Future<PickedProject?> pickProject() async {
     final folder = await FilePicker.getDirectoryPath(
       dialogTitle: 'Open RenPy project folder',
     );
     if (folder == null) return null;
 
+    final project = await _loadFolder(folder);
+    return PickedProject(project, sourcePath: folder);
+  }
+
+  @override
+  Future<RenPyGameProject?> reloadProject(String sourcePath) async {
+    if (!Directory(sourcePath).existsSync()) return null;
+    return _loadFolder(sourcePath);
+  }
+
+  Future<RenPyGameProject> _loadFolder(String folder) async {
     final root = Directory(folder);
     final files = <RenPyProjectFile>[];
     await for (final entity in root.list(recursive: true)) {

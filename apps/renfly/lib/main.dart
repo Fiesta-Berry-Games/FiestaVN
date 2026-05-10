@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:renpy_flutter/renpy_flutter.dart';
 
+import 'game_library.dart';
 import 'project_picker.dart';
 
 void main() => runApp(const FiestaVNApp());
@@ -10,11 +11,13 @@ class FiestaVNApp extends StatelessWidget {
     super.key,
     this.audioPlayback,
     this.projectPicker,
+    this.libraryStore,
     this.onGameControllerCreated,
   });
 
   final RenPyAudioPlayback? audioPlayback;
   final RenPyProjectPicker? projectPicker;
+  final GameLibraryStore? libraryStore;
   final ValueChanged<RenPyFlutterController>? onGameControllerCreated;
 
   @override
@@ -23,102 +26,296 @@ class FiestaVNApp extends StatelessWidget {
       title: 'RenFly - FiestaVN Demo',
       theme: ThemeData.dark(useMaterial3: true),
       debugShowCheckedModeBanner: false,
-      home: _LauncherScreen(
+      home: GameLibraryScreen(
         audioPlayback: audioPlayback,
         projectPicker: projectPicker ?? createRenPyProjectPicker(),
+        libraryStore: libraryStore,
         onGameControllerCreated: onGameControllerCreated,
       ),
     );
   }
 }
 
-/// Choose which game to play.
-class _LauncherScreen extends StatelessWidget {
-  const _LauncherScreen({
+/// A bundled reference game shipped as Flutter assets. Always present and not
+/// removable.
+final class _BundledGame {
+  const _BundledGame(this.title, this.assetPath, this.icon);
+
+  final String title;
+  final String assetPath;
+  final IconData icon;
+}
+
+const List<_BundledGame> _bundledGames = [
+  _BundledGame(
+    'Reference Game 1',
+    'assets/games/1/game/script.rpy',
+    Icons.looks_one,
+  ),
+  _BundledGame(
+    'Reference Game 2',
+    'assets/games/2/game/script.rpy',
+    Icons.looks_two,
+  ),
+  _BundledGame(
+    'Reference Game 3',
+    'assets/games/3/game/script.rpy',
+    Icons.looks_3,
+  ),
+  _BundledGame(
+    'Reference Game 4',
+    'assets/games/4/game/script.rpy',
+    Icons.looks_4,
+  ),
+  _BundledGame(
+    'The Question',
+    'assets/games/the_question/game/script.rpy',
+    Icons.question_answer,
+  ),
+];
+
+/// Lists the bundled reference games and any user-added external projects,
+/// letting the player add, remove, and launch projects.
+class GameLibraryScreen extends StatefulWidget {
+  const GameLibraryScreen({
+    super.key,
     this.audioPlayback,
     required this.projectPicker,
+    this.libraryStore,
     this.onGameControllerCreated,
   });
 
   final RenPyAudioPlayback? audioPlayback;
   final RenPyProjectPicker projectPicker;
+  final GameLibraryStore? libraryStore;
   final ValueChanged<RenPyFlutterController>? onGameControllerCreated;
 
-  // Convenience helper
-  void _startGame(BuildContext ctx, String title, String assetPath) {
+  @override
+  State<GameLibraryScreen> createState() => _GameLibraryScreenState();
+}
+
+class _GameLibraryScreenState extends State<GameLibraryScreen> {
+  GameLibraryStore? _store;
+  List<LibraryProject> _projects = const [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _initialize();
+  }
+
+  Future<void> _initialize() async {
+    final store = widget.libraryStore ?? await GameLibraryStore.create();
+    final projects = await store.load();
+    if (!mounted) return;
+    setState(() {
+      _store = store;
+      _projects = _sortedByRecent(projects);
+      _loading = false;
+    });
+  }
+
+  static List<LibraryProject> _sortedByRecent(List<LibraryProject> projects) {
+    final sorted = [...projects];
+    sorted.sort((a, b) {
+      final aTime = a.lastPlayed;
+      final bTime = b.lastPlayed;
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+      return bTime.compareTo(aTime);
+    });
+    return sorted;
+  }
+
+  void _startBundledGame(BuildContext ctx, _BundledGame game) {
     Navigator.of(ctx).push(
       _renPyGameRoute(
         builder:
             (_) => GameScreen(
-              title: title,
-              assetPath: assetPath,
-              audioPlayback: audioPlayback,
-              onControllerCreated: onGameControllerCreated,
+              title: game.title,
+              assetPath: game.assetPath,
+              audioPlayback: widget.audioPlayback,
+              onControllerCreated: widget.onGameControllerCreated,
             ),
       ),
     );
   }
 
-  Future<void> _openProject(BuildContext context) async {
+  Future<void> _addProject() async {
+    final store = _store;
+    if (store == null) return;
     try {
-      final project = await projectPicker.pickProject();
-      if (project == null || !context.mounted) return;
+      final picked = await widget.projectPicker.pickProject();
+      if (picked == null || !mounted) return;
 
-      Navigator.of(context).push(
-        _renPyGameRoute(
-          builder:
-              (_) => ExternalGameScreen(
-                project: project,
-                audioPlayback: audioPlayback,
-                onControllerCreated: onGameControllerCreated,
-              ),
-        ),
+      final project = picked.project;
+      final entry = LibraryProject(
+        id: picked.sourcePath ?? project.gameRoot,
+        name: project.name,
+        sourcePath: picked.sourcePath,
       );
+      final projects = await store.add(entry);
+      if (!mounted) return;
+      setState(() => _projects = _sortedByRecent(projects));
+
+      // The freshly picked project is already loaded; launch it directly so
+      // web uploads (which cannot be reloaded) play immediately.
+      _launchExternalProject(entry, project);
     } catch (error) {
-      if (!context.mounted) return;
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Failed to open folder: $error')));
     }
   }
 
+  Future<void> _removeProject(LibraryProject project) async {
+    final store = _store;
+    if (store == null) return;
+    final projects = await store.remove(project.id);
+    if (!mounted) return;
+    setState(() => _projects = _sortedByRecent(projects));
+  }
+
+  Future<void> _launchLibraryProject(LibraryProject entry) async {
+    final store = _store;
+    if (store == null) return;
+
+    RenPyGameProject? project;
+    if (entry.canReload) {
+      try {
+        project = await widget.projectPicker.reloadProject(entry.sourcePath!);
+      } catch (error) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to reload project: $error')),
+        );
+        return;
+      }
+    }
+
+    if (!mounted) return;
+    if (project == null) {
+      // No durable source (web upload) or the folder is gone; ask the player
+      // to re-pick the project.
+      final picked = await widget.projectPicker.pickProject();
+      if (picked == null || !mounted) return;
+      project = picked.project;
+    }
+
+    final played = await store.markPlayed(entry.id);
+    if (!mounted) return;
+    setState(() => _projects = _sortedByRecent(played));
+    _launchExternalProject(entry, project);
+  }
+
+  void _launchExternalProject(LibraryProject entry, RenPyGameProject project) {
+    Navigator.of(context).push(
+      _renPyGameRoute(
+        builder:
+            (_) => ExternalGameScreen(
+              storeIdentifier: entry.id,
+              project: project,
+              audioPlayback: widget.audioPlayback,
+              onControllerCreated: widget.onGameControllerCreated,
+            ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    const games = [
-      ('Reference Game 1', 'assets/games/1/game/script.rpy', Icons.looks_one),
-      ('Reference Game 2', 'assets/games/2/game/script.rpy', Icons.looks_two),
-      ('Reference Game 3', 'assets/games/3/game/script.rpy', Icons.looks_3),
-      ('Reference Game 4', 'assets/games/4/game/script.rpy', Icons.looks_4),
-      (
-        'The Question',
-        'assets/games/the_question/game/script.rpy',
-        Icons.question_answer,
-      ),
-    ];
-
     return Scaffold(
-      appBar: AppBar(title: const Text('Choose a demo game')),
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final game in games) ...[
-              ElevatedButton.icon(
-                key: ValueKey('demo_game_${game.$1}'),
-                icon: Icon(game.$3),
-                label: Text(game.$1),
-                onPressed: () => _startGame(context, game.$1, game.$2),
-              ),
-              const SizedBox(height: 16),
-            ],
-            ElevatedButton.icon(
-              icon: const Icon(Icons.folder_open),
-              label: const Text('Open Folder'),
-              onPressed: () => _openProject(context),
-            ),
-          ],
-        ),
+      appBar: AppBar(
+        title: const Text('Choose a demo game'),
+        actions: [
+          IconButton(
+            key: const ValueKey('library_add_project'),
+            icon: const Icon(Icons.add),
+            tooltip: 'Add project',
+            onPressed: _loading ? null : _addProject,
+          ),
+        ],
       ),
+      body:
+          _loading
+              ? const Center(child: CircularProgressIndicator())
+              : ListView(
+                children: [
+                  const _LibrarySectionHeader('Reference games'),
+                  for (final game in _bundledGames)
+                    ListTile(
+                      key: ValueKey('demo_game_${game.title}'),
+                      leading: Icon(game.icon),
+                      title: Text(game.title),
+                      trailing: const Icon(Icons.play_arrow),
+                      onTap: () => _startBundledGame(context, game),
+                    ),
+                  const _LibrarySectionHeader('Your projects'),
+                  if (_projects.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      child: Text('No external projects added yet.'),
+                    ),
+                  for (final project in _projects)
+                    ListTile(
+                      key: ValueKey('library_project_${project.id}'),
+                      leading: const Icon(Icons.videogame_asset),
+                      title: Text(project.name),
+                      subtitle: _subtitleFor(project),
+                      trailing: IconButton(
+                        key: ValueKey('library_remove_${project.id}'),
+                        icon: const Icon(Icons.delete_outline),
+                        tooltip: 'Remove from library',
+                        onPressed: () => _removeProject(project),
+                      ),
+                      onTap: () => _launchLibraryProject(project),
+                    ),
+                  const Divider(),
+                  ListTile(
+                    leading: const Icon(Icons.folder_open),
+                    title: const Text('Open Folder'),
+                    onTap: _addProject,
+                  ),
+                ],
+              ),
+    );
+  }
+
+  Widget? _subtitleFor(LibraryProject project) {
+    final parts = <String>[];
+    if (!project.canReload) parts.add('Re-pick required');
+    final lastPlayed = project.lastPlayed;
+    if (lastPlayed != null) {
+      parts.add('Last played ${_formatTimestamp(lastPlayed)}');
+    }
+    if (parts.isEmpty) return null;
+    return Text(parts.join(' - '));
+  }
+}
+
+String _formatTimestamp(DateTime time) {
+  final local = time.toLocal();
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${local.year}-${two(local.month)}-${two(local.day)} '
+      '${two(local.hour)}:${two(local.minute)}';
+}
+
+class _LibrarySectionHeader extends StatelessWidget {
+  const _LibrarySectionHeader(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: Text(label, style: Theme.of(context).textTheme.labelLarge),
     );
   }
 }
@@ -135,20 +332,30 @@ class ExternalGameScreen extends StatelessWidget {
   const ExternalGameScreen({
     super.key,
     required this.project,
+    this.storeIdentifier,
     this.audioPlayback,
     this.onControllerCreated,
   });
 
   final RenPyGameProject project;
+
+  /// Stable key for this project's save-slot stores. Defaults to the project's
+  /// game root, but the library passes the persisted entry id so saves stay
+  /// associated with the right game even when the game root is empty.
+  final String? storeIdentifier;
   final RenPyAudioPlayback? audioPlayback;
   final ValueChanged<RenPyFlutterController>? onControllerCreated;
 
   @override
   Widget build(BuildContext context) {
+    final identifier =
+        (storeIdentifier != null && storeIdentifier!.isNotEmpty)
+            ? storeIdentifier!
+            : project.gameRoot;
     return Scaffold(
       appBar: AppBar(title: Text(project.name)),
       body: _PersistentStoreLoader(
-        identifier: project.gameRoot,
+        identifier: identifier,
         builder:
             (context, stores) => RenPyProjectPlayer(
               project: project,

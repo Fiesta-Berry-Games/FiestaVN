@@ -423,7 +423,10 @@ final class _FakeProjectPicker implements RenPyProjectPicker {
   final RenPyGameProject project;
 
   @override
-  Future<RenPyGameProject?> pickProject() async => project;
+  Future<PickedProject?> pickProject() async => PickedProject(project);
+
+  @override
+  Future<RenPyGameProject?> reloadProject(String sourcePath) async => project;
 }
 
 class _RecordingAudioPlayback implements RenPyAudioPlayback {

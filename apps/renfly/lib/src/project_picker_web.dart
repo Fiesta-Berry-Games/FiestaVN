@@ -15,7 +15,7 @@ final class BrowserRenPyProjectPicker implements RenPyProjectPicker {
   const BrowserRenPyProjectPicker();
 
   @override
-  Future<RenPyGameProject?> pickProject() async {
+  Future<PickedProject?> pickProject() async {
     final input =
         web.HTMLInputElement()
           ..type = 'file'
@@ -41,8 +41,13 @@ final class BrowserRenPyProjectPicker implements RenPyProjectPicker {
       files.add(RenPyProjectFile(relativePath, bytes));
     }
 
-    return RenPyGameProject.fromFiles(files);
+    // Web uploads cannot be reloaded from a durable path, so no sourcePath is
+    // recorded; the project must be re-picked on a future launch.
+    return PickedProject(RenPyGameProject.fromFiles(files));
   }
+
+  @override
+  Future<RenPyGameProject?> reloadProject(String sourcePath) async => null;
 
   Future<Uint8List> _readFile(web.File file) async {
     final buffer = await file.arrayBuffer().toDart;
