@@ -205,8 +205,24 @@ class RenPyRunner {
   /// Channels registered by Ren'Py audio init Python.
   final Map<String, _AudioChannelRegistration> _audioChannels = {};
 
+  /// Deterministic source for the `renpy.random.*` shims. It is seeded from a
+  /// fixed value (and re-seeded on [reset]) so a run - and every test - produces
+  /// the same sequence of "random" results, which is what makes the shimmed
+  /// `renpy.random.random/randint/choice` reproducible.
+  math.Random _renpyRandom = math.Random(_renpyRandomSeed);
+
+  static const int _renpyRandomSeed = 0x52656e50; // 'RenP'
+
   /// Ren'Py persistent namespace values assigned during this run.
   final Map<String, dynamic> _persistent;
+
+  /// Ren'Py `config.` namespace values. Seeded from `define config.X` /
+  /// `default config.X` and rebuilt on reset, just like the store.
+  final Map<String, dynamic> _config = {};
+
+  /// Ren'Py `gui.` namespace values. Seeded from `define gui.X` /
+  /// `default gui.X` and rebuilt on reset, just like the store.
+  final Map<String, dynamic> _gui = {};
 
   /// Optional backing store for persistent namespace values.
   final RenPyPersistentStore? _persistentStore;
@@ -222,15 +238,20 @@ class RenPyRunner {
   final Map<String, RenPyImagePlacement> _transformPlacements = {};
 
   /// The Python-subset expression evaluator and the scope view that shares the
-  /// runner's own `_variables`/`_persistent` maps. Reads and in-place mutations
-  /// (such as `list.append`) flow straight through to engine state. The
-  /// `config`/`gui` scopes are kept here so scoped names resolve, though the
-  /// runner does not yet seed them from `define`/`default`.
+  /// runner's own `_variables`/`_persistent`/`_config`/`_gui` maps. Reads and
+  /// in-place mutations (such as `list.append`) flow straight through to engine
+  /// state, and the `config`/`gui` scopes are seeded from `define`/`default`
+  /// (see [_processDefines]) so `config.X` / `gui.X` resolve consistently in
+  /// conditions, `$` statements and `python:` blocks. The scope also carries a
+  /// [RenPyApi] so `renpy.*` calls inside expressions reach the runner's shims.
   static const RenPyPythonEvaluator _pythonEvaluator = RenPyPythonEvaluator();
   static const RenPyPythonExecutor _pythonExecutor = RenPyPythonExecutor();
   late final RenPyMapScope _pythonScope = RenPyMapScope(
     store: _variables,
     persistent: _persistent,
+    config: _config,
+    gui: _gui,
+    renpy: _RunnerRenPyApi(this),
   );
 
   /// Callbacks for various events
@@ -244,6 +265,9 @@ class RenPyRunner {
   TransitionCallback? onTransition;
   PauseCallback? onPause;
   RenPyDiagnosticCallback? onDiagnostic;
+
+  /// Invoked for `renpy.notify(message)`. When unset the call is a no-op.
+  void Function(String message)? onNotify;
 
   /// Error message if an error occurred
   String? _errorMessage;
@@ -275,10 +299,7 @@ class RenPyRunner {
         if (statement is RenPyDefineStatement) {
           _applyDefinition(statement.name, statement.expression);
         } else if (statement is RenPyDefaultStatement) {
-          _variables.putIfAbsent(
-            statement.name,
-            () => _evaluateExpression(statement.expression),
-          );
+          _applyDefault(statement.name, statement.expression);
         } else if (statement is RenPyPythonStatement) {
           _applyAudioChannelRegistration(statement.code);
         } else if (statement is RenPyTransformStatement) {
@@ -326,9 +347,37 @@ class RenPyRunner {
         name,
         expression,
       );
-      _variables[name] = _evaluateExpression(expression);
+      // Namespaced targets (`config.X`, `gui.X`, `persistent.X`, ...) are
+      // written into the matching scope rather than as a flat store key, so
+      // `config.X` / `gui.X` reads resolve from defines. Bare names keep their
+      // existing `_variables` storage so transitions and characters are
+      // unchanged.
+      if (_isNamespacedName(name)) {
+        _pythonScope.write(name, _evaluateExpression(expression));
+      } else {
+        _variables[name] = _evaluateExpression(expression);
+      }
     }
   }
+
+  /// Applies a `default name = expression`, routing namespaced targets into the
+  /// matching scope and bare names into the store. Mirrors RenPy's `default`:
+  /// the value is only set when the name is not already present, so a value
+  /// already supplied (for instance a surviving `persistent.X`) is preserved.
+  void _applyDefault(String name, String expression) {
+    if (_isNamespacedName(name)) {
+      if (!_pythonScope.has(name)) {
+        _pythonScope.write(name, _evaluateExpression(expression));
+      }
+      return;
+    }
+    _variables.putIfAbsent(name, () => _evaluateExpression(expression));
+  }
+
+  bool _isNamespacedName(String name) =>
+      name.startsWith('persistent.') ||
+      name.startsWith('config.') ||
+      name.startsWith('gui.');
 
   void _applyTransformStatement(RenPyTransformStatement statement) {
     final name = _transformName(statement.signature);
@@ -434,6 +483,13 @@ class RenPyRunner {
         _persistent.containsKey(persistentField),
         _persistent[persistentField],
       );
+    }
+
+    // config./gui. names resolve through the shared scope so the legacy
+    // condition/expression fallbacks see the same seeded values the Python
+    // evaluator does.
+    if (name.startsWith('config.') || name.startsWith('gui.')) {
+      return _VariableLookup(_pythonScope.has(name), _pythonScope.read(name));
     }
 
     return _VariableLookup(_variables.containsKey(name), _variables[name]);
@@ -903,10 +959,7 @@ class RenPyRunner {
 
   void _executeImageStatement(RenPyImageStatement stmt) {
     onImageDefinition?.call(
-      RenPyImageDefinitionEvent(
-        name: stmt.name,
-        expression: stmt.expression,
-      ),
+      RenPyImageDefinitionEvent(name: stmt.name, expression: stmt.expression),
     );
 
     _position++;
@@ -1216,6 +1269,13 @@ class RenPyRunner {
       return;
     }
 
+    // config./gui. assignments flow into their scope maps rather than a flat
+    // store key so subsequent reads resolve them as namespaced names.
+    if (name.startsWith('config.') || name.startsWith('gui.')) {
+      _pythonScope.write(name, value);
+      return;
+    }
+
     _variables[name] = value;
   }
 
@@ -1504,10 +1564,7 @@ class RenPyRunner {
   }
 
   void _executeDefaultStatement(RenPyDefaultStatement stmt) {
-    _variables.putIfAbsent(
-      stmt.name,
-      () => _evaluateExpression(stmt.expression),
-    );
+    _applyDefault(stmt.name, stmt.expression);
 
     _position++;
     _executeNext();
@@ -2012,9 +2069,16 @@ class RenPyRunner {
   /// [_persistent] is deliberately left untouched so cross-game data persists.
   void _resetScriptState() {
     _variables.clear();
+    // config/gui derive entirely from define/default and are rebuilt by
+    // _processDefines below; clear them so a restart re-seeds from a clean
+    // slate. _persistent is deliberately not cleared so it survives the reset.
+    _config.clear();
+    _gui.clear();
     _characters.clear();
     _audioChannels.clear();
     _transformPlacements.clear();
+    // Re-seed so a restart replays the same deterministic random sequence.
+    _renpyRandom = math.Random(_renpyRandomSeed);
     _lastDialogueEvent = null;
     _transitionResolver = RenPyTransitionResolver.fromScript(script);
     _processDefines();
@@ -2027,6 +2091,90 @@ class RenPyRunner {
 
   void _flushPersistent() {
     _persistentStore?.save(_persistent);
+  }
+
+  /// Emits a play event for a `renpy.music.queue(...)` / `renpy.sound.play(...)`
+  /// call evaluated inside an expression. Arguments arrive already evaluated, so
+  /// the asset and channel are read directly rather than re-parsed. The volume
+  /// setters have no audio-event analogue and are handled as no-ops by the API.
+  void _emitRenpyApiAudio(
+    String function,
+    List<Object?> positional,
+    Map<String, Object?> keywords,
+  ) {
+    final defaultChannel = function.startsWith('music') ? 'music' : 'sound';
+    final asset =
+        (keywords['filenames'] ??
+                keywords['filename'] ??
+                (positional.isNotEmpty ? positional.first : null))
+            ?.toString();
+    if (asset == null) return;
+    final channel =
+        (keywords['channel'] ?? (positional.length > 1 ? positional[1] : null))
+            ?.toString() ??
+        defaultChannel;
+    final registration = _audioChannels[channel];
+    onAudio?.call(
+      RenPyAudioEvent.play(
+        channel: channel,
+        asset: asset,
+        loop:
+            keywords['loop'] is bool
+                ? keywords['loop'] as bool
+                : registration?.loop,
+        mixer: registration?.mixer,
+      ),
+    );
+  }
+}
+
+/// Wires the `renpy.*` shims to the runner. Random is deterministic (sourced
+/// from the runner's seeded generator), `notify` routes to [RenPyRunner.onNotify],
+/// `audio` emits play events for `music.queue`/`sound.play` (the volume setters
+/// are no-ops), and the remaining handled calls return neutral values. Anything
+/// outside the dispatched subset is rejected by the interpreter and falls back.
+class _RunnerRenPyApi implements RenPyApi {
+  _RunnerRenPyApi(this._runner);
+
+  final RenPyRunner _runner;
+
+  @override
+  bool variant(Object? name) => false;
+
+  @override
+  double randomRandom() => _runner._renpyRandom.nextDouble();
+
+  @override
+  int randomRandint(int a, int b) {
+    if (b < a) return a;
+    return a + _runner._renpyRandom.nextInt(b - a + 1);
+  }
+
+  @override
+  Object? randomChoice(List<Object?> sequence) {
+    if (sequence.isEmpty) return null;
+    return sequence[_runner._renpyRandom.nextInt(sequence.length)];
+  }
+
+  @override
+  void notify(Object? message) {
+    _runner.onNotify?.call(message?.toString() ?? '');
+  }
+
+  @override
+  String input(Object? prompt) => '';
+
+  @override
+  void withStatement(Object? transition) {}
+
+  @override
+  void audio(
+    String function,
+    List<Object?> positional,
+    Map<String, Object?> keywords,
+  ) {
+    if (function.endsWith('set_volume')) return;
+    _runner._emitRenpyApiAudio(function, positional, keywords);
   }
 }
 

@@ -20,28 +20,114 @@ abstract class RenPyPythonScope {
 
   /// Writes [value] to [name] in the appropriate scope.
   void write(String name, Object? value);
+
+  /// The handler backing `renpy.*` calls. Defaults to a no-op handler so a
+  /// scope that does not wire one still evaluates `renpy.*` references.
+  RenPyApi get renpy => const _NoOpRenPyApi();
+}
+
+/// The subset of the `renpy.*` module surface the evaluator can call.
+///
+/// A `$ ...` statement or `python:` block that calls, say, `renpy.variant(...)`
+/// or `renpy.random.randint(...)` reaches these methods through the scope. An
+/// implementation maps each onto engine behavior (audio events, notifications)
+/// or a safe stub; the default [_NoOpRenPyApi] makes every call a no-op so the
+/// evaluator never aborts on a `renpy.*` reference. Screen-dependent functions
+/// (`show_screen`, `call_screen`, `display_menu`, ...) are intentionally absent
+/// so they keep falling back until the screen language lands.
+abstract class RenPyApi {
+  /// `renpy.variant(name)` - whether a platform/size variant is active.
+  bool variant(Object? name);
+
+  /// `renpy.random.random()` - a float in `[0.0, 1.0)`.
+  double randomRandom();
+
+  /// `renpy.random.randint(a, b)` - an int in `[a, b]` inclusive.
+  int randomRandint(int a, int b);
+
+  /// `renpy.random.choice(seq)` - one element drawn from [sequence].
+  Object? randomChoice(List<Object?> sequence);
+
+  /// `renpy.notify(message)` - surface a transient notification.
+  void notify(Object? message);
+
+  /// `renpy.input(prompt, ...)` - text input; returns the entered string.
+  String input(Object? prompt);
+
+  /// `renpy.with_statement(transition)` - apply a transition.
+  void withStatement(Object? transition);
+
+  /// `renpy.music.queue(...)` / `renpy.sound.play(...)` and the volume setters.
+  /// [function] is the dotted suffix after `renpy.`, e.g. `music.queue`.
+  void audio(
+    String function,
+    List<Object?> positional,
+    Map<String, Object?> keywords,
+  );
+}
+
+/// A [RenPyApi] whose every method is a no-op (or a neutral return). Used when
+/// no host wires real behavior, so `renpy.*` calls still evaluate cleanly.
+class _NoOpRenPyApi implements RenPyApi {
+  const _NoOpRenPyApi();
+
+  @override
+  bool variant(Object? name) => false;
+
+  @override
+  double randomRandom() => 0.0;
+
+  @override
+  int randomRandint(int a, int b) => a;
+
+  @override
+  Object? randomChoice(List<Object?> sequence) =>
+      sequence.isEmpty ? null : sequence.first;
+
+  @override
+  void notify(Object? message) {}
+
+  @override
+  String input(Object? prompt) => '';
+
+  @override
+  void withStatement(Object? transition) {}
+
+  @override
+  void audio(
+    String function,
+    List<Object?> positional,
+    Map<String, Object?> keywords,
+  ) {}
 }
 
 /// A scope backed by plain Dart maps, one per RenPy namespace.
 ///
 /// The runner passes in the maps it already uses for `store` and `persistent`
 /// state so the two views stay in sync; `config` and `gui` default to fresh
-/// maps when a caller does not supply them.
+/// maps when a caller does not supply them. An optional [renpy] handler backs
+/// the `renpy.*` shims; absent one, a no-op handler is used.
 class RenPyMapScope implements RenPyPythonScope {
   RenPyMapScope({
     required Map<String, Object?> store,
     required Map<String, Object?> persistent,
     Map<String, Object?>? config,
     Map<String, Object?>? gui,
+    RenPyApi? renpy,
   }) : _store = store,
        _persistent = persistent,
        _config = config ?? <String, Object?>{},
-       _gui = gui ?? <String, Object?>{};
+       _gui = gui ?? <String, Object?>{},
+       renpy = renpy ?? const _NoOpRenPyApi();
 
   final Map<String, Object?> _store;
   final Map<String, Object?> _persistent;
   final Map<String, Object?> _config;
   final Map<String, Object?> _gui;
+
+  /// Handler for `renpy.*` calls encountered while evaluating expressions.
+  @override
+  final RenPyApi renpy;
 
   Map<String, Object?> _mapFor(String name) {
     if (name.startsWith('persistent.')) return _persistent;
@@ -1541,6 +1627,16 @@ class _Interpreter {
       // Method call: only resolve the receiver, not the attribute, since
       // methods are not first-class values here.
       final full = target.fullName;
+      // `renpy.*` calls route to the host shim before any name resolution, so
+      // an unhandled name in the chain (there is no `renpy` value in scope)
+      // never raises NameError for a function we do support.
+      if (full != null && full.startsWith('renpy.')) {
+        return _callRenpy(
+          full.substring('renpy.'.length),
+          positional,
+          keywords,
+        );
+      }
       if (full != null && _isScopedName(full) && scope.has(full)) {
         return _callMethod(
           scope.read(full),
@@ -1567,6 +1663,68 @@ class _Interpreter {
       return _callMethod(callee.receiver, callee.name, positional, keywords);
     }
     throw RenPyPythonError('object is not callable');
+  }
+
+  /// Dispatches a `renpy.<function>(...)` call to the scope's [RenPyApi].
+  ///
+  /// [function] is the dotted suffix after `renpy.` (e.g. `variant`,
+  /// `random.randint`, `music.queue`). Only the safe, host-shimmable subset is
+  /// handled; screen-dependent functions (`show_screen`, `call_screen`,
+  /// `display_menu`, `image`, `show`, `hide`, ...) deliberately throw a
+  /// [RenPyPythonError] so the runner keeps falling back rather than faking
+  /// behavior that needs the screen language.
+  Object? _callRenpy(
+    String function,
+    List<Object?> positional,
+    Map<String, Object?> keywords,
+  ) {
+    final api = scope.renpy;
+    switch (function) {
+      case 'variant':
+        return api.variant(positional.isEmpty ? null : positional.first);
+      case 'random.random':
+        return api.randomRandom();
+      case 'random.randint':
+        if (positional.length < 2) {
+          throw RenPyPythonError('renpy.random.randint expects (a, b)');
+        }
+        return api.randomRandint(_asInt(positional[0]), _asInt(positional[1]));
+      case 'random.choice':
+        if (positional.isEmpty) {
+          throw RenPyPythonError('renpy.random.choice expects a sequence');
+        }
+        return api.randomChoice(_asIterable(positional.first).toList());
+      case 'notify':
+        api.notify(positional.isEmpty ? null : positional.first);
+        return null;
+      case 'input':
+        return api.input(positional.isEmpty ? null : positional.first);
+      case 'with_statement':
+        api.withStatement(positional.isEmpty ? null : positional.first);
+        return null;
+      case 'restart_interaction':
+      case 'block_rollback':
+      case 'checkpoint':
+        // Interaction/rollback bookkeeping has no analogue in this runner.
+        return null;
+      case 'get_screen':
+        // No screen system yet; matches RenPy returning None for an absent one.
+        return null;
+      case 'music.queue':
+      case 'music.set_volume':
+      case 'sound.play':
+      case 'sound.set_volume':
+        api.audio(function, positional, keywords);
+        return null;
+      default:
+        throw RenPyPythonError('unsupported renpy.$function');
+    }
+  }
+
+  int _asInt(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    throw RenPyPythonError('expected an integer, got ${_typeName(value)}');
   }
 
   /// Assigns [value] to the target expression [target], supporting bare names,
@@ -2362,6 +2520,9 @@ class _LocalsScope implements RenPyPythonScope {
 
   bool _isLocal(String name) =>
       !_globals.contains(name) && _locals.containsKey(name);
+
+  @override
+  RenPyApi get renpy => _parent.renpy;
 
   @override
   bool has(String name) {
