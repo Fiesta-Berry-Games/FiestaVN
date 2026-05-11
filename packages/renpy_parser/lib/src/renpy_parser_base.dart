@@ -1,10 +1,13 @@
 import 'package:renpy_parser/src/models/renpy_script.dart';
 import 'package:renpy_parser/src/models/renpy_statement.dart';
 import 'package:renpy_parser/src/renpy_lexer.dart';
+import 'package:renpy_parser/src/renpy_screen_parser.dart';
 import 'package:renpy_parser/src/errors/parse_error.dart';
 
 /// The main RenPy parser class responsible for parsing .rpy files.
 class RenPyParser {
+  final RenPyBodyParser _bodyParser = RenPyBodyParser();
+
   /// Parses the content of a RenPy script file.
   RenPyParseResult parse(String content, String filename) {
     final lexer = RenPyLexer(content, filename);
@@ -1299,6 +1302,7 @@ class RenPyParser {
       match.group(1)!.trim(),
       line.filename,
       line.number,
+      children: _bodyParser.parseScreenBody(line.block),
     );
   }
 
@@ -1317,10 +1321,12 @@ class RenPyParser {
       );
     }
 
+    final declaration = match.group(1)!.trim();
     return RenPyStyleStatement(
-      match.group(1)!.trim(),
+      declaration,
       line.filename,
       line.number,
+      style: _bodyParser.parseStyle(declaration, line.block),
     );
   }
 
@@ -1344,6 +1350,7 @@ class RenPyParser {
       line.filename,
       line.number,
       body: _transformBodyLines(line.block),
+      atl: _bodyParser.parseAtl(line.block),
     );
   }
 

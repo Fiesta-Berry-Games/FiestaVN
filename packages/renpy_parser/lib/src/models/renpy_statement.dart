@@ -1,3 +1,5 @@
+import 'renpy_screen.dart';
+
 /// Base class for all RenPy statements.
 abstract class RenPyStatement {
   final String filename;
@@ -411,11 +413,22 @@ class RenPyInitOffsetStatement extends RenPyStatement {
 }
 
 /// Represents a Ren'Py screen-language declaration.
+///
+/// [signature] keeps the raw `name(params)` text for back-compat. [children]
+/// holds the parsed screen body as a tree of [RenPyScreenNode]s.
 class RenPyScreenStatement extends RenPyStatement {
   final String signature;
 
-  RenPyScreenStatement(this.signature, String filename, int linenumber)
-    : super(filename, linenumber);
+  /// The parsed top-level nodes of the screen body. Defaults to empty so
+  /// existing consumers that only read [signature] are unaffected.
+  final List<RenPyScreenNode> children;
+
+  RenPyScreenStatement(
+    this.signature,
+    String filename,
+    int linenumber, {
+    this.children = const [],
+  }) : super(filename, linenumber);
 
   @override
   String toString() {
@@ -424,11 +437,22 @@ class RenPyScreenStatement extends RenPyStatement {
 }
 
 /// Represents a Ren'Py style declaration.
+///
+/// [declaration] keeps the raw `name [is parent]` text for back-compat. [style]
+/// holds the parsed name/parent/properties.
 class RenPyStyleStatement extends RenPyStatement {
   final String declaration;
 
-  RenPyStyleStatement(this.declaration, String filename, int linenumber)
-    : super(filename, linenumber);
+  /// The parsed style structure, or null when the declaration could not be
+  /// structured. Defaults to null so existing consumers are unaffected.
+  final RenPyStyle? style;
+
+  RenPyStyleStatement(
+    this.declaration,
+    String filename,
+    int linenumber, {
+    this.style,
+  }) : super(filename, linenumber);
 
   @override
   String toString() {
@@ -437,15 +461,23 @@ class RenPyStyleStatement extends RenPyStatement {
 }
 
 /// Represents a Ren'Py ATL transform declaration.
+///
+/// [body] keeps the raw indented ATL lines for back-compat. [atl] holds the
+/// parsed ATL node sequence.
 class RenPyTransformStatement extends RenPyStatement {
   final String signature;
   final List<String> body;
+
+  /// The parsed ATL node sequence. Defaults to empty so existing consumers
+  /// that only read [body] are unaffected.
+  final List<RenPyAtlNode> atl;
 
   RenPyTransformStatement(
     this.signature,
     String filename,
     int linenumber, {
     this.body = const [],
+    this.atl = const [],
   }) : super(filename, linenumber);
 
   @override
