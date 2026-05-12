@@ -12,6 +12,7 @@ import 'renpy_flutter_controller.dart';
 import 'renpy_image_layer.dart';
 import 'renpy_preference_store.dart';
 import 'renpy_save_browser.dart';
+import 'renpy_screen_layer.dart';
 
 typedef RenPyLayerBuilder =
     Widget Function(BuildContext context, RenPyFlutterController controller);
@@ -39,6 +40,7 @@ class RenPyPlayer extends StatelessWidget {
     this.dialogueStyle,
     this.gui,
     this.layerOrder,
+    this.screenImageProvider,
   });
 
   final RenPyFlutterController controller;
@@ -55,6 +57,9 @@ class RenPyPlayer extends StatelessWidget {
   final TextStyle? dialogueStyle;
   final RenPyGuiConfiguration? gui;
   final List<String>? layerOrder;
+
+  /// Resolves screen-layer image assets (`add`/`imagebutton`) to providers.
+  final RenPyImageProviderFactory? screenImageProvider;
 
   Future<void> _saveGame(BuildContext context) async {
     final saved = await controller.saveGame();
@@ -157,6 +162,10 @@ class RenPyPlayer extends StatelessWidget {
           textCps: preferences.textCps,
         ),
         RenPyMenuSelector(controller: controller),
+        RenPyScreenLayer(
+          controller: controller,
+          imageProvider: screenImageProvider,
+        ),
         ValueListenableBuilder<RenPyGameStatus>(
           valueListenable: controller,
           builder: (context, status, child) {
@@ -1059,6 +1068,7 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
       gui: widget.project.gui,
       layerOrder: widget.project.visualLayers,
       dialogueImageResolver: _dialogueImageResolver,
+      screenImageProvider: _imageProvider,
     );
   }
 }

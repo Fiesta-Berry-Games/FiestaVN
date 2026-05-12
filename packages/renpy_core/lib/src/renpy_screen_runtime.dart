@@ -56,6 +56,7 @@ class RenPyResolvedDisplayable {
     this.action,
     this.alternateAction,
     this.text,
+    this.interpolatedText,
     this.styleName,
     this.style = const {},
     this.isHasLayout = false,
@@ -81,8 +82,15 @@ class RenPyResolvedDisplayable {
   final RenPyScreenAction? alternateAction;
 
   /// The resolved text content for `text`/`label`/`textbutton`, when present.
-  /// This is the first positional rendered as a string.
+  /// This is the first positional rendered as a string, with RenPy `[var]`
+  /// references left literal (substitution is the renderer's job).
   final String? text;
+
+  /// [text] with RenPy `[expression]` references substituted against the live
+  /// screen scope at resolution time, so it reflects screen parameters and
+  /// `for`/`$` locals the resolved tree no longer carries. Inline `{tags}` are
+  /// preserved for the text renderer. Null when the node carries no text.
+  final String? interpolatedText;
 
   /// The effective style name this displayable resolves to, or null when none
   /// applies.
@@ -257,6 +265,92 @@ class RenPyScreenRuntime {
 
   /// Whether a screen named [name] is registered.
   bool hasScreen(String name) => _screens.containsKey(name);
+
+  /// Substitutes RenPy `[expression]` references in [text] against current
+  /// engine state.
+  ///
+  /// Each `[...]` segment is evaluated as a Python-subset expression. When
+  /// [screenName] is supplied its declared parameters are bound from
+  /// [positional]/[keywords] first, so a screen's `[parameter]` resolves the
+  /// same way the body sees it. A `[[` escapes a literal `[`, matching RenPy.
+  /// Inline `{tags}` are left untouched for the text renderer. A segment that
+  /// fails to evaluate is left verbatim rather than throwing.
+  String interpolate(
+    String text, {
+    String? screenName,
+    List<Object?> positional = const [],
+    Map<String, Object?> keywords = const {},
+  }) {
+    final scope = RenPyScreenScope(_scope);
+    final screen = screenName == null ? null : _screens[screenName];
+    if (screen != null) {
+      _bindParameters(screen.signature, positional, keywords, scope);
+    }
+    return _interpolateWithScope(text, scope);
+  }
+
+  String _interpolateWithScope(String text, RenPyScreenScope scope) {
+    if (!text.contains('[')) return text;
+
+    final buffer = StringBuffer();
+    var i = 0;
+    while (i < text.length) {
+      final char = text[i];
+      if (char == '[') {
+        if (i + 1 < text.length && text[i + 1] == '[') {
+          buffer.write('[');
+          i += 2;
+          continue;
+        }
+        final close = text.indexOf(']', i + 1);
+        if (close < 0) {
+          buffer.write(text.substring(i));
+          break;
+        }
+        final expression = text.substring(i + 1, close);
+        buffer.write(_interpolateExpression(expression, scope));
+        i = close + 1;
+        continue;
+      }
+      buffer.write(char);
+      i += 1;
+    }
+    return buffer.toString();
+  }
+
+  String _interpolateExpression(String expression, RenPyScreenScope scope) {
+    // RenPy allows a `[name!t]`/`[value:format]` suffix; keep the bare
+    // expression and drop a trailing conversion/format spec we cannot apply.
+    var source = expression;
+    final bang = source.indexOf('!');
+    if (bang >= 0) source = source.substring(0, bang);
+    final colon = _formatColon(source);
+    if (colon >= 0) source = source.substring(0, colon);
+    final trimmed = source.trim();
+    if (trimmed.isEmpty) return '[$expression]';
+    try {
+      final value = _evaluator.evaluate(trimmed, scope);
+      return value?.toString() ?? 'None';
+    } on RenPyPythonError {
+      return '[$expression]';
+    }
+  }
+
+  /// Index of a format-spec `:` at the top level (outside brackets), or -1.
+  int _formatColon(String text) {
+    var depth = 0;
+    for (var i = 0; i < text.length; i += 1) {
+      final c = text[i];
+      if (c == '(' || c == '[' || c == '{') {
+        depth += 1;
+      } else if (c == ')' || c == ']' || c == '}') {
+        if (depth > 0) depth -= 1;
+      } else if (depth == 0 && c == ':') {
+        return i;
+      }
+    }
+    return -1;
+  }
 
   /// Resolves the screen named [name] against the current engine state.
   ///
@@ -497,6 +591,8 @@ class RenPyScreenRuntime {
             : _styleResolver.resolve(styleName, scope);
 
     final text = _resolvedText(node.kind, positional);
+    final interpolatedText =
+        text == null ? null : _interpolateWithScope(text, scope);
 
     return RenPyResolvedDisplayable(
       kind: node.kind,
@@ -506,6 +602,7 @@ class RenPyScreenRuntime {
       action: action,
       alternateAction: alternateAction,
       text: text,
+      interpolatedText: interpolatedText,
       styleName: styleName,
       style: style,
     );

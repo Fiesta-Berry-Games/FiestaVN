@@ -267,6 +267,59 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
 
   Map<String, dynamic> get persistent => _runner?.persistent ?? const {};
 
+  /// The screens currently shown on the screen layer, in show order, or empty
+  /// when no script is loaded.
+  List<RenPyShownScreen> get shownScreens =>
+      _runner?.shownScreens ?? const <RenPyShownScreen>[];
+
+  /// The pending `call screen`, when one is blocking, or null.
+  RenPyShownScreen? get pendingCallScreen => _runner?.pendingCallScreen;
+
+  /// Resolves the shown screen named [name] against current engine state.
+  /// Returns null when no script is loaded or the screen is not registered.
+  RenPyResolvedScreen? resolveScreen(
+    String name, {
+    List<Object?> positional = const [],
+    Map<String, Object?> keywords = const {},
+  }) =>
+      _runner?.resolveScreen(name, positional: positional, keywords: keywords);
+
+  /// Substitutes RenPy `[expression]` references in [text] against current
+  /// engine state, binding the named screen's parameters when supplied.
+  String interpolateScreenText(
+    String text, {
+    String? screenName,
+    List<Object?> positional = const [],
+    Map<String, Object?> keywords = const {},
+  }) =>
+      _runner?.interpolateScreenText(
+        text,
+        screenName: screenName,
+        positional: positional,
+        keywords: keywords,
+      ) ??
+      text;
+
+  /// Executes a parsed screen [action] against the runner, routing it through
+  /// the engine and firing [onScreenLayerChanged] so the layer re-resolves.
+  void executeScreenAction(RenPyScreenAction action) {
+    _runner?.executeScreenAction(action);
+  }
+
+  /// Registers a listener for screen-layer changes (`show screen` / `Show` /
+  /// `Hide` / a mutating action). Replaces any prior listener.
+  set onScreenLayerChanged(
+    void Function(List<RenPyShownScreen> shown)? listener,
+  ) {
+    _onScreenLayerChanged = listener;
+    _runner?.onScreenLayerChanged = listener;
+  }
+
+  void Function(List<RenPyShownScreen> shown)? get onScreenLayerChanged =>
+      _onScreenLayerChanged;
+
+  void Function(List<RenPyShownScreen> shown)? _onScreenLayerChanged;
+
   bool get hasSnapshotStore => snapshotStore != null;
 
   bool get hasSlotStore => slotStore != null;
@@ -316,8 +369,10 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
       'Parsed script with ${result.script.statements.length} statements',
     );
 
-    final runner = RenPyRunner(result.script, persistentStore: persistentStore)
-      ..configureCallbacks(this);
+    final runner =
+        RenPyRunner(result.script, persistentStore: persistentStore)
+          ..configureCallbacks(this)
+          ..onScreenLayerChanged = _onScreenLayerChanged;
     _runner = runner;
 
     if (result.script.findLabel('start') != null) {

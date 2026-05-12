@@ -41,6 +41,13 @@ export 'package:renpy_core/renpy_core.dart'
         RenPyGuiConfiguration,
         RenPyProjectFile,
         RenPyScreenSize;
+export 'package:renpy_core/renpy_core.dart'
+    show
+        RenPyResolvedDisplayable,
+        RenPyResolvedScreen,
+        RenPyScreenAction,
+        RenPyScreenActionKind,
+        RenPyShownScreen;
 
 export 'src/renpy_chrome.dart';
 export 'src/renpy_audio_layer.dart';
@@ -49,5 +56,6 @@ export 'src/renpy_image_layer.dart';
 export 'src/renpy_player.dart';
 export 'src/renpy_preference_store.dart';
 export 'src/renpy_save_browser.dart';
+export 'src/renpy_screen_layer.dart';
 export 'src/renpy_text.dart';
 export 'src/renpy_shared_preferences_store.dart';

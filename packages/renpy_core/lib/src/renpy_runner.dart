@@ -294,6 +294,24 @@ class RenPyRunner {
     keywords: keywords,
   );
 
+  /// Substitutes RenPy `[expression]` references in [text] against current
+  /// engine state, used by a renderer to fill a screen's raw text.
+  ///
+  /// When [screenName] is supplied, that screen's declared parameters are
+  /// bound from [positional]/[keywords] first so a `[parameter]` resolves to
+  /// the same value the screen body sees. Inline `{tags}` are left untouched.
+  String interpolateScreenText(
+    String text, {
+    String? screenName,
+    List<Object?> positional = const [],
+    Map<String, Object?> keywords = const {},
+  }) => screenRuntime.interpolate(
+    text,
+    screenName: screenName,
+    positional: positional,
+    keywords: keywords,
+  );
+
   /// The Python-subset expression evaluator and the scope view that shares the
   /// runner's own `_variables`/`_persistent`/`_config`/`_gui` maps. Reads and
   /// in-place mutations (such as `list.append`) flow straight through to engine
