@@ -26,6 +26,7 @@ enum RenPyDiagnosticCode {
   unresolvedImageAsset,
   unresolvedAudioAsset,
   unknownStatement,
+  skippedScreen,
 }
 
 typedef RenPyDiagnosticCallback = void Function(RenPyDiagnostic diagnostic);

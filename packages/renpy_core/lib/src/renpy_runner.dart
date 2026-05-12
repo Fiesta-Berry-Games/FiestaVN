@@ -12,6 +12,8 @@ import 'renpy_image_placement.dart';
 import 'renpy_pause_event.dart';
 import 'renpy_persistent_store.dart';
 import 'renpy_python.dart';
+import 'renpy_screen_action.dart';
+import 'renpy_screen_runtime.dart';
 import 'renpy_transition_event.dart';
 import 'renpy_transition_intent.dart';
 import 'renpy_transition_resolver.dart';
@@ -237,6 +239,61 @@ class RenPyRunner {
   late RenPyTransitionResolver _transitionResolver;
   final Map<String, RenPyImagePlacement> _transformPlacements = {};
 
+  /// Parsed `screen` declarations, keyed by screen name. Collected during
+  /// [_processDefines] and consumed by the screen runtime to resolve a shown
+  /// screen on demand.
+  final Map<String, RenPyScreenStatement> _screens = {};
+
+  /// Parsed `style` declarations, keyed by style name, including their `is`
+  /// parent links. Resolved through the parent chain by the screen runtime.
+  final Map<String, RenPyStyle> _styles = {};
+
+  /// The screens currently shown on the screen layer, in show order. Each entry
+  /// records the screen name plus its (evaluated) invocation arguments so the
+  /// renderer can re-resolve it against current state. A screen tag replaces a
+  /// prior screen with the same tag/name.
+  final List<RenPyShownScreen> _shownScreens = [];
+
+  /// A pending `call screen`, when one is blocking for a [RenPyScreenAction]
+  /// Return value. Null when no call screen is in flight.
+  RenPyShownScreen? _callScreen;
+
+  RenPyScreenRuntime? _screenRuntime;
+
+  /// Notified whenever the set of shown screens changes (`show screen` /
+  /// `hide screen` / a Show/Hide action), passing the current invocations so a
+  /// controller can re-resolve and redraw the screen layer.
+  void Function(List<RenPyShownScreen> shown)? onScreenLayerChanged;
+
+  /// The screens currently on the screen layer, in show order.
+  List<RenPyShownScreen> get shownScreens =>
+      List<RenPyShownScreen>.unmodifiable(_shownScreens);
+
+  /// The pending `call screen` request, or null when none is blocking.
+  RenPyShownScreen? get pendingCallScreen => _callScreen;
+
+  /// The screen runtime, lazily built over the collected screen/style
+  /// registries and the runner's live Python scope. Resolves a screen into a
+  /// platform-neutral [RenPyResolvedScreen] on demand.
+  RenPyScreenRuntime get screenRuntime =>
+      _screenRuntime ??= RenPyScreenRuntime(
+        screens: _screens,
+        styles: _styles,
+        scope: _pythonScope,
+      );
+
+  /// Resolves the screen named [name] against current engine state. Returns
+  /// null when no such screen is registered.
+  RenPyResolvedScreen? resolveScreen(
+    String name, {
+    List<Object?> positional = const [],
+    Map<String, Object?> keywords = const {},
+  }) => screenRuntime.resolveScreen(
+    name,
+    positional: positional,
+    keywords: keywords,
+  );
+
   /// The Python-subset expression evaluator and the scope view that shares the
   /// runner's own `_variables`/`_persistent`/`_config`/`_gui` maps. Reads and
   /// in-place mutations (such as `list.append`) flow straight through to engine
@@ -304,6 +361,10 @@ class RenPyRunner {
           _applyAudioChannelRegistration(statement.code);
         } else if (statement is RenPyTransformStatement) {
           _applyTransformStatement(statement);
+        } else if (statement is RenPyScreenStatement) {
+          _registerScreen(statement);
+        } else if (statement is RenPyStyleStatement) {
+          _registerStyle(statement);
         } else if (statement is RenPyInitStatement) {
           process(statement.block);
         }
@@ -391,6 +452,275 @@ class RenPyRunner {
   String? _transformName(String signature) {
     final match = RegExp(r'^([A-Za-z_]\w*)').firstMatch(signature.trim());
     return match?.group(1);
+  }
+
+  void _registerScreen(RenPyScreenStatement statement) {
+    final name = _screenName(statement.signature);
+    if (name == null) return;
+    _screens[name] = statement;
+  }
+
+  void _registerStyle(RenPyStyleStatement statement) {
+    final style = statement.style;
+    if (style == null) return;
+    _styles[style.name] = style;
+  }
+
+  /// The screen name from a `name(params)` signature.
+  String? _screenName(String signature) {
+    final match = RegExp(r'^([A-Za-z_]\w*)').firstMatch(signature.trim());
+    return match?.group(1);
+  }
+
+  bool _isScreenDirective(String imageName) {
+    final trimmed = imageName.trim();
+    return trimmed == 'screen' || trimmed.startsWith('screen ');
+  }
+
+  String _stripScreenKeyword(String imageName) {
+    final trimmed = imageName.trim();
+    if (trimmed == 'screen') return '';
+    return trimmed.substring('screen '.length).trim();
+  }
+
+  /// Adds a screen invocation to the screen layer and notifies listeners. A
+  /// screen with the same name (its implicit tag) replaces a prior one.
+  void _showScreen(String invocation) {
+    final shown = _shownScreenFor(invocation);
+    if (shown == null) return;
+    _shownScreens.removeWhere((s) => s.tag == shown.tag);
+    _shownScreens.add(shown);
+    _notifyScreenLayerChanged();
+  }
+
+  /// Removes the screen with [name] (its tag) from the screen layer.
+  void _hideScreen(String name) {
+    final tag = _shownScreenFor(name)?.tag ?? name.trim();
+    final before = _shownScreens.length;
+    _shownScreens.removeWhere((s) => s.tag == tag);
+    if (_shownScreens.length != before) {
+      _notifyScreenLayerChanged();
+    }
+  }
+
+  void _notifyScreenLayerChanged() {
+    onScreenLayerChanged?.call(shownScreens);
+  }
+
+  /// Builds a [RenPyShownScreen] from a raw `name(args)` invocation, evaluating
+  /// its argument expressions against the live store. Returns null when no name
+  /// can be extracted.
+  RenPyShownScreen? _shownScreenFor(String invocation) {
+    final trimmed = invocation.trim();
+    if (trimmed.isEmpty) return null;
+    final open = trimmed.indexOf('(');
+    if (open < 0) {
+      return RenPyShownScreen(name: trimmed, tag: trimmed);
+    }
+    final close = trimmed.lastIndexOf(')');
+    final name = trimmed.substring(0, open).trim();
+    if (close <= open) {
+      return RenPyShownScreen(name: name, tag: name);
+    }
+    final inner = trimmed.substring(open + 1, close);
+    final parsed = _pythonCallArguments(inner);
+    final positional = [
+      for (final expression in parsed.positional)
+        _evaluateExpression(expression),
+    ];
+    final keywords = <String, Object?>{
+      for (final entry in parsed.keywords.entries)
+        entry.key: _evaluateExpression(entry.value),
+    };
+    return RenPyShownScreen(
+      name: name,
+      tag: name,
+      positional: positional,
+      keywords: keywords,
+    );
+  }
+
+  /// Performs a parsed screen [action] against engine state.
+  ///
+  /// Return/Jump/Call route into the existing runner control flow, Set/Toggle
+  /// mutate the store through the Python scope, Show/Hide update the screen
+  /// layer, and ShowMenu shows a screen by name. Anything not handled (a
+  /// NullAction, or an action whose target could not be resolved) is a no-op.
+  /// After a mutating action the runner reports the screen layer changed so the
+  /// UI re-resolves screens against the new state.
+  void executeScreenAction(RenPyScreenAction action) {
+    switch (action.kind) {
+      case RenPyScreenActionKind.returnValue:
+        _resolveCallScreen(action.hasValue ? action.value : null);
+      case RenPyScreenActionKind.jump:
+        final label = action.label;
+        if (label != null) jumpToLabel(label);
+      case RenPyScreenActionKind.call:
+        final label = action.label;
+        if (label != null) _callLabelFromAction(label);
+      case RenPyScreenActionKind.showScreen:
+      case RenPyScreenActionKind.showMenu:
+        final name = action.screenName;
+        if (name != null) {
+          _showScreen(
+            _invocationText(name, action.positional, action.keywords),
+          );
+        }
+      case RenPyScreenActionKind.hideScreen:
+        final name = action.screenName;
+        if (name != null) _hideScreen(name);
+      case RenPyScreenActionKind.setVariable:
+      case RenPyScreenActionKind.setScreenVariable:
+        final name = action.target;
+        if (name != null) {
+          _setVariable(name, action.hasValue ? action.value : null);
+          _notifyScreenLayerChanged();
+        }
+      case RenPyScreenActionKind.setField:
+        _applySetField(action);
+      case RenPyScreenActionKind.toggleVariable:
+      case RenPyScreenActionKind.toggleScreenVariable:
+        final name = action.target;
+        if (name != null) {
+          final current = _lookupVariable(name).value;
+          _setVariable(name, !RenPyPythonEvaluator.truthy(current));
+          _notifyScreenLayerChanged();
+        }
+      case RenPyScreenActionKind.toggleField:
+        _applyToggleField(action);
+      case RenPyScreenActionKind.addToSet:
+        _applySetMembership(action, add: true);
+      case RenPyScreenActionKind.removeFromSet:
+        _applySetMembership(action, add: false);
+      case RenPyScreenActionKind.function:
+        _applyFunctionAction(action);
+      case RenPyScreenActionKind.nullAction:
+        break;
+    }
+  }
+
+  String _invocationText(
+    String name,
+    List<Object?> positional,
+    Map<String, Object?> keywords,
+  ) {
+    if (positional.isEmpty && keywords.isEmpty) return name;
+    final args = <String>[
+      for (final value in positional) _literalForArg(value),
+      for (final entry in keywords.entries)
+        '${entry.key}=${_literalForArg(entry.value)}',
+    ];
+    return '$name(${args.join(', ')})';
+  }
+
+  String _literalForArg(Object? value) {
+    if (value is String) return "'$value'";
+    return '$value';
+  }
+
+  /// Routes a Call action label into the call-stack machinery so the called
+  /// label returns to where the player was. The screen layer is left intact.
+  void _callLabelFromAction(String label) {
+    final context = _findLabelContext(label);
+    if (context == null) return;
+    _stack.add(
+      _ExecutionContext(
+        _currentBlock,
+        _position,
+        _ExecutionContextKind.call,
+        callerLabel: _currentLabel,
+      ),
+    );
+    _currentLabel = context.label.name;
+    _currentBlock = context.label.block;
+    _position = 0;
+    _state = RenPyRunnerState.running;
+    _executeNext();
+  }
+
+  /// Resolves a pending `call screen` with [value]: hides the call screen,
+  /// stores the result in `_return`, and resumes execution. With no call screen
+  /// in flight this is a no-op (a bare `Return` outside a call screen).
+  void _resolveCallScreen(Object? value) {
+    final call = _callScreen;
+    if (call == null) return;
+    _callScreen = null;
+    _shownScreens.removeWhere((s) => s.tag == call.tag);
+    _setVariable('_return', value);
+    _notifyScreenLayerChanged();
+    if (_state == RenPyRunnerState.waitingForInput) {
+      _state = RenPyRunnerState.running;
+      _executeNext();
+    }
+  }
+
+  void _applySetField(RenPyScreenAction action) {
+    final object = action.target;
+    final field = action.field;
+    if (object == null || field == null) return;
+    final value = action.hasValue ? action.value : null;
+    final receiver = _evaluateExpression(object);
+    if (receiver is Map) {
+      receiver[field] = value;
+      _notifyScreenLayerChanged();
+    }
+  }
+
+  void _applyToggleField(RenPyScreenAction action) {
+    final object = action.target;
+    final field = action.field;
+    if (object == null || field == null) return;
+    final receiver = _evaluateExpression(object);
+    if (receiver is Map) {
+      receiver[field] = !RenPyPythonEvaluator.truthy(receiver[field]);
+      _notifyScreenLayerChanged();
+    }
+  }
+
+  void _applySetMembership(RenPyScreenAction action, {required bool add}) {
+    final target = action.target;
+    if (target == null || !action.hasValue) return;
+    final collection = _evaluateExpression(target);
+    if (collection is Set) {
+      if (add) {
+        collection.add(action.value);
+      } else {
+        collection.remove(action.value);
+      }
+      _notifyScreenLayerChanged();
+      return;
+    }
+    if (collection is List) {
+      if (add) {
+        if (!collection.contains(action.value)) collection.add(action.value);
+      } else {
+        collection.remove(action.value);
+      }
+      _notifyScreenLayerChanged();
+    }
+  }
+
+  void _applyFunctionAction(RenPyScreenAction action) {
+    final name = action.functionName;
+    if (name == null) return;
+    final args = <String>[
+      for (final value in action.positional) _literalForArg(value),
+      for (final entry in action.keywords.entries)
+        '${entry.key}=${_literalForArg(entry.value)}',
+    ];
+    final call = '$name(${args.join(', ')})';
+    try {
+      _pythonEvaluator.evaluate(call, _pythonScope);
+      _notifyScreenLayerChanged();
+    } on RenPyPythonError {
+      _emitDiagnostic(
+        RenPyDiagnostic(
+          code: RenPyDiagnosticCode.skippedScreen,
+          message: 'Skipped unsupported screen Function action.',
+          detail: action.raw,
+        ),
+      );
+    }
   }
 
   dynamic _evaluateExpression(String expression) {
@@ -882,6 +1212,17 @@ class RenPyRunner {
 
   /// Execute a show statement.
   void _executeShowStatement(RenPyShowStatement stmt) {
+    // `show screen name(args)` adds to the screen layer rather than the image
+    // layer. The parser keeps the leading `screen` token as part of the image
+    // name, so detect it here.
+    if (_isScreenDirective(stmt.imageName)) {
+      _showScreen(_stripScreenKeyword(stmt.imageName));
+      _emitInlineTransition(stmt.withExpression);
+      _position++;
+      _executeNext();
+      return;
+    }
+
     final placement = _placementFor(stmt.atExpression);
     _diagnosePlacement(placement);
     onImageEvent?.call(
@@ -945,6 +1286,15 @@ class RenPyRunner {
   }
 
   void _executeHideStatement(RenPyHideStatement stmt) {
+    // `hide screen name` removes a screen from the screen layer.
+    if (_isScreenDirective(stmt.imageName)) {
+      _hideScreen(_stripScreenKeyword(stmt.imageName));
+      _emitInlineTransition(stmt.withExpression);
+      _position++;
+      _executeNext();
+      return;
+    }
+
     onImageEvent?.call(
       RenPyImageEvent.hide(stmt.imageName, onLayer: stmt.onLayerExpression),
     );
@@ -1730,6 +2080,17 @@ class RenPyRunner {
   void _executeCallStatement(RenPyCallStatement stmt) {
     final target =
         stmt.isExpression ? _resolveDynamicTarget(stmt.target) : stmt.target;
+
+    // `call screen name(args)` blocks for a Return value from the screen. The
+    // parser captures only the literal `screen` token (the screen name and
+    // arguments are dropped), so the request is registered but not auto-
+    // resolvable here; a controller supplies the result via
+    // executeScreenAction(Return(v)). See the call-screen notes in the runtime.
+    if (target == 'screen') {
+      _registerCallScreen(stmt);
+      return;
+    }
+
     final context = _findLabelContext(target);
     if (context == null) {
       throw Exception('Label not found: $target');
@@ -1747,6 +2108,32 @@ class RenPyRunner {
     _currentBlock = context.label.block;
     _position = 0;
     _executeNext();
+  }
+
+  /// Registers a blocking `call screen` request and waits for a Return value.
+  ///
+  /// Because the parser drops the screen name/args for `call screen`, the
+  /// request carries no name yet; it is shown on the layer as a placeholder and
+  /// the runner blocks. `executeScreenAction(Return(v))` resolves it, advancing
+  /// past the call statement.
+  void _registerCallScreen(RenPyCallStatement stmt) {
+    final shown = RenPyShownScreen(name: 'screen', tag: 'screen', isCall: true);
+    _callScreen = shown;
+    _shownScreens.add(shown);
+    _emitDiagnostic(
+      const RenPyDiagnostic(
+        code: RenPyDiagnosticCode.skippedScreen,
+        message:
+            'call screen name/args are not recoverable from the parsed '
+            'statement; blocking for Return().',
+        detail: 'call screen',
+      ),
+    );
+    _notifyScreenLayerChanged();
+    // Advance past the call statement now; the Return value lands in `_return`.
+    // RenPy blocks the script here until Return; we mirror that by waiting.
+    _position++;
+    _state = RenPyRunnerState.waitingForInput;
   }
 
   void _executeNvlStatement(RenPyNvlStatement stmt) {
@@ -2077,6 +2464,11 @@ class RenPyRunner {
     _characters.clear();
     _audioChannels.clear();
     _transformPlacements.clear();
+    _screens.clear();
+    _styles.clear();
+    _shownScreens.clear();
+    _callScreen = null;
+    _screenRuntime = null;
     // Re-seed so a restart replays the same deterministic random sequence.
     _renpyRandom = math.Random(_renpyRandomSeed);
     _lastDialogueEvent = null;
