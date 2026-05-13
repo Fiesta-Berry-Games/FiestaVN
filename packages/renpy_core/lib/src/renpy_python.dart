@@ -256,6 +256,10 @@ class RenPyPythonExecutor {
     } on _LoopSignal {
       // A stray break/continue outside a loop: treat as a no-op rather than a
       // fatal error so the surrounding script keeps running.
+    } on _RaisedException catch (e) {
+      // An uncaught `raise` surfaces as a RenPyPythonError so the runner falls
+      // back gracefully rather than aborting on the control-flow signal.
+      throw RenPyPythonError('uncaught exception: ${e.value}');
     } catch (e) {
       throw RenPyPythonError('execution failed: $e');
     }
@@ -1345,6 +1349,8 @@ class _Interpreter {
     if (scope.has(name)) return scope.read(name);
     final builtin = _builtins[name];
     if (builtin != null) return _BuiltinFunction(name, builtin);
+    final exceptionType = _builtinExceptions[name];
+    if (exceptionType != null) return exceptionType;
     throw RenPyPythonNameError(name);
   }
 
@@ -1355,7 +1361,40 @@ class _Interpreter {
       if (scope.has(full)) return scope.read(full);
     }
     final target = node.target.eval(this);
-    return _BoundMethod(target, node.attribute);
+    return getAttribute(target, node.attribute);
+  }
+
+  /// Reads attribute [name] off [target], resolving instance attributes, bound
+  /// methods, class attributes and module stubs before falling back to a
+  /// [_BoundMethod] for the builtin collection methods.
+  Object? getAttribute(Object? target, String name) {
+    if (target is _PythonInstance) {
+      if (target.attributes.containsKey(name)) return target.attributes[name];
+      final method = target.cls.findMethod(name);
+      if (method != null) return _BoundUserMethod(target, method);
+      if (target.cls.hasClassAttribute(name)) {
+        return target.cls.readClassAttribute(name);
+      }
+      throw RenPyPythonError(
+        '${target.cls.name} object has no attribute `$name`',
+      );
+    }
+    if (target is _PythonClass) {
+      final method = target.findMethod(name);
+      if (method != null) return method;
+      if (target.hasClassAttribute(name)) {
+        return target.readClassAttribute(name);
+      }
+      throw RenPyPythonError('${target.name} has no attribute `$name`');
+    }
+    if (target is _StubModule) {
+      if (target.attributes.containsKey(name)) return target.attributes[name];
+      final fn = target.functions[name];
+      if (fn != null) return _BuiltinFunction('${target.name}.$name', fn);
+      // Unknown module member: an opaque stub keeps deeper chains alive.
+      return _StubModule('${target.name}.$name');
+    }
+    return _BoundMethod(target, name);
   }
 
   bool _isScopedName(String name) =>
@@ -1646,15 +1685,46 @@ class _Interpreter {
         );
       }
       final receiver = target.target.eval(this);
+      if (receiver is _PythonInstance ||
+          receiver is _PythonClass ||
+          receiver is _StubModule) {
+        // Resolve the member as a value (bound method, stub function, ...) and
+        // dispatch through the unified callable path.
+        return invoke(
+          getAttribute(receiver, target.attribute),
+          positional,
+          keywords,
+        );
+      }
       return _callMethod(receiver, target.attribute, positional, keywords);
     }
 
-    final callee = target.eval(this);
+    return invoke(target.eval(this), positional, keywords);
+  }
+
+  /// Invokes [callee] with already-evaluated arguments, dispatching across the
+  /// callable value kinds: builtins, user functions, bound instance methods,
+  /// class constructors and opaque module stubs.
+  Object? invoke(
+    Object? callee,
+    List<Object?> positional,
+    Map<String, Object?> keywords,
+  ) {
     if (callee is _BuiltinFunction) {
       return callee.invoke(this, positional, keywords);
     }
     if (callee is _UserFunction) {
       return callee.invoke(positional, keywords);
+    }
+    if (callee is _BoundUserMethod) {
+      return callee.invoke(positional, keywords);
+    }
+    if (callee is _PythonClass) {
+      return _instantiate(callee, positional, keywords);
+    }
+    if (callee is _StubModule) {
+      // Calling an opaque stub yields another opaque stub.
+      return _StubModule('${callee.name}()');
     }
     if (callee is _BoundMethod) {
       if (callee.receiver is _UserFunction) {
@@ -1663,6 +1733,27 @@ class _Interpreter {
       return _callMethod(callee.receiver, callee.name, positional, keywords);
     }
     throw RenPyPythonError('object is not callable');
+  }
+
+  /// Constructs an instance of [cls], running `__init__` (resolved up the base
+  /// chain) with the receiver bound as the first parameter.
+  _PythonInstance _instantiate(
+    _PythonClass cls,
+    List<Object?> positional,
+    Map<String, Object?> keywords,
+  ) {
+    final instance = _PythonInstance(cls);
+    final init = cls.findMethod('__init__');
+    if (init != null) {
+      init.invoke([instance, ...positional], keywords);
+    } else if (cls.isExceptionLike) {
+      // Exception stubs keep their message as `message` for `except ... as e`.
+      instance.attributes['message'] =
+          positional.isEmpty ? '' : _str(positional.first);
+    } else if (positional.isNotEmpty || keywords.isNotEmpty) {
+      throw RenPyPythonError('${cls.name}() takes no arguments');
+    }
+    return instance;
   }
 
   /// Dispatches a `renpy.<function>(...)` call to the scope's [RenPyApi].
@@ -1742,6 +1833,14 @@ class _Interpreter {
         return;
       }
       final receiver = target.target.eval(this);
+      if (receiver is _PythonInstance) {
+        receiver.attributes[target.attribute] = value;
+        return;
+      }
+      if (receiver is _PythonClass) {
+        receiver.attributes[target.attribute] = value;
+        return;
+      }
       if (receiver is Map) {
         receiver[target.attribute] = value;
         return;
@@ -2253,6 +2352,8 @@ class _Interpreter {
     if (value is List) return 'list';
     if (value is Map) return 'dict';
     if (value is Set) return 'set';
+    if (value is _PythonInstance) return value.cls.name;
+    if (value is _PythonClass) return 'type';
     return value.runtimeType.toString();
   }
 
@@ -2271,6 +2372,15 @@ class _Interpreter {
     if (value is Map) {
       return '{${value.entries.map((e) => '${_repr(e.key)}: ${_repr(e.value)}').join(', ')}}';
     }
+    if (value is _PythonInstance) {
+      final str = value.cls.findMethod('__str__');
+      if (str != null) return _str(str.invoke([value], const {}));
+      if (value.cls.isExceptionLike) {
+        return '${value.attributes['message'] ?? ''}';
+      }
+      return '<${value.cls.name} object>';
+    }
+    if (value is _PythonClass) return "<class '${value.name}'>";
     return value.toString();
   }
 
@@ -2388,6 +2498,26 @@ class _Interpreter {
     'type': (a, k) => _typeName(a[0]),
   };
 
+  /// A small set of builtin exception classes so `raise ValueError("...")` and
+  /// `except ValueError as e:` work without a real exception hierarchy. They
+  /// all descend (by name only) from `Exception`, which a bare except already
+  /// covers; matching is by exact type name.
+  static final Map<String, _PythonClass> _builtinExceptions = {
+    for (final name in const [
+      'Exception',
+      'ValueError',
+      'KeyError',
+      'IndexError',
+      'TypeError',
+      'RuntimeError',
+      'StopIteration',
+      'AttributeError',
+      'ZeroDivisionError',
+      'NotImplementedError',
+    ])
+      name: _PythonClass(name, null, {}, {}, isException: true),
+  };
+
   Object? _minMax(List<Object?> args, {required bool isMin}) {
     final items = args.length == 1 ? _asIterable(args[0]).toList() : args;
     if (items.isEmpty) throw RenPyPythonError('min()/max() of empty sequence');
@@ -2433,6 +2563,9 @@ class _Interpreter {
   bool _isinstance(Object? value, Object? type) {
     final types = type is List ? type : [type];
     for (final t in types) {
+      if (t is _PythonClass && value is _PythonInstance) {
+        if (value.cls.isSubclassOf(t)) return true;
+      }
       if (t is _BuiltinFunction) {
         final matched = switch (t.name) {
           'int' => value is int,
@@ -2480,6 +2613,126 @@ class _BoundMethod {
 }
 
 // ---------------------------------------------------------------------------
+// Classes & instances
+// ---------------------------------------------------------------------------
+
+/// A user-defined class value, produced by a `class Name(Base):` statement and
+/// callable to construct an instance.
+///
+/// Methods are stored as [_UserFunction]s closing over the scope the class was
+/// defined in, and class-level attributes (plain assignments in the body) are
+/// stored alongside them. Single inheritance is supported through [base]:
+/// attribute and method lookups that miss this class walk up the base chain.
+/// `super()`, multiple bases and metaclasses are out of scope and the parser
+/// rejects them so the runner falls back.
+class _PythonClass {
+  _PythonClass(
+    this.name,
+    this.base,
+    this.methods,
+    this.attributes, {
+    this.isException = false,
+  });
+
+  final String name;
+  final _PythonClass? base;
+  final Map<String, _UserFunction> methods;
+  final Map<String, Object?> attributes;
+
+  /// Whether this is a builtin exception stub, which tolerates constructor
+  /// arguments (stored as the instance's message) without a `__init__`.
+  final bool isException;
+
+  /// Whether this class or any base is an exception type, so a user subclass
+  /// of `Exception` also accepts a message argument.
+  bool get isExceptionLike => isException || (base?.isExceptionLike ?? false);
+
+  /// Resolves [name] to a method anywhere on the class chain, or `null`.
+  _UserFunction? findMethod(String name) {
+    final local = methods[name];
+    if (local != null) return local;
+    return base?.findMethod(name);
+  }
+
+  /// Whether [name] names a class-level attribute on this class or a base.
+  bool hasClassAttribute(String name) {
+    if (attributes.containsKey(name)) return true;
+    return base?.hasClassAttribute(name) ?? false;
+  }
+
+  /// Reads a class-level attribute from this class or a base.
+  Object? readClassAttribute(String name) {
+    if (attributes.containsKey(name)) return attributes[name];
+    return base?.readClassAttribute(name);
+  }
+
+  /// Whether this class is [other] or descends from it, for `isinstance`.
+  bool isSubclassOf(_PythonClass other) {
+    if (identical(this, other)) return true;
+    return base?.isSubclassOf(other) ?? false;
+  }
+}
+
+/// An instance of a [_PythonClass], holding its own attribute map plus a link
+/// back to its class for method and class-attribute resolution.
+class _PythonInstance {
+  _PythonInstance(this.cls);
+
+  final _PythonClass cls;
+  final Map<String, Object?> attributes = {};
+}
+
+/// A method bound to a receiver instance, so the receiver is passed as the
+/// first parameter (`self`) when the method is finally invoked.
+class _BoundUserMethod {
+  _BoundUserMethod(this.receiver, this.function);
+
+  final _PythonInstance receiver;
+  final _UserFunction function;
+
+  Object? invoke(List<Object?> positional, Map<String, Object?> keywords) =>
+      function.invoke([receiver, ...positional], keywords);
+}
+
+// ---------------------------------------------------------------------------
+// Imports
+// ---------------------------------------------------------------------------
+
+/// An opaque value standing in for an imported module or name.
+///
+/// No real module system exists; `import` only needs to keep referencing the
+/// name from crashing. A bare stub resolves any attribute to another stub and
+/// is callable to another stub, so chains like `os.path.join(...)` evaluate
+/// without aborting (returning opaque values). The `math` module is given a
+/// small concrete [functions]/[attributes] table so the common constants and
+/// functions behave; anything outside it falls back to opaque behavior.
+class _StubModule {
+  _StubModule(
+    this.name, {
+    Map<String, Object?>? attributes,
+    Map<String, _BuiltinImpl>? functions,
+  }) : attributes = attributes ?? const {},
+       functions = functions ?? const {};
+
+  final String name;
+  final Map<String, Object?> attributes;
+  final Map<String, _BuiltinImpl> functions;
+
+  /// The `math` module subset commonly seen in real games.
+  static _StubModule mathModule() => _StubModule(
+    'math',
+    attributes: {'pi': math.pi, 'e': math.e},
+    functions: {
+      'floor': (a, k) => (a[0] as num).floor(),
+      'ceil': (a, k) => (a[0] as num).ceil(),
+      'sqrt': (a, k) => math.sqrt(a[0] as num),
+      'sin': (a, k) => math.sin(a[0] as num),
+      'cos': (a, k) => math.cos(a[0] as num),
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Statement execution: control-flow signals
 // ---------------------------------------------------------------------------
 
@@ -2493,6 +2746,17 @@ class _ReturnSignal {
 class _LoopSignal {
   _LoopSignal(this.isBreak);
   final bool isBreak;
+}
+
+/// Thrown by a `raise` statement to unwind up to the nearest `try`/`except`.
+///
+/// [value] is whatever the program raised - typically a string, an exception
+/// instance ([_PythonInstance]) or its class ([_PythonClass]). [typeName] is
+/// the best-effort name used to match `except <Type>` clauses.
+class _RaisedException {
+  _RaisedException(this.value, this.typeName);
+  final Object? value;
+  final String typeName;
 }
 
 // ---------------------------------------------------------------------------
@@ -2809,6 +3073,193 @@ void _execBody(List<_Statement> body, _Interpreter interp) {
   }
 }
 
+/// A `class Name(Base):` definition.
+///
+/// The body is a mix of `def` methods, class-level attribute assignments and
+/// `pass`. At exec time the methods become [_UserFunction]s closing over the
+/// defining scope, the attribute assignments run into a fresh map, an optional
+/// single base name resolves to its [_PythonClass], and the resulting class is
+/// written into the scope.
+class _ClassStatement implements _Statement {
+  _ClassStatement(this.name, this.baseName, this.body);
+  final String name;
+  final String? baseName;
+  final List<_Statement> body;
+
+  @override
+  void exec(_Interpreter interp) {
+    _PythonClass? base;
+    if (baseName != null) {
+      final resolved = interp.readName(baseName!);
+      if (resolved is! _PythonClass) {
+        throw RenPyPythonError('base class `$baseName` is not a class');
+      }
+      base = resolved;
+    }
+
+    final methods = <String, _UserFunction>{};
+    final attributes = <String, Object?>{};
+    for (final statement in body) {
+      if (statement is _DefStatement) {
+        methods[statement.name] = _UserFunction(
+          statement.name,
+          statement.spec,
+          statement.body,
+          interp.scope,
+        );
+      } else if (statement is _AssignStatement) {
+        final value = statement.value.eval(interp);
+        for (final target in statement.targets) {
+          if (target is! _NameNode) {
+            throw RenPyPythonError('unsupported class-level assignment target');
+          }
+          attributes[target.name] = value;
+        }
+      } else if (statement is _PassStatement) {
+        // Nothing to do.
+      } else {
+        throw RenPyPythonError('unsupported statement in class body');
+      }
+    }
+
+    interp.scope.write(name, _PythonClass(name, base, methods, attributes));
+  }
+}
+
+/// An `import`, `import X as Y` or `from X import a, b` statement.
+///
+/// There is no real module system: each imported name is bound to an opaque
+/// [_StubModule] so referencing it never crashes, with `math` given a concrete
+/// stub. The names bound are recorded so exec can write them all into scope.
+class _ImportStatement implements _Statement {
+  _ImportStatement(this.bindings);
+
+  /// Local name -> the module path it stands for (used to special-case `math`).
+  final Map<String, String> bindings;
+
+  @override
+  void exec(_Interpreter interp) {
+    bindings.forEach((local, module) {
+      interp.scope.write(local, _moduleFor(module));
+    });
+  }
+
+  static Object? _moduleFor(String module) {
+    if (module == 'math') return _StubModule.mathModule();
+    // `from math import sqrt` binds `math.sqrt` to the concrete stub member.
+    if (module.startsWith('math.')) {
+      final member = module.substring('math.'.length);
+      final mathModule = _StubModule.mathModule();
+      if (mathModule.attributes.containsKey(member)) {
+        return mathModule.attributes[member];
+      }
+      final fn = mathModule.functions[member];
+      if (fn != null) return _BuiltinFunction('math.$member', fn);
+    }
+    return _StubModule(module);
+  }
+}
+
+/// A `raise` statement.
+///
+/// `raise Type(...)`, `raise Type` and `raise <value>` are supported; a bare
+/// `raise` is rejected (no exception context is tracked). The raised value is
+/// wrapped in a [_RaisedException] so `try`/`except` can match and catch it.
+class _RaiseStatement implements _Statement {
+  _RaiseStatement(this.value);
+  final _Node value;
+
+  @override
+  void exec(_Interpreter interp) {
+    final raised = value.eval(interp);
+    throw _RaisedException(raised, _typeNameOf(raised));
+  }
+
+  static String _typeNameOf(Object? value) {
+    if (value is _PythonInstance) return value.cls.name;
+    if (value is _PythonClass) return value.name;
+    return '';
+  }
+}
+
+/// A single `except [Type [as name]]:` clause.
+class _ExceptClause {
+  _ExceptClause(this.typeName, this.alias, this.body);
+
+  /// The matched exception type name, or `null` for a bare `except:`.
+  final String? typeName;
+  final String? alias;
+  final List<_Statement> body;
+}
+
+/// A `try: ... except ...: ... [else:] [finally:]` statement.
+///
+/// The try body runs; on a [_RaisedException] (or a [RenPyPythonError]
+/// surfaced from an unsupported/failed operation) the first matching except
+/// clause runs, with a bare `except` catching anything. `else` runs only when
+/// the body completed without an exception, and `finally` always runs last.
+class _TryStatement implements _Statement {
+  _TryStatement(this.body, this.handlers, this.orElse, this.finalBody);
+  final List<_Statement> body;
+  final List<_ExceptClause> handlers;
+  final List<_Statement>? orElse;
+  final List<_Statement>? finalBody;
+
+  @override
+  void exec(_Interpreter interp) {
+    try {
+      var raised = false;
+      try {
+        _execBody(body, interp);
+      } on _RaisedException catch (e) {
+        raised = true;
+        _handle(interp, e.value, e.typeName);
+      } on RenPyPythonError catch (e) {
+        // A failure inside the try body is catchable too, so a `try/except`
+        // around unsupported operations degrades within the script.
+        raised = true;
+        _handle(interp, e.message, '');
+      }
+      if (!raised && orElse != null) _execBody(orElse!, interp);
+    } finally {
+      if (finalBody != null) _execBody(finalBody!, interp);
+    }
+  }
+
+  void _handle(_Interpreter interp, Object? value, String typeName) {
+    for (final handler in handlers) {
+      if (_matches(handler.typeName, value, typeName)) {
+        if (handler.alias != null) {
+          interp.scope.write(handler.alias!, value);
+        }
+        _execBody(handler.body, interp);
+        return;
+      }
+    }
+    // No clause matched: re-raise so an outer handler (or the executor's
+    // normalization) can deal with it.
+    throw _RaisedException(value, typeName);
+  }
+
+  bool _matches(String? clauseType, Object? value, String typeName) {
+    if (clauseType == null) return true; // bare except catches anything
+    if (clauseType == typeName) return true;
+    // A user instance matches any base class on its chain by name.
+    if (value is _PythonInstance) {
+      for (_PythonClass? c = value.cls; c != null; c = c.base) {
+        if (c.name == clauseType) return true;
+      }
+    }
+    // Builtin exceptions are all conceptually `Exception` subclasses.
+    if (clauseType == 'Exception' &&
+        value is _PythonInstance &&
+        value.cls.isExceptionLike) {
+      return true;
+    }
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Statement parser
 // ---------------------------------------------------------------------------
@@ -2880,6 +3331,10 @@ class _StatementParser {
         return [_parseFor(line.indent)];
       case 'def':
         return [_parseDef(line.indent)];
+      case 'class':
+        return [_parseClass(line.indent)];
+      case 'try':
+        return [_parseTry(line.indent)];
     }
 
     // A simple (non-compound) statement, possibly several split by `;`.
@@ -2988,6 +3443,152 @@ class _StatementParser {
     return _DefStatement(name, spec, body);
   }
 
+  _Statement _parseClass(int indent) {
+    final header = _lines[_index].text.trim();
+    if (!header.endsWith(':')) {
+      throw RenPyPythonError('expected `:` ending `class` header');
+    }
+    final signature = header.substring(0, header.length - 1).trim();
+    final match = RegExp(
+      r'^class\s+([A-Za-z_]\w*)\s*(?:\(([^)]*)\))?$',
+    ).firstMatch(signature);
+    if (match == null) throw RenPyPythonError('malformed `class` header');
+    final name = match.group(1)!;
+    final baseList = match.group(2)?.trim() ?? '';
+    String? baseName;
+    if (baseList.isNotEmpty) {
+      final bases = baseList
+          .split(',')
+          .map((b) => b.trim())
+          .where((b) => b.isNotEmpty);
+      if (bases.length > 1) {
+        throw RenPyPythonError('multiple inheritance is not supported');
+      }
+      final only = bases.first;
+      // `object` is Python's implicit root; treat it as no explicit base.
+      if (only.contains('=') || only.startsWith('metaclass')) {
+        throw RenPyPythonError('class keyword arguments are not supported');
+      }
+      if (only != 'object') baseName = only;
+    }
+    _index += 1;
+    final body = _parseBody(indent);
+    if (body.isEmpty) throw RenPyPythonError('empty `class` body');
+    return _ClassStatement(name, baseName, body);
+  }
+
+  _Statement _parseTry(int indent) {
+    final header = _lines[_index].text.trim();
+    if (header != 'try:') throw RenPyPythonError('malformed `try` header');
+    _index += 1;
+    final body = _parseBody(indent);
+    if (body.isEmpty) throw RenPyPythonError('empty `try` body');
+
+    final handlers = <_ExceptClause>[];
+    while (_index < _lines.length &&
+        _lines[_index].indent == indent &&
+        _leadingKeyword(_lines[_index].text) == 'except') {
+      handlers.add(_parseExcept(indent));
+    }
+
+    List<_Statement>? orElse;
+    if (_index < _lines.length &&
+        _lines[_index].indent == indent &&
+        _leadingKeyword(_lines[_index].text) == 'else') {
+      orElse = _parseElse(indent);
+    }
+
+    List<_Statement>? finalBody;
+    if (_index < _lines.length &&
+        _lines[_index].indent == indent &&
+        _leadingKeyword(_lines[_index].text) == 'finally') {
+      final headerText = _lines[_index].text.trim();
+      if (headerText != 'finally:') {
+        throw RenPyPythonError('malformed `finally`');
+      }
+      _index += 1;
+      finalBody = _parseBody(indent);
+      if (finalBody.isEmpty) throw RenPyPythonError('empty `finally` body');
+    }
+
+    if (handlers.isEmpty && finalBody == null) {
+      throw RenPyPythonError('`try` needs an `except` or `finally`');
+    }
+    return _TryStatement(body, handlers, orElse, finalBody);
+  }
+
+  _ExceptClause _parseExcept(int indent) {
+    final header = _lines[_index].text.trim();
+    if (!header.endsWith(':')) {
+      throw RenPyPythonError('expected `:` ending `except` header');
+    }
+    final spec = header.substring('except'.length, header.length - 1).trim();
+    String? typeName;
+    String? alias;
+    if (spec.isNotEmpty) {
+      final match = RegExp(
+        r'^([A-Za-z_]\w*)(?:\s+as\s+([A-Za-z_]\w*))?$',
+      ).firstMatch(spec);
+      if (match == null) {
+        // Tuples of types and dotted names are out of scope.
+        throw RenPyPythonError('unsupported `except` clause `$spec`');
+      }
+      typeName = match.group(1);
+      alias = match.group(2);
+    }
+    _index += 1;
+    final body = _parseBody(indent);
+    if (body.isEmpty) throw RenPyPythonError('empty `except` body');
+    return _ExceptClause(typeName, alias, body);
+  }
+
+  _Statement _parseImport(String trimmed) {
+    final bindings = <String, String>{};
+    if (trimmed.startsWith('from ')) {
+      final match = RegExp(
+        r'^from\s+([\w.]+)\s+import\s+(.+)$',
+      ).firstMatch(trimmed);
+      if (match == null) throw RenPyPythonError('malformed `from import`');
+      if (match.group(2)!.trim() == '*') {
+        throw RenPyPythonError('`from import *` is not supported');
+      }
+      for (final piece in match.group(2)!.split(',')) {
+        final name = piece.trim();
+        if (name.isEmpty) continue;
+        final asMatch = RegExp(r'^(\w+)(?:\s+as\s+(\w+))?$').firstMatch(name);
+        if (asMatch == null) throw RenPyPythonError('malformed import name');
+        final local = asMatch.group(2) ?? asMatch.group(1)!;
+        bindings[local] = '${match.group(1)}.${asMatch.group(1)}';
+      }
+    } else {
+      final spec = trimmed.substring('import'.length).trim();
+      if (spec.isEmpty) throw RenPyPythonError('malformed `import`');
+      for (final piece in spec.split(',')) {
+        final name = piece.trim();
+        if (name.isEmpty) continue;
+        final asMatch = RegExp(
+          r'^([\w.]+)(?:\s+as\s+(\w+))?$',
+        ).firstMatch(name);
+        if (asMatch == null) throw RenPyPythonError('malformed import name');
+        final module = asMatch.group(1)!;
+        // `import a.b.c` binds the top-level `a`; `import a.b as c` binds `c`.
+        final local = asMatch.group(2) ?? module.split('.').first;
+        bindings[local] = asMatch.group(2) != null ? module : local;
+      }
+    }
+    if (bindings.isEmpty) throw RenPyPythonError('malformed `import`');
+    return _ImportStatement(bindings);
+  }
+
+  _Statement _parseRaise(String trimmed) {
+    final rest = trimmed.substring('raise'.length).trim();
+    if (rest.isEmpty) {
+      // A bare re-raise has no exception context to reuse here.
+      throw RenPyPythonError('bare `raise` is not supported');
+    }
+    return _RaiseStatement(_parseFragment(rest));
+  }
+
   _Statement _parseSimpleStatement(String text) {
     final trimmed = text.trim();
     if (trimmed.isEmpty || trimmed == 'pass') return const _PassStatement();
@@ -3011,12 +3612,16 @@ class _StatementParser {
       return _GlobalStatement(names);
     }
 
-    if (trimmed.startsWith('import ') ||
-        trimmed.startsWith('from ') ||
-        trimmed.startsWith('class ') ||
-        trimmed.startsWith('with ') ||
-        trimmed.startsWith('try') ||
-        trimmed.startsWith('raise ') ||
+    if (trimmed == 'import' ||
+        trimmed.startsWith('import ') ||
+        trimmed.startsWith('from ')) {
+      return _parseImport(trimmed);
+    }
+    if (trimmed == 'raise' || trimmed.startsWith('raise ')) {
+      return _parseRaise(trimmed);
+    }
+
+    if (trimmed.startsWith('with ') ||
         trimmed.startsWith('assert ') ||
         trimmed.startsWith('del ') ||
         trimmed.startsWith('yield') ||

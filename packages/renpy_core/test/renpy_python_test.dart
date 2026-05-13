@@ -465,14 +465,12 @@ out = collect(1, 2, 3, mode="x")
 
     test('unsupported constructs raise RenPyPythonError', () {
       expect(
-        () => run('class Foo:\n    pass\n'),
+        () => run('with open("x") as f:\n    pass\n'),
         throwsA(isA<RenPyPythonError>()),
       );
-      expect(() => run('import os\n'), throwsA(isA<RenPyPythonError>()));
-      expect(
-        () => run('try:\n    a = 1\nexcept:\n    a = 2\n'),
-        throwsA(isA<RenPyPythonError>()),
-      );
+      expect(() => run('del a\n'), throwsA(isA<RenPyPythonError>()));
+      expect(() => run('yield 1\n'), throwsA(isA<RenPyPythonError>()));
+      expect(() => run('assert x == 1\n'), throwsA(isA<RenPyPythonError>()));
     });
   });
 }

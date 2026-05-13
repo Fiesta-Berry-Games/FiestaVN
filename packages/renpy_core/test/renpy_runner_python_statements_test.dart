@@ -135,22 +135,24 @@ label start:
     expect(result.runner.variableValue('hp'), 50);
   });
 
-  test('unsupported class block falls back to a skip and keeps running', () {
+  test('class block executes and constructs instances', () {
     final result = play('''
 label start:
     python:
         class Enemy:
-            pass
+            def __init__(self, hp):
+                self.hp = hp
+        boss = Enemy(30)
+        boss_hp = boss.hp
     "After the block."
 ''');
 
-    // The block is skipped, not fatal: the script reaches the next line.
     expect(result.runner.state, isNot(RenPyRunnerState.error));
     expect(result.dialogue, ['After the block.']);
-    expect(skipped(result.diagnostics), isNotEmpty);
+    expect(result.runner.variableValue('boss_hp'), 30);
   });
 
-  test('unsupported import statement falls back without aborting', () {
+  test('import block is non-fatal and runs its assignments', () {
     final result = play('''
 label start:
     python:
@@ -161,9 +163,9 @@ label start:
 
     expect(result.runner.state, isNot(RenPyRunnerState.error));
     expect(result.dialogue, ['Survived.']);
-    expect(skipped(result.diagnostics), isNotEmpty);
-    // The whole block was skipped, so its assignment did not take effect.
-    expect(result.runner.variableValue('x'), isNull);
+    // The block executed: the import is a non-fatal stub and the assignment
+    // took effect.
+    expect(result.runner.variableValue('x'), 1);
   });
 }
 
