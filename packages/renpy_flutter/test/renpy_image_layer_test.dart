@@ -3,6 +3,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:renpy_core/renpy_core.dart'
+    show RenPyAtlProgram, RenPyParser, RenPyTransformStatement;
 import 'package:renpy_flutter/renpy_flutter.dart';
 
 void main() {
@@ -1087,6 +1089,86 @@ void main() {
       ),
       isTrue,
     );
+  });
+
+  testWidgets('sprite with an ATL transform animates across frames', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    final program = RenPyAtlProgram.compile(
+      RenPyParser()
+          .parse('''
+transform slide:
+    xpos 0.0
+    linear 1.0 xpos 1.0
+''', 'slide.rpy')
+          .script
+          .statements
+          .whereType<RenPyTransformStatement>()
+          .first
+          .atl,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyImageLayer(
+          controller: controller,
+          atlResolver: (name) => name == 'slide' ? program : null,
+        ),
+      ),
+    );
+
+    controller.value = RenPyImageChange(
+      show: 'eileen',
+      showAt: 'slide',
+      showAsset: 'assets/eileen.png',
+    );
+    await tester.pump();
+
+    final start = _spriteAnchor(tester, 'eileen');
+    await tester.pump(const Duration(milliseconds: 500));
+    final mid = _spriteAnchor(tester, 'eileen');
+    await tester.pump(const Duration(milliseconds: 500));
+    final end = _spriteAnchor(tester, 'eileen');
+
+    // xpos goes 0 -> 1 over the stage, so the anchor x strictly advances.
+    expect(mid.dx, greaterThan(start.dx));
+    expect(end.dx, greaterThan(mid.dx));
+
+    // Clean up the running ticker before the test ends.
+    controller.value = RenPyImageChange(hide: 'eileen');
+    await tester.pump();
+  });
+
+  testWidgets('static sprite is unaffected when no ATL resolves', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyImageLayer(
+          controller: controller,
+          atlResolver: (name) => null,
+        ),
+      ),
+    );
+
+    controller.value = RenPyImageChange(
+      show: 'eileen',
+      showAt: 'right',
+      showAsset: 'assets/eileen.png',
+    );
+    await tester.pump();
+
+    final start = _spriteAnchor(tester, 'eileen');
+    await tester.pump(const Duration(milliseconds: 500));
+    final later = _spriteAnchor(tester, 'eileen');
+
+    expect(later, start);
   });
 }
 

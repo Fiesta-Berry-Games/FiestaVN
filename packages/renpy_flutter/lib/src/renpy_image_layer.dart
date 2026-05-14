@@ -1,8 +1,11 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:renpy_core/renpy_core.dart'
     show
+        RenPyAtlProgram,
+        RenPyAtlState,
         RenPyImageOperation,
         RenPyImageOperationType,
         RenPyImagePlacement,
@@ -19,6 +22,12 @@ import 'renpy_text.dart';
 typedef RenPyImageProviderFactory =
     ImageProvider<Object> Function(String assetPath);
 
+/// Resolves the transform named in a `show X at <name>` clause to a compiled
+/// ATL animation program, or null when the name is not an animatable transform.
+/// The host wires this from the runner's transform registry (`atlForTransform`
+/// + `pythonScope`); when unset, sprites render with their static placement.
+typedef RenPyAtlResolver = RenPyAtlProgram? Function(String transformName);
+
 /// Renders RenPy scene and show image changes as Flutter asset images.
 class RenPyImageLayer extends StatefulWidget {
   const RenPyImageLayer({
@@ -27,12 +36,17 @@ class RenPyImageLayer extends StatefulWidget {
     this.imageProvider,
     this.screenSize,
     this.layerOrder,
+    this.atlResolver,
   });
 
   final RenPyFlutterController controller;
   final RenPyImageProviderFactory? imageProvider;
   final RenPyScreenSize? screenSize;
   final List<String>? layerOrder;
+
+  /// Resolves a `show X at <name>` transform to its ATL animation. When null,
+  /// sprites keep their static placement (today's behavior).
+  final RenPyAtlResolver? atlResolver;
 
   @override
   State<RenPyImageLayer> createState() => _RenPyImageLayerState();
@@ -140,6 +154,8 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
             _defaultSpritePlacement;
         _positions[key] = placement;
 
+        final atl = _resolveAtl(status.showAt);
+
         final text = status.showText;
         if (text != null) {
           _putSprite(
@@ -148,6 +164,7 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
               text: text,
               placement: placement,
               zOrder: status.showZOrder ?? 0,
+              atl: atl,
             ),
             behind: status.showBehind,
             layer: status.showOnLayer,
@@ -165,6 +182,7 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
               image: image,
               placement: placement,
               zOrder: status.showZOrder ?? 0,
+              atl: atl,
             ),
             behind: status.showBehind,
             layer: status.showOnLayer,
@@ -172,6 +190,26 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
         }
       }
     });
+  }
+
+  /// Resolves the `at` clause to a compiled ATL program, trying the whole
+  /// expression then each comma-separated transform name. Returns null when no
+  /// resolver is wired or no name names an animatable transform.
+  RenPyAtlProgram? _resolveAtl(String? at) {
+    final resolver = widget.atlResolver;
+    final clean = at?.trim();
+    if (resolver == null || clean == null || clean.isEmpty) return null;
+
+    final whole = resolver(clean);
+    if (whole != null) return whole;
+
+    for (final part in clean.split(',')) {
+      final name = part.trim();
+      if (name.isEmpty) continue;
+      final program = resolver(name);
+      if (program != null) return program;
+    }
+    return null;
   }
 
   void _applyVisualSnapshot(RenPyVisualSnapshot visual) {
@@ -559,6 +597,7 @@ class _RenPySpriteState {
     required this.image,
     required this.placement,
     this.zOrder = 0,
+    this.atl,
   }) : solidColor = null,
        text = null;
 
@@ -566,6 +605,7 @@ class _RenPySpriteState {
     required this.text,
     required this.placement,
     this.zOrder = 0,
+    this.atl,
   }) : image = null,
        solidColor = null;
 
@@ -574,13 +614,18 @@ class _RenPySpriteState {
     required this.placement,
     this.zOrder = 0,
   }) : image = null,
-       text = null;
+       text = null,
+       atl = null;
 
   final _RenPyRenderedImage? image;
   final Color? solidColor;
   final String? text;
   final RenPyImagePlacement placement;
   final int zOrder;
+
+  /// The compiled ATL animation driving this sprite, or null for a static
+  /// placement.
+  final RenPyAtlProgram? atl;
 }
 
 const _defaultSpritePlacement = RenPyImagePlacement.position(
@@ -633,7 +678,7 @@ class _RenPyVisualFrame extends StatelessWidget {
   }
 }
 
-class _RenPyDisplayableSprite extends StatelessWidget {
+class _RenPyDisplayableSprite extends StatefulWidget {
   const _RenPyDisplayableSprite({
     super.key,
     required this.sprite,
@@ -644,46 +689,101 @@ class _RenPyDisplayableSprite extends StatelessWidget {
   final _RenPySpriteState sprite;
   final RenPyImageProviderFactory imageProvider;
   final RenPyScreenSize? screenSize;
+
+  @override
+  State<_RenPyDisplayableSprite> createState() =>
+      _RenPyDisplayableSpriteState();
+}
+
+class _RenPyDisplayableSpriteState extends State<_RenPyDisplayableSprite>
+    with SingleTickerProviderStateMixin {
+  Ticker? _ticker;
+  double _elapsed = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTicker();
+  }
+
+  @override
+  void didUpdateWidget(covariant _RenPyDisplayableSprite oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(widget.sprite.atl, oldWidget.sprite.atl)) {
+      _elapsed = 0;
+      _startTicker();
+    }
+  }
+
+  void _startTicker() {
+    final atl = widget.sprite.atl;
+    _ticker?.dispose();
+    _ticker = null;
+    if (atl == null) return;
+
+    _ticker = createTicker((elapsed) {
+      final seconds = elapsed.inMicroseconds / Duration.microsecondsPerSecond;
+      setState(() => _elapsed = seconds);
+      if (atl.isComplete(seconds)) _ticker?.stop();
+    })..start();
+  }
+
+  @override
+  void dispose() {
+    _ticker?.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final sprite = widget.sprite;
     final solidColor = sprite.solidColor;
     if (solidColor != null) {
       return Positioned.fill(child: ColoredBox(color: solidColor));
     }
 
+    final atlState = sprite.atl?.transformAt(_elapsed);
+    final placement = _mergePlacement(sprite.placement, atlState);
+
     return Positioned.fill(
       child: LayoutBuilder(
         builder: (context, constraints) {
           final stageSize = constraints.biggest;
-          final screenScale = _screenScale(screenSize, stageSize);
+          final screenScale = _screenScale(widget.screenSize, stageSize);
           final resolved = _ResolvedSpritePlacement.from(
-            sprite.placement,
+            placement,
             stageSize: stageSize,
             screenScale: screenScale,
           );
+          Widget content =
+              sprite.text == null
+                  ? _RenPySpriteImage(
+                    image: sprite.image!,
+                    imageProvider: widget.imageProvider,
+                  )
+                  : ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: constraints.maxWidth * 0.9,
+                      maxHeight: constraints.maxHeight * 0.9,
+                    ),
+                    child: _RenPyTextDisplayable(text: sprite.text!),
+                  );
+
+          content = _applyAtlEffects(atlState, content);
+
+          final offset = _atlOffsetPixels(atlState, screenScale);
+
           return Stack(
             clipBehavior: Clip.none,
             children: [
               Positioned(
-                left: resolved.position.dx,
-                top: resolved.position.dy,
+                left: resolved.position.dx + offset.dx,
+                top: resolved.position.dy + offset.dy,
                 child: _positionDisplayable(
-                  placement: sprite.placement,
+                  placement: placement,
                   resolved: resolved,
                   screenScale: screenScale,
-                  child:
-                      sprite.text == null
-                          ? _RenPySpriteImage(
-                            image: sprite.image!,
-                            imageProvider: imageProvider,
-                          )
-                          : ConstrainedBox(
-                            constraints: BoxConstraints(
-                              maxWidth: constraints.maxWidth * 0.9,
-                              maxHeight: constraints.maxHeight * 0.9,
-                            ),
-                            child: _RenPyTextDisplayable(text: sprite.text!),
-                          ),
+                  child: content,
                 ),
               ),
             ],
@@ -691,6 +791,104 @@ class _RenPyDisplayableSprite extends StatelessWidget {
         },
       ),
     );
+  }
+}
+
+/// Folds the ATL [state] into the base [placement] for the position/zoom/alpha
+/// fields the static renderer already understands; rotate/offset/crop are
+/// applied separately as widget transforms.
+RenPyImagePlacement _mergePlacement(
+  RenPyImagePlacement placement,
+  RenPyAtlState? state,
+) {
+  if (state == null) return placement;
+  return RenPyImagePlacement.position(
+    xpos: state.xpos ?? placement.xpos,
+    ypos: state.ypos ?? placement.ypos,
+    xanchor: state.xanchor ?? placement.xanchor,
+    yanchor: state.yanchor ?? placement.yanchor,
+    xalign: state.xalign ?? placement.xalign,
+    yalign: state.yalign ?? placement.yalign,
+    xposIsPixel: state.xpos != null ? state.xposIsPixel : placement.xposIsPixel,
+    yposIsPixel: state.ypos != null ? state.yposIsPixel : placement.yposIsPixel,
+    xanchorIsPixel: placement.xanchorIsPixel,
+    yanchorIsPixel: placement.yanchorIsPixel,
+    zoom: state.zoom ?? placement.zoom,
+    xzoom: state.xzoom ?? placement.xzoom,
+    yzoom: state.yzoom ?? placement.yzoom,
+    alpha: state.alpha ?? placement.alpha,
+  );
+}
+
+/// The pixel translation contributed by the ATL `xoffset`/`yoffset`.
+Offset _atlOffsetPixels(RenPyAtlState? state, double screenScale) {
+  if (state == null) return Offset.zero;
+  return Offset(
+    (state.xoffset ?? 0) * screenScale,
+    (state.yoffset ?? 0) * screenScale,
+  );
+}
+
+/// Applies the ATL rotation and crop that the static placement cannot express.
+Widget _applyAtlEffects(RenPyAtlState? state, Widget child) {
+  if (state == null) return child;
+
+  var result = child;
+
+  if (state.hasCrop) {
+    result = ClipRect(
+      clipper: _RenPyAtlCropClipper(
+        left: state.cropLeft!,
+        top: state.cropTop!,
+        width: state.cropWidth!,
+        height: state.cropHeight!,
+      ),
+      child: result,
+    );
+  }
+
+  final rotate = state.rotate;
+  if (rotate != null && rotate != 0) {
+    result = Transform.rotate(angle: rotate * math.pi / 180, child: result);
+  }
+
+  return result;
+}
+
+/// Clips a sprite to an ATL `crop (l, t, w, h)` rectangle. Values <= 1 are
+/// treated as fractions of the sprite size; larger values are pixels.
+class _RenPyAtlCropClipper extends CustomClipper<Rect> {
+  const _RenPyAtlCropClipper({
+    required this.left,
+    required this.top,
+    required this.width,
+    required this.height,
+  });
+
+  final double left;
+  final double top;
+  final double width;
+  final double height;
+
+  double _resolve(double value, double extent) =>
+      value <= 1 && value >= -1 ? value * extent : value;
+
+  @override
+  Rect getClip(Size size) {
+    return Rect.fromLTWH(
+      _resolve(left, size.width),
+      _resolve(top, size.height),
+      _resolve(width, size.width),
+      _resolve(height, size.height),
+    );
+  }
+
+  @override
+  bool shouldReclip(covariant _RenPyAtlCropClipper oldClipper) {
+    return left != oldClipper.left ||
+        top != oldClipper.top ||
+        width != oldClipper.width ||
+        height != oldClipper.height;
   }
 }
 

@@ -306,6 +306,17 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     _runner?.executeScreenAction(action);
   }
 
+  /// Compiles the ATL animation for a `show X at <name>` transform, or returns
+  /// null when the name is not a registered animatable transform. Used by the
+  /// image layer to drive sprite animation.
+  RenPyAtlProgram? resolveAtl(String transformName) {
+    final runner = _runner;
+    if (runner == null) return null;
+    final atl = runner.atlForTransform(transformName);
+    if (atl == null) return null;
+    return RenPyAtlProgram.compile(atl, scope: runner.pythonScope);
+  }
+
   /// Registers a listener for screen-layer changes (`show screen` / `Show` /
   /// `Hide` / a mutating action). Replaces any prior listener.
   set onScreenLayerChanged(

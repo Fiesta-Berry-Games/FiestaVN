@@ -239,6 +239,12 @@ class RenPyRunner {
   late RenPyTransitionResolver _transitionResolver;
   final Map<String, RenPyImagePlacement> _transformPlacements = {};
 
+  /// Parsed `transform` declarations, keyed by transform name. Holds the
+  /// structured ATL node list so a renderer can drive the animation. The static
+  /// placement in [_transformPlacements] remains the fallback for transforms
+  /// with no animatable ATL.
+  final Map<String, RenPyTransformStatement> _transforms = {};
+
   /// Parsed `screen` declarations, keyed by screen name. Collected during
   /// [_processDefines] and consumed by the screen runtime to resolve a shown
   /// screen on demand.
@@ -328,6 +334,11 @@ class RenPyRunner {
     gui: _gui,
     renpy: _RunnerRenPyApi(this),
   );
+
+  /// The live Python evaluation scope, exposed so a renderer can resolve ATL
+  /// property target expressions (e.g. `linear 1.0 xpos x`) against current
+  /// engine state when compiling a transform's animation.
+  RenPyPythonScope get pythonScope => _pythonScope;
 
   /// Callbacks for various events
   DialogueCallback? onDialogue;
@@ -461,11 +472,24 @@ class RenPyRunner {
   void _applyTransformStatement(RenPyTransformStatement statement) {
     final name = _transformName(statement.signature);
     if (name == null) return;
+    _transforms[name] = statement;
     final placement = _placementFromTransformBody(statement.body);
     if (placement != null) {
       _transformPlacements[name] = placement;
     }
   }
+
+  /// The registered `transform` declarations, keyed by transform name. A
+  /// renderer looks up the transform referenced by a `show X at name` clause
+  /// (carried on the image event's `at`) to compile its ATL animation. The
+  /// static placement remains available through the image event's `placement`.
+  Map<String, RenPyTransformStatement> get transforms =>
+      Map.unmodifiable(_transforms);
+
+  /// The parsed ATL node list for the transform named [name], or null when no
+  /// such transform is registered.
+  List<RenPyAtlNode>? atlForTransform(String name) =>
+      _transforms[name.trim()]?.atl;
 
   String? _transformName(String signature) {
     final match = RegExp(r'^([A-Za-z_]\w*)').firstMatch(signature.trim());
@@ -2482,6 +2506,7 @@ class RenPyRunner {
     _characters.clear();
     _audioChannels.clear();
     _transformPlacements.clear();
+    _transforms.clear();
     _screens.clear();
     _styles.clear();
     _shownScreens.clear();

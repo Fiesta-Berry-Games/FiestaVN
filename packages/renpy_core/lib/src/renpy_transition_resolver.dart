@@ -97,6 +97,29 @@ class RenPyTransitionResolver {
       );
     }
 
+    // `Pixellate(time, steps)` - approximate as a same-duration dissolve.
+    final pixellate = RegExp(r'^Pixellate\s*\(\s*([^,\)]+)').firstMatch(value);
+    if (pixellate != null) {
+      final duration = _parseDouble(pixellate.group(1));
+      if (duration == null) {
+        return RenPyTransitionIntent.unsupported(expression: value);
+      }
+      return RenPyTransitionIntent.dissolve(duration: duration);
+    }
+
+    // `MoveTransition(time, ...)` / `MoveIn*` / `MoveOut*` family - approximate
+    // as a same-duration dissolve so the change is still visibly animated.
+    final moveTransition = RegExp(
+      r'^(?:MoveTransition|MoveIn\w*|MoveOut\w*|OldMoveTransition)\s*\(\s*([^,\)]+)',
+    ).firstMatch(value);
+    if (moveTransition != null) {
+      final duration = _parseDouble(moveTransition.group(1));
+      if (duration == null) {
+        return RenPyTransitionIntent.unsupported(expression: value);
+      }
+      return RenPyTransitionIntent.dissolve(duration: duration);
+    }
+
     if (_looksLikeTransitionExpression(value)) {
       return RenPyTransitionIntent.unsupported(expression: value);
     }
@@ -131,6 +154,34 @@ const _builtInTransitions = {
   'wipedown': RenPyTransitionIntent.cropMove(duration: 1.0, mode: 'wipedown'),
   'vpunch': RenPyTransitionIntent.punch(mode: 'vertical', duration: 0.275),
   'hpunch': RenPyTransitionIntent.punch(mode: 'horizontal', duration: 0.275),
+  'pixellate': RenPyTransitionIntent.dissolve(duration: 0.5),
+  'slideright': RenPyTransitionIntent.cropMove(
+    duration: 0.5,
+    mode: 'slideright',
+  ),
+  'slideleft': RenPyTransitionIntent.cropMove(duration: 0.5, mode: 'slideleft'),
+  'slideup': RenPyTransitionIntent.cropMove(duration: 0.5, mode: 'slideup'),
+  'slidedown': RenPyTransitionIntent.cropMove(duration: 0.5, mode: 'slidedown'),
+  'moveinright': RenPyTransitionIntent.cropMove(
+    duration: 0.5,
+    mode: 'slideright',
+  ),
+  'moveinleft': RenPyTransitionIntent.cropMove(
+    duration: 0.5,
+    mode: 'slideleft',
+  ),
+  'moveintop': RenPyTransitionIntent.cropMove(duration: 0.5, mode: 'slideup'),
+  'moveinbottom': RenPyTransitionIntent.cropMove(
+    duration: 0.5,
+    mode: 'slidedown',
+  ),
+  'pushright': RenPyTransitionIntent.cropMove(duration: 0.5, mode: 'pushright'),
+  'pushleft': RenPyTransitionIntent.cropMove(duration: 0.5, mode: 'pushleft'),
+  'pushup': RenPyTransitionIntent.cropMove(duration: 0.5, mode: 'pushup'),
+  'pushdown': RenPyTransitionIntent.cropMove(duration: 0.5, mode: 'pushdown'),
+  'zoomin': RenPyTransitionIntent.dissolve(duration: 0.5),
+  'zoomout': RenPyTransitionIntent.dissolve(duration: 0.5),
+  'zoominout': RenPyTransitionIntent.dissolve(duration: 0.5),
 };
 
 double? _parseDouble(String? value) {

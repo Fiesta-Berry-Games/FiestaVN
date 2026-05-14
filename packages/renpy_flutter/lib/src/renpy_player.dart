@@ -144,6 +144,7 @@ class RenPyPlayer extends StatelessWidget {
             controller: controller,
             screenSize: screenSize,
             layerOrder: layerOrder,
+            atlResolver: controller.resolveAtl,
           ),
         RenPyAudioLayer(
           controller: controller,
