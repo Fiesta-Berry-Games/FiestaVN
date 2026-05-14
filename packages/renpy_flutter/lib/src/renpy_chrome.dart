@@ -65,6 +65,20 @@ class _RenPyDialogueViewState extends State<RenPyDialogueView> {
 
   void _onRevealed() => widget.controller.notifyTextRevealed();
 
+  /// Resolves `[var]` / `[obj.field]` references in plain dialogue against the
+  /// store scope before the typewriter reveal and `{tag}` styling run. The
+  /// controller's screen interpolation evaluates a single reference against the
+  /// live store; an unresolved reference round-trips to its literal source so
+  /// the bracketed text is preserved.
+  String _interpolateDialogue(String text) {
+    if (!text.contains('[')) return text;
+    return RenPyTextInterpolation.apply(text, (expression) {
+      final source = '[$expression]';
+      final resolved = widget.controller.interpolateScreenText(source);
+      return resolved == source ? null : resolved;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
@@ -81,6 +95,7 @@ class _RenPyDialogueViewState extends State<RenPyDialogueView> {
           final who = status.character;
           final whoColor =
               _RenPyDialogueColor.parse(status.color) ?? Colors.white;
+          final displayText = _interpolateDialogue(status.displayText);
           return LayoutBuilder(
             builder: (context, constraints) {
               final scaledDialogueStyle = _scaledDialogueStyle(
@@ -99,7 +114,7 @@ class _RenPyDialogueViewState extends State<RenPyDialogueView> {
                 gui,
                 screenSize,
                 constraints,
-                text: status.displayText,
+                text: displayText,
                 style: effectiveDialogueStyle,
                 textDirection: Directionality.of(context),
               );
@@ -127,7 +142,7 @@ class _RenPyDialogueViewState extends State<RenPyDialogueView> {
                             ),
                             clipBehavior: Clip.hardEdge,
                             child: _dialogueContent(
-                              text: status.displayText,
+                              text: displayText,
                               who: who,
                               whoColor: whoColor,
                               theme: theme,
@@ -166,7 +181,7 @@ class _RenPyDialogueViewState extends State<RenPyDialogueView> {
                       decoration: _dialogueBoxDecoration(),
                       clipBehavior: Clip.hardEdge,
                       child: _dialogueContent(
-                        text: status.displayText,
+                        text: displayText,
                         who: who,
                         whoColor: whoColor,
                         theme: theme,

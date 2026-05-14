@@ -3,6 +3,98 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:renpy_core/renpy_core.dart';
 
+/// Resolves a RenPy `[expression]` reference to its displayed value.
+///
+/// Receives the bare expression (already stripped of `[`/`]` and any `!flag`
+/// or `:format` suffix) and returns the value as a string, or null when it
+/// cannot be resolved so the literal reference is preserved.
+typedef RenPyTextResolver = String? Function(String expression);
+
+/// Substitutes RenPy `[expression]` references in plain text against a
+/// [RenPyTextResolver] before the styled-text `{tag}` renderer runs.
+///
+/// Mirrors RenPy's text interpolation: `[[` is a literal `[`, a `[name!flag]`
+/// conversion suffix and a `[value:format]` spec are stripped, and the `!u` /
+/// `!l` flags upper/lower-case the result. `{tags}` are left untouched so the
+/// styled-text parser still sees them. A reference that cannot be resolved is
+/// emitted verbatim, matching the renderer's screen-text behavior.
+class RenPyTextInterpolation {
+  const RenPyTextInterpolation._();
+
+  static String apply(String text, RenPyTextResolver resolve) {
+    if (!text.contains('[')) return text;
+
+    final buffer = StringBuffer();
+    var i = 0;
+    while (i < text.length) {
+      final char = text[i];
+      if (char == '[') {
+        if (i + 1 < text.length && text[i + 1] == '[') {
+          buffer.write('[');
+          i += 2;
+          continue;
+        }
+        final close = text.indexOf(']', i + 1);
+        if (close < 0) {
+          buffer.write(text.substring(i));
+          break;
+        }
+        final reference = text.substring(i + 1, close);
+        buffer.write(_resolveReference(reference, resolve));
+        i = close + 1;
+        continue;
+      }
+      buffer.write(char);
+      i += 1;
+    }
+    return buffer.toString();
+  }
+
+  static String _resolveReference(String reference, RenPyTextResolver resolve) {
+    var source = reference;
+    var flags = '';
+    final bang = source.indexOf('!');
+    if (bang >= 0) {
+      flags = source.substring(bang + 1);
+      source = source.substring(0, bang);
+    }
+    final colon = _formatColon(source);
+    if (colon >= 0) source = source.substring(0, colon);
+
+    final expression = source.trim();
+    if (expression.isEmpty) return '[$reference]';
+
+    final resolved = resolve(expression);
+    if (resolved == null) return '[$reference]';
+    return _applyFlags(resolved, flags);
+  }
+
+  static String _applyFlags(String value, String flags) {
+    var result = value;
+    // `!u`/`!l` map to upper/lower; `!q`/`!t` are escaping/translation hints
+    // with no plain-text effect, so they pass through unchanged.
+    if (flags.contains('u')) result = result.toUpperCase();
+    if (flags.contains('l')) result = result.toLowerCase();
+    return result;
+  }
+
+  /// Index of a format-spec `:` at the top level (outside brackets), or -1.
+  static int _formatColon(String text) {
+    var depth = 0;
+    for (var i = 0; i < text.length; i += 1) {
+      final c = text[i];
+      if (c == '(' || c == '[' || c == '{') {
+        depth += 1;
+      } else if (c == ')' || c == ']' || c == '}') {
+        if (depth > 0) depth -= 1;
+      } else if (depth == 0 && c == ':') {
+        return i;
+      }
+    }
+    return -1;
+  }
+}
+
 /// Renders RenPy inline text tags using Flutter text spans.
 class RenPyText extends StatelessWidget {
   const RenPyText(
