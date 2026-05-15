@@ -117,11 +117,45 @@ class _RenPyScreenLayerState extends State<RenPyScreenLayer> {
       );
     }
 
+    // A `call screen` is modal: it dims and blocks the game beneath, draws the
+    // screen content on top through the same displayable renderer, and on a
+    // Return action the runner dismisses it and resumes execution.
+    if (pendingCall != null) {
+      final resolved = widget.controller.resolveScreen(
+        pendingCall.name,
+        positional: pendingCall.positional,
+        keywords: pendingCall.keywords,
+      );
+      layers.add(
+        Positioned.fill(
+          key: ValueKey('renpy-call-screen-${pendingCall.tag}'),
+          child: _modal(
+            resolved == null
+                ? const SizedBox.shrink()
+                : resolver.buildScreen(resolved, pendingCall),
+          ),
+        ),
+      );
+    }
+
     if (layers.isEmpty) {
       return const SizedBox.shrink();
     }
 
     return Stack(fit: StackFit.expand, children: layers);
+  }
+
+  /// Wraps a call-screen's content in a modal barrier: a dim, opaque scrim
+  /// blocks input to the game beneath while the content draws on top. The screen
+  /// itself remains interactive, so a Return button still routes its action.
+  Widget _modal(Widget content) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const ModalBarrier(dismissible: false, color: Color(0x99000000)),
+        content,
+      ],
+    );
   }
 }
 

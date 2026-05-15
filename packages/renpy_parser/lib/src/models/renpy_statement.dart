@@ -111,15 +111,33 @@ class RenPyCallStatement extends RenPyStatement {
   final String target;
   final bool isExpression; // true for `call expression <expr>`
 
+  /// True for `call screen <name>(<args>)`, a blocking interactive screen call.
+  /// When set, [target] is the literal `screen` token (preserved for
+  /// back-compat) and [screenName]/[screenArgs] carry the resolved screen.
+  final bool isScreen;
+
+  /// The screen name for a `call screen` statement, or null otherwise.
+  final String? screenName;
+
+  /// The raw argument string inside the parentheses of a `call screen`
+  /// invocation (e.g. `"Quit?"`), or null when no parentheses were given.
+  final String? screenArgs;
+
   RenPyCallStatement(
     this.target,
     String filename,
     int linenumber, {
     this.isExpression = false,
+    this.isScreen = false,
+    this.screenName,
+    this.screenArgs,
   }) : super(filename, linenumber);
 
   @override
-  String toString() => 'Call: $target';
+  String toString() {
+    if (isScreen) return 'Call screen: $screenName';
+    return 'Call: $target';
+  }
 }
 
 /// Represents a show statement (show image_name).

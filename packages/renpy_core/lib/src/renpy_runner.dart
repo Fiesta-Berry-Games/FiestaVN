@@ -2120,18 +2120,17 @@ class RenPyRunner {
   }
 
   void _executeCallStatement(RenPyCallStatement stmt) {
-    final target =
-        stmt.isExpression ? _resolveDynamicTarget(stmt.target) : stmt.target;
-
     // `call screen name(args)` blocks for a Return value from the screen. The
-    // parser captures only the literal `screen` token (the screen name and
-    // arguments are dropped), so the request is registered but not auto-
-    // resolvable here; a controller supplies the result via
+    // screen name and its (evaluated) invocation arguments are registered as a
+    // blocking call screen; a controller supplies the result via
     // executeScreenAction(Return(v)). See the call-screen notes in the runtime.
-    if (target == 'screen') {
+    if (stmt.isScreen) {
       _registerCallScreen(stmt);
       return;
     }
+
+    final target =
+        stmt.isExpression ? _resolveDynamicTarget(stmt.target) : stmt.target;
 
     final context = _findLabelContext(target);
     if (context == null) {
@@ -2154,29 +2153,55 @@ class RenPyRunner {
 
   /// Registers a blocking `call screen` request and waits for a Return value.
   ///
-  /// Because the parser drops the screen name/args for `call screen`, the
-  /// request carries no name yet; it is shown on the layer as a placeholder and
-  /// the runner blocks. `executeScreenAction(Return(v))` resolves it, advancing
-  /// past the call statement.
+  /// The screen name and its (evaluated) invocation arguments are recorded as
+  /// the pending call screen and exposed via [pendingCallScreen] so a renderer
+  /// can resolve and draw it as a modal overlay. The runner blocks here;
+  /// `executeScreenAction(Return(v))` resolves it, lands the value in `_return`,
+  /// and advances past the call statement.
   void _registerCallScreen(RenPyCallStatement stmt) {
-    final shown = RenPyShownScreen(name: 'screen', tag: 'screen', isCall: true);
-    _callScreen = shown;
-    _shownScreens.add(shown);
-    _emitDiagnostic(
-      const RenPyDiagnostic(
-        code: RenPyDiagnosticCode.skippedScreen,
-        message:
-            'call screen name/args are not recoverable from the parsed '
-            'statement; blocking for Return().',
-        detail: 'call screen',
-      ),
+    final name = stmt.screenName ?? 'screen';
+    final args = stmt.screenArgs;
+    var positional = const <Object?>[];
+    var keywords = const <String, Object?>{};
+    if (args != null && args.trim().isNotEmpty) {
+      final parsed = _pythonCallArguments(args);
+      positional = [
+        for (final expression in parsed.positional)
+          _evaluateExpression(expression),
+      ];
+      keywords = <String, Object?>{
+        for (final entry in parsed.keywords.entries)
+          entry.key: _evaluateExpression(entry.value),
+      };
+    }
+    final shown = RenPyShownScreen(
+      name: name,
+      tag: name,
+      positional: positional,
+      keywords: keywords,
+      isCall: true,
     );
+    _callScreen = shown;
+    if (!hasScreen(name)) {
+      _emitDiagnostic(
+        RenPyDiagnostic(
+          code: RenPyDiagnosticCode.skippedScreen,
+          message:
+              'call screen references an unknown screen; blocking for '
+              'Return().',
+          detail: name,
+        ),
+      );
+    }
     _notifyScreenLayerChanged();
     // Advance past the call statement now; the Return value lands in `_return`.
     // RenPy blocks the script here until Return; we mirror that by waiting.
     _position++;
     _state = RenPyRunnerState.waitingForInput;
   }
+
+  /// Whether a screen named [name] is registered.
+  bool hasScreen(String name) => _screens.containsKey(name);
 
   void _executeNvlStatement(RenPyNvlStatement stmt) {
     switch (stmt.action) {

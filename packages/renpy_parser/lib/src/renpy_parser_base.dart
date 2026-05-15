@@ -722,6 +722,24 @@ class RenPyParser {
   ) {
     final text = line.text.trim();
 
+    // call screen <name>(<args>) calls an interactive screen that blocks for a
+    // Return value. The screen name and the raw argument string are captured
+    // distinctly; the literal `screen` token stays in `target` for back-compat.
+    final screenMatch = RegExp(
+      r'^call\s+screen\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(\((.*)\))?'
+      r'(?:\s+from\s+[a-zA-Z_][a-zA-Z0-9_]*)?\s*$',
+    ).firstMatch(text);
+    if (screenMatch != null) {
+      return RenPyCallStatement(
+        'screen',
+        line.filename,
+        line.number,
+        isScreen: true,
+        screenName: screenMatch.group(1),
+        screenArgs: screenMatch.group(2) == null ? null : screenMatch.group(3),
+      );
+    }
+
     // call expression <expr> calls a dynamically evaluated target. The
     // optional `from <label>` clause is consumed but not retained here.
     final expressionMatch = RegExp(

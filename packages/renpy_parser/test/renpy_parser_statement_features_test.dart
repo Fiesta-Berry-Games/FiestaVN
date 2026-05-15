@@ -130,6 +130,52 @@ line two"""
     });
   });
 
+  group('call screen', () {
+    test('captures the screen name and raw args', () {
+      final result = _parse('    call screen confirm("Quit?")');
+      final calls = result.script.findStatements<RenPyCallStatement>(
+        (_) => true,
+      );
+      expect(calls, hasLength(1));
+      expect(calls.first.isScreen, isTrue);
+      expect(calls.first.screenName, 'confirm');
+      expect(calls.first.screenArgs, '"Quit?"');
+      expect(calls.first.target, 'screen');
+      expect(calls.first.isExpression, isFalse);
+    });
+
+    test('captures a screen name without arguments', () {
+      final result = _parse('    call screen main_menu');
+      final calls = result.script.findStatements<RenPyCallStatement>(
+        (_) => true,
+      );
+      expect(calls, hasLength(1));
+      expect(calls.first.isScreen, isTrue);
+      expect(calls.first.screenName, 'main_menu');
+      expect(calls.first.screenArgs, isNull);
+    });
+
+    test('plain call label is not a screen call', () {
+      final result = _parse('    call helper');
+      final calls = result.script.findStatements<RenPyCallStatement>(
+        (_) => true,
+      );
+      expect(calls.first.isScreen, isFalse);
+      expect(calls.first.screenName, isNull);
+      expect(calls.first.target, 'helper');
+    });
+
+    test('call expression is not a screen call', () {
+      final result = _parse('    call expression bar');
+      final calls = result.script.findStatements<RenPyCallStatement>(
+        (_) => true,
+      );
+      expect(calls.first.isScreen, isFalse);
+      expect(calls.first.isExpression, isTrue);
+      expect(calls.first.target, 'bar');
+    });
+  });
+
   group('keyword word boundaries', () {
     test('identifiers starting with keywords do not warn', () {
       final result = RenPyParser().parse('''

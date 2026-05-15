@@ -130,6 +130,52 @@ label start:
     expect(probe, isNotNull);
   });
 
+  testWidgets('a call screen renders as a modal that blocks the game and '
+      'resumes on Return', (tester) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    controller.load('''
+screen confirm(message):
+    vbox:
+        text "[message]"
+        textbutton "Yes" action Return(True)
+
+label start:
+    call screen confirm("Quit?")
+    \$ answered = _return
+    "answered"
+''');
+
+    await _drainUntil(controller, () => controller.pendingCallScreen != null);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: RenPyScreenLayer(controller: controller)),
+      ),
+    );
+    await tester.pump();
+
+    // The call screen content is drawn through the shared renderer.
+    expect(controller.pendingCallScreen, isNotNull);
+    expect(find.text('Quit?'), findsOneWidget);
+    expect(find.text('Yes'), findsOneWidget);
+
+    // A dim modal barrier sits behind the content and blocks the game beneath.
+    final dimBarrier = find.byWidgetPredicate(
+      (w) => w is ModalBarrier && w.color == const Color(0x99000000),
+    );
+    expect(dimBarrier, findsOneWidget);
+
+    await tester.tap(find.text('Yes'));
+    await tester.pump();
+
+    // Return dismissed the modal and the runner resumed.
+    expect(controller.pendingCallScreen, isNull);
+    expect(find.text('Quit?'), findsNothing);
+    expect(dimBarrier, findsNothing);
+  });
+
   testWidgets('the layer is inert when no screen is shown', (tester) async {
     final controller = RenPyFlutterController();
     addTearDown(controller.dispose);

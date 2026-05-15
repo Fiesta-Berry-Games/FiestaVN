@@ -186,6 +186,8 @@ label start:
 
       // Blocked on the call screen, waiting for a Return.
       expect(runner.pendingCallScreen, isNotNull);
+      expect(runner.pendingCallScreen!.name, 'confirm');
+      expect(runner.pendingCallScreen!.isCall, isTrue);
       expect(runner.state, RenPyRunnerState.waitingForInput);
 
       runner.executeScreenAction(
@@ -193,6 +195,64 @@ label start:
       );
       expect(runner.pendingCallScreen, isNull);
       expect(lastLine, 'after call');
+    });
+
+    test('call screen captures args and the Return value reaches the '
+        'script', () {
+      final runner = _runner('''
+screen confirm(message):
+    text "[message]"
+    textbutton "yes" action Return(True)
+
+label start:
+    call screen confirm("Quit?")
+    \$ answered = _return
+    if answered:
+        "quit"
+    else:
+        "stay"
+''');
+      String? lastLine;
+      runner.onDialogue = (_, text) => lastLine = text;
+      runner.run();
+
+      // The screen name and its evaluated argument are recoverable.
+      expect(runner.pendingCallScreen, isNotNull);
+      expect(runner.pendingCallScreen!.name, 'confirm');
+      expect(runner.pendingCallScreen!.positional, ['Quit?']);
+
+      // The screen resolves live against the bound argument.
+      final resolved = runner.resolveScreen(
+        runner.pendingCallScreen!.name,
+        positional: runner.pendingCallScreen!.positional,
+        keywords: runner.pendingCallScreen!.keywords,
+      );
+      expect(resolved, isNotNull);
+      expect(
+        resolved!.children.firstWhere((c) => c.kind == 'text').interpolatedText,
+        'Quit?',
+      );
+
+      runner.executeScreenAction(
+        RenPyScreenAction.parseWith('Return(True)', _literalScope()),
+      );
+      expect(runner.pendingCallScreen, isNull);
+      expect(lastLine, 'quit');
+    });
+
+    test('a pending call screen is not on the shown screen set', () {
+      final runner = _runner('''
+screen confirm():
+    textbutton "ok" action Return(True)
+
+label start:
+    call screen confirm
+    "after call"
+''');
+      runner.run();
+
+      expect(runner.pendingCallScreen, isNotNull);
+      expect(runner.shownScreens, isEmpty);
     });
   });
 }
