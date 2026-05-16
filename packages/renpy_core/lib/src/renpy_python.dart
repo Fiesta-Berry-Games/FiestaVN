@@ -453,7 +453,7 @@ class _Lexer {
           case '"':
             buffer.write('"');
           case '0':
-            buffer.write(' ');
+            buffer.write('\u0000');
           default:
             buffer.write(r'\');
             buffer.write(next);
