@@ -7,6 +7,7 @@ import 'package:renpy_core/renpy_core.dart'
         RenPyResolvedDisplayable,
         RenPyResolvedScreen,
         RenPyScreenAction,
+        RenPyScreenActionKind,
         RenPyShownScreen;
 
 import 'renpy_flutter_controller.dart';
@@ -41,6 +42,12 @@ class RenPyScreenLayer extends StatefulWidget {
 
 class _RenPyScreenLayerState extends State<RenPyScreenLayer> {
   List<RenPyShownScreen> _shown = const [];
+
+  /// Remembered scroll offsets for viewports/vpgrids, keyed by a stable id
+  /// derived from the screen tag and the viewport's position in the tree. The
+  /// layer re-resolves (and rebuilds the widget tree) on every interaction, so
+  /// without this a scrolled viewport would snap back to the top each time.
+  final Map<String, double> _scrollOffsets = {};
 
   @override
   void initState() {
@@ -99,6 +106,7 @@ class _RenPyScreenLayerState extends State<RenPyScreenLayer> {
       controller: widget.controller,
       imageProvider: widget.imageProvider ?? _defaultScreenImageProvider,
       onAction: _runAction,
+      scrollOffsets: _scrollOffsets,
     );
 
     final layers = <Widget>[];
@@ -170,13 +178,26 @@ class _RenPyScreenResolver {
     required this.controller,
     required this.imageProvider,
     required this.onAction,
+    required this.scrollOffsets,
   });
 
   final RenPyFlutterController controller;
   final RenPyImageProviderFactory imageProvider;
   final void Function(RenPyScreenAction action) onAction;
 
+  /// Persisted scroll offsets for viewports, keyed by `<screen tag>::<index>`.
+  /// Owned by the layer state so a scroll position survives a re-resolve.
+  final Map<String, double> scrollOffsets;
+
+  /// The screen tag of the tree currently being built, used to key remembered
+  /// viewport scroll positions, and a running count of viewports seen so each
+  /// gets a stable, distinct key within a single screen.
+  String _scrollTag = '';
+  int _viewportIndex = 0;
+
   Widget buildScreen(RenPyResolvedScreen screen, RenPyShownScreen shown) {
+    _scrollTag = shown.tag;
+    _viewportIndex = 0;
     final children = _buildChildren(screen.children, shown);
     if (children.isEmpty) return const SizedBox.shrink();
     if (children.length == 1) return children.single;
@@ -387,36 +408,43 @@ class _RenPyScreenResolver {
       content = Column(mainAxisSize: MainAxisSize.min, children: children);
     }
 
+    // A distinct, stable key per viewport in this screen so its remembered
+    // scroll offset is not confused with a sibling viewport's.
+    final scrollKey = '$_scrollTag::${_viewportIndex++}';
     final showScrollbar = props['mousewheel'] != false;
     if (horizontal && vertical) {
-      final inner = SingleChildScrollView(
-        key: const ValueKey('renpy-viewport-horizontal'),
-        scrollDirection: Axis.horizontal,
+      // The vertical axis is the primary one whose offset is persisted.
+      final inner = _RenPyViewport(
+        key: ValueKey('renpy-viewport-horizontal-$scrollKey'),
+        viewportKey: const ValueKey('renpy-viewport-horizontal'),
+        axis: Axis.horizontal,
+        showScrollbar: false,
+        offsets: scrollOffsets,
+        offsetKey: '$scrollKey:h',
         child: content,
       );
-      return _maybeScrollbar(
-        showScrollbar,
-        SingleChildScrollView(
-          key: const ValueKey('renpy-viewport-vertical'),
-          child: inner,
-        ),
+      return _RenPyViewport(
+        key: ValueKey('renpy-viewport-vertical-$scrollKey'),
+        viewportKey: const ValueKey('renpy-viewport-vertical'),
+        axis: Axis.vertical,
+        showScrollbar: showScrollbar,
+        offsets: scrollOffsets,
+        offsetKey: '$scrollKey:v',
+        child: inner,
       );
     }
     final axis = horizontal ? Axis.horizontal : Axis.vertical;
-    return _maybeScrollbar(
-      showScrollbar,
-      SingleChildScrollView(
-        key: ValueKey(
-          horizontal ? 'renpy-viewport-horizontal' : 'renpy-viewport-vertical',
-        ),
-        scrollDirection: axis,
-        child: content,
+    return _RenPyViewport(
+      key: ValueKey('renpy-viewport-$scrollKey'),
+      viewportKey: ValueKey(
+        horizontal ? 'renpy-viewport-horizontal' : 'renpy-viewport-vertical',
       ),
+      axis: axis,
+      showScrollbar: showScrollbar,
+      offsets: scrollOffsets,
+      offsetKey: '$scrollKey:${horizontal ? 'h' : 'v'}',
+      child: content,
     );
-  }
-
-  Widget _maybeScrollbar(bool show, Widget child) {
-    return show ? Scrollbar(child: child) : child;
   }
 
   Widget _buildVpGrid(
@@ -584,10 +612,18 @@ class _RenPyScreenResolver {
         props.containsKey('released');
 
     if (interactive && fraction != null) {
+      // When the bar's action writes a variable/field (the common
+      // `value VariableValue/FieldValue` pattern, expressed as an
+      // `action SetVariable/SetField`), drag continuously rewrites the bound
+      // value with the new absolute position (fraction * range) so the value
+      // tracks the drag rather than only updating on release. Bars carrying a
+      // non-writing action keep the on-release behavior.
+      final writer = _barValueWriter(node.action, range);
       return _RenPyBarSlider(
         key: const ValueKey('renpy-bar'),
         axis: axis,
         value: fraction,
+        onChanged: writer,
         onChangeEnd: node.action == null ? null : () => onAction(node.action!),
         length: _toDouble(props['xsize']) ?? _toDouble(props['ysize']) ?? 200,
       );
@@ -605,6 +641,49 @@ class _RenPyScreenResolver {
       width: axis == Axis.horizontal ? _toDouble(props['xsize']) ?? 200 : null,
       height: axis == Axis.vertical ? _toDouble(props['ysize']) ?? 200 : null,
       child: indicator,
+    );
+  }
+
+  /// Builds a drag callback that rewrites a bar's bound value as it moves, or
+  /// null when the bar's action does not write a variable/field. The callback
+  /// receives the new fraction (0..1) and writes `fraction * range` back through
+  /// the same Set action, so the bound store/field tracks the drag continuously.
+  void Function(double fraction)? _barValueWriter(
+    RenPyScreenAction? action,
+    double? range,
+  ) {
+    if (action == null || range == null) return null;
+    switch (action.kind) {
+      case RenPyScreenActionKind.setVariable:
+      case RenPyScreenActionKind.setScreenVariable:
+      case RenPyScreenActionKind.setField:
+        return (fraction) {
+          final scaled = fraction * range;
+          // Keep integer ranges integral; the bound value is usually an int
+          // count (e.g. a volume 0..100), not a fraction.
+          final next = range == range.roundToDouble() ? scaled.round() : scaled;
+          onAction(_withValue(action, next));
+        };
+      default:
+        return null;
+    }
+  }
+
+  /// Clones a Set-style [action] with its value replaced by [value], preserving
+  /// the target/field so the runner writes the dragged amount.
+  RenPyScreenAction _withValue(RenPyScreenAction action, Object? value) {
+    return RenPyScreenAction(
+      kind: action.kind,
+      target: action.target,
+      field: action.field,
+      value: value,
+      hasValue: true,
+      screenName: action.screenName,
+      label: action.label,
+      functionName: action.functionName,
+      positional: action.positional,
+      keywords: action.keywords,
+      raw: action.raw,
     );
   }
 
@@ -943,6 +1022,75 @@ class _RenPyScreenResolver {
   }
 }
 
+/// A scrolling viewport that remembers its offset across re-resolves.
+///
+/// The screen layer rebuilds the whole widget tree on every interaction, so a
+/// plain [SingleChildScrollView] would reset to the top each time. This seeds
+/// its [ScrollController] from [offsets] (keyed by [offsetKey]) and writes the
+/// live offset back as the user scrolls, so the position persists.
+class _RenPyViewport extends StatefulWidget {
+  const _RenPyViewport({
+    super.key,
+    required this.viewportKey,
+    required this.axis,
+    required this.showScrollbar,
+    required this.offsets,
+    required this.offsetKey,
+    required this.child,
+  });
+
+  final Key viewportKey;
+  final Axis axis;
+  final bool showScrollbar;
+  final Map<String, double> offsets;
+  final String offsetKey;
+  final Widget child;
+
+  @override
+  State<_RenPyViewport> createState() => _RenPyViewportState();
+}
+
+class _RenPyViewportState extends State<_RenPyViewport> {
+  late final ScrollController _controller = ScrollController(
+    initialScrollOffset: widget.offsets[widget.offsetKey] ?? 0,
+  );
+
+  @override
+  void dispose() {
+    _remember();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _remember() {
+    if (_controller.hasClients) {
+      widget.offsets[widget.offsetKey] = _controller.offset;
+    }
+  }
+
+  bool _onNotification(ScrollNotification notification) {
+    if (notification.metrics.axis == widget.axis) _remember();
+    return false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scrollView = SingleChildScrollView(
+      key: widget.viewportKey,
+      controller: _controller,
+      scrollDirection: widget.axis,
+      child: widget.child,
+    );
+    final listened = NotificationListener<ScrollNotification>(
+      onNotification: _onNotification,
+      child: scrollView,
+    );
+    return widget.showScrollbar
+        ? Scrollbar(controller: _controller, child: listened)
+        : listened;
+  }
+}
+
 /// A draggable slider rendering a RenPy `bar`/`vbar`, firing [onChangeEnd] on
 /// release so the bound action runs once the drag settles.
 class _RenPyBarSlider extends StatefulWidget {
@@ -951,12 +1099,17 @@ class _RenPyBarSlider extends StatefulWidget {
     required this.axis,
     required this.value,
     required this.length,
+    this.onChanged,
     this.onChangeEnd,
   });
 
   final Axis axis;
   final double value;
   final double length;
+
+  /// Fired continuously with the new fraction (0..1) as the slider is dragged,
+  /// so a bound value can track the drag.
+  final void Function(double fraction)? onChanged;
   final VoidCallback? onChangeEnd;
 
   @override
@@ -976,7 +1129,10 @@ class _RenPyBarSliderState extends State<_RenPyBarSlider> {
   Widget build(BuildContext context) {
     final slider = Slider(
       value: _value.clamp(0.0, 1.0),
-      onChanged: (next) => setState(() => _value = next),
+      onChanged: (next) {
+        setState(() => _value = next);
+        widget.onChanged?.call(next);
+      },
       onChangeEnd: (_) => widget.onChangeEnd?.call(),
     );
     if (widget.axis == Axis.vertical) {
@@ -1086,9 +1242,17 @@ class _RenPyScreenTimerState extends State<_RenPyScreenTimer> {
   Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
-/// Binds a screen `key` action to a logical keyboard key via a [Shortcuts]
-/// scope, best-effort while the screen layer holds focus.
-class _RenPyScreenKey extends StatelessWidget {
+/// Binds a screen `key` action to a logical keyboard key.
+///
+/// The binding is registered on [HardwareKeyboard] rather than a focused
+/// [Focus] node so it never steals focus from the player's input node. A normal
+/// `show screen hud` carrying a `key` therefore does not break tapping or
+/// spacebar-advancing the dialogue beneath it: the handler fires the action for
+/// the bound key and always returns `false`, letting the same key event still
+/// propagate to the game's focus-based dialogue advance. The handler exists only
+/// while the screen carrying the `key` is shown, so the layer stays inert when
+/// no screen is on the layer.
+class _RenPyScreenKey extends StatefulWidget {
   const _RenPyScreenKey({
     super.key,
     required this.logicalKey,
@@ -1099,26 +1263,33 @@ class _RenPyScreenKey extends StatelessWidget {
   final VoidCallback onActivate;
 
   @override
-  Widget build(BuildContext context) {
-    return Shortcuts(
-      shortcuts: {SingleActivator(logicalKey): const _RenPyKeyIntent()},
-      child: Actions(
-        actions: {
-          _RenPyKeyIntent: CallbackAction<_RenPyKeyIntent>(
-            onInvoke: (_) {
-              onActivate();
-              return null;
-            },
-          ),
-        },
-        child: const Focus(autofocus: true, child: SizedBox.shrink()),
-      ),
-    );
-  }
+  State<_RenPyScreenKey> createState() => _RenPyScreenKeyState();
 }
 
-class _RenPyKeyIntent extends Intent {
-  const _RenPyKeyIntent();
+class _RenPyScreenKeyState extends State<_RenPyScreenKey> {
+  @override
+  void initState() {
+    super.initState();
+    HardwareKeyboard.instance.addHandler(_onKey);
+  }
+
+  @override
+  void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onKey);
+    super.dispose();
+  }
+
+  bool _onKey(KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
+    if (event.logicalKey != widget.logicalKey) return false;
+    widget.onActivate();
+    // Never mark the event handled: the bound action runs, but the same key is
+    // still delivered to the game's focus node so dialogue advance is intact.
+    return false;
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 Color? _colorFromHex(String expression) {

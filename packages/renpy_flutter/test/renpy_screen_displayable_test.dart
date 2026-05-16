@@ -4,17 +4,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:renpy_flutter/renpy_flutter.dart';
 
 void main() {
-  testWidgets('an interactive bar renders a draggable slider and fires its '
-      'action on drag end', (tester) async {
+  testWidgets('an interactive bar writes the dragged value back to its bound '
+      'variable as it moves', (tester) async {
     final controller = RenPyFlutterController();
     addTearDown(controller.dispose);
 
+    // The bar starts at 0; dragging it rewrites `vol` through the Set action.
+    // A sibling text reads `vol` back so we can assert the value actually moved.
     controller.load('''
 screen volume():
-    bar value 50 range 100 action SetVariable("dragged", True) xsize 200
+    vbox:
+        bar value vol range 100 action SetVariable("vol", vol) xsize 400
+        text "vol=[vol]"
 
 label start:
-    \$ dragged = False
+    \$ vol = 0
     show screen volume
     "playing"
 ''');
@@ -29,12 +33,30 @@ label start:
     await tester.pump();
 
     expect(find.byType(Slider), findsOneWidget);
+    // Starts at zero.
+    expect(find.text('vol=0'), findsOneWidget);
 
-    await tester.drag(find.byType(Slider), const Offset(40, 0));
+    // Drag the slider thumb (at the far left, since the value is 0) to the
+    // right. Anchoring on the thumb makes the drag move it continuously.
+    final topLeft = tester.getTopLeft(find.byType(Slider));
+    final size = tester.getSize(find.byType(Slider));
+    final gesture = await tester.startGesture(
+      Offset(topLeft.dx + 12, topLeft.dy + size.height / 2),
+    );
+    await gesture.moveBy(const Offset(250, 0));
+    await tester.pump();
+    await gesture.up();
     await tester.pump();
 
-    final probe = controller.resolveScreen('volume');
-    expect(probe, isNotNull);
+    // The bound variable changed: it is no longer 0 and is now > 0.
+    expect(find.text('vol=0'), findsNothing);
+    final readBack = controller.resolveScreen('volume');
+    expect(readBack, isNotNull);
+    final label = _textValues(
+      readBack!,
+    ).firstWhere((t) => t.startsWith('vol='), orElse: () => 'vol=?');
+    final newValue = int.tryParse(label.substring('vol='.length)) ?? -1;
+    expect(newValue, greaterThan(0));
   });
 
   testWidgets('a non-interactive bar falls back to a progress indicator', (
@@ -124,7 +146,7 @@ label start:
             controller: controller,
             imageProvider: (asset) {
               resolved.add(asset);
-              return const AssetImage('missing');
+              return AssetImage(asset);
             },
           ),
         ),
@@ -137,7 +159,10 @@ label start:
     expect(resolved, contains('hover.png'));
     expect(find.byKey(const ValueKey('renpy-imagebutton')), findsOneWidget);
 
-    // Hovering swaps to the hover image.
+    // Before hover the displayed image is the idle asset, not the hover asset.
+    expect(_displayedAssets(tester), equals(['idle.png']));
+
+    // Hovering swaps the displayed image to the hover asset.
     final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
     await gesture.addPointer(location: Offset.zero);
     addTearDown(gesture.removePointer);
@@ -146,13 +171,35 @@ label start:
     );
     await tester.pump();
 
-    final images =
-        tester
-            .widgetList<Image>(find.byType(Image))
-            .map((i) => i.image)
-            .whereType<AssetImage>()
-            .toList();
-    expect(images, isNotEmpty);
+    expect(_displayedAssets(tester), equals(['hover.png']));
+  });
+
+  testWidgets('an imagebutton shows the selected image over the idle image', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    controller.load('''
+screen tab():
+    imagebutton idle "off.png" selected_idle "on.png" selected True action NullAction()
+
+label start:
+    show screen tab
+    "waiting"
+''');
+
+    await _drainUntil(controller, () => controller.value is RenPyDialogue);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: RenPyScreenLayer(controller: controller)),
+      ),
+    );
+    await tester.pump();
+
+    // `selected True` swaps the idle image to the selected_idle asset.
+    expect(_displayedAssets(tester), equals(['on.png']));
   });
 
   testWidgets('side places children into a positional layout', (tester) async {
@@ -190,6 +237,31 @@ label start:
     final bottomY = tester.getCenter(find.text('bottom')).dy;
     expect(topY, lessThan(bottomY));
   });
+}
+
+/// The asset names of every [Image] currently rendered, in tree order.
+List<String> _displayedAssets(WidgetTester tester) {
+  return tester
+      .widgetList<Image>(find.byType(Image))
+      .map((i) => i.image)
+      .whereType<AssetImage>()
+      .map((a) => a.assetName)
+      .toList();
+}
+
+/// Collects every resolved text node's interpolated string from a screen tree.
+List<String> _textValues(RenPyResolvedScreen screen) {
+  final out = <String>[];
+  void walk(List<RenPyResolvedDisplayable> nodes) {
+    for (final node in nodes) {
+      final text = node.interpolatedText ?? node.text;
+      if (text != null) out.add(text);
+      walk(node.children);
+    }
+  }
+
+  walk(screen.children);
+  return out;
 }
 
 Future<void> _drainUntil(

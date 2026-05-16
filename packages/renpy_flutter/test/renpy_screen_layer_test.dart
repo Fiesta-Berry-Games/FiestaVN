@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:renpy_flutter/renpy_flutter.dart';
 
@@ -197,6 +198,221 @@ label start:
     expect(controller.shownScreens, isEmpty);
     expect(find.byType(RenPyText), findsNothing);
     expect(find.byType(InkWell), findsNothing);
+  });
+
+  testWidgets('a screen key binding fires its action when the key is pressed', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    controller.load('''
+screen hotkey():
+    key "K_RETURN" action Hide("hotkey")
+
+label start:
+    show screen hotkey
+    "waiting"
+''');
+
+    await _drainUntil(controller, () => controller.value is RenPyDialogue);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: RenPyScreenLayer(controller: controller)),
+      ),
+    );
+    await tester.pump();
+
+    expect(controller.shownScreens, hasLength(1));
+
+    // Pressing the bound key runs the action (Hide), removing the screen.
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+
+    expect(controller.shownScreens, isEmpty);
+  });
+
+  testWidgets('a screen key does not steal the dialogue-advance key beneath it', (
+    tester,
+  ) async {
+    final advanced = <LogicalKeyboardKey>[];
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    // A non-modal HUD carrying a key bound to enter. A sibling Focus stands in
+    // for the game's dialogue-advance handler: pressing space must still reach
+    // it (the key node must not autofocus and grab the event).
+    controller.load('''
+screen hud():
+    key "K_RETURN" action NullAction()
+
+label start:
+    show screen hud
+    "waiting"
+''');
+
+    await _drainUntil(controller, () => controller.value is RenPyDialogue);
+
+    final focusNode = FocusNode();
+    addTearDown(focusNode.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Focus(
+            focusNode: focusNode,
+            onKeyEvent: (node, event) {
+              if (event is KeyDownEvent) advanced.add(event.logicalKey);
+              return KeyEventResult.handled;
+            },
+            child: RenPyScreenLayer(controller: controller),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    // The sibling game-input node, not the screen key, holds focus.
+    focusNode.requestFocus();
+    await tester.pump();
+    expect(focusNode.hasFocus, isTrue);
+
+    // Pressing space (the advance key) reaches the game node.
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pump();
+    expect(advanced, contains(LogicalKeyboardKey.space));
+
+    // And the bound enter key also still reaches the game node (the key node's
+    // handler is additive: it never marks the event handled).
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+    expect(advanced, contains(LogicalKeyboardKey.enter));
+  });
+
+  testWidgets('a viewport scrolls and keeps its offset across a re-resolve', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    controller.load('''
+screen scroller():
+    viewport scrollbars "vertical" ysize 120:
+        vbox:
+            for i in range(40):
+                text "row-[i]"
+
+label start:
+    show screen scroller
+    "waiting"
+''');
+
+    await _drainUntil(controller, () => controller.value is RenPyDialogue);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: RenPyScreenLayer(controller: controller)),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(SingleChildScrollView), findsOneWidget);
+
+    // Scroll the viewport down.
+    await tester.drag(
+      find.byType(SingleChildScrollView),
+      const Offset(0, -200),
+    );
+    await tester.pump();
+
+    final scrolled =
+        tester.state<ScrollableState>(find.byType(Scrollable)).position.pixels;
+    expect(scrolled, greaterThan(0));
+
+    // Force a re-resolve (mirrors what an interaction does) and confirm the
+    // viewport restored its remembered offset rather than snapping to the top.
+    controller.notifyListeners();
+    await tester.pump();
+
+    final afterRebuild =
+        tester.state<ScrollableState>(find.byType(Scrollable)).position.pixels;
+    expect(afterRebuild, closeTo(scrolled, 1.0));
+  });
+
+  testWidgets('a vpgrid scrolls its cells', (tester) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    controller.load('''
+screen gallery():
+    vpgrid cols 2 ysize 120:
+        for i in range(40):
+            text "cell-[i]"
+
+label start:
+    show screen gallery
+    "waiting"
+''');
+
+    await _drainUntil(controller, () => controller.value is RenPyDialogue);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: RenPyScreenLayer(controller: controller)),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(SingleChildScrollView), findsOneWidget);
+
+    await tester.drag(
+      find.byType(SingleChildScrollView),
+      const Offset(0, -150),
+    );
+    await tester.pump();
+
+    // The vpgrid's inner GridView is non-scrollable; the viewport's own scroll
+    // view is the one that moved.
+    final offsets =
+        tester
+            .stateList<ScrollableState>(find.byType(Scrollable))
+            .map((s) => s.position.pixels)
+            .toList();
+    expect(offsets.any((p) => p > 0), isTrue);
+  });
+
+  testWidgets('a screen text node interpolates an [obj.field] reference', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    controller.load('''
+screen profile():
+    text "HP [player.hp]/[player.max_hp]"
+
+label start:
+    python:
+        class Player:
+            def __init__(self):
+                self.hp = 7
+                self.max_hp = 10
+        player = Player()
+    show screen profile
+    "waiting"
+''');
+
+    await _drainUntil(controller, () => controller.value is RenPyDialogue);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: RenPyScreenLayer(controller: controller)),
+      ),
+    );
+    await tester.pump();
+
+    // The `[player.hp]`/`[player.max_hp]` field references resolved.
+    expect(find.text('HP 7/10'), findsOneWidget);
   });
 }
 
