@@ -463,6 +463,11 @@ out = collect(1, 2, 3, mode="x")
       expect(persistent['coins'], 7);
     });
 
+    test('gettext _() returns the string unchanged', () {
+      expect(eval('_("Quit?")'), 'Quit?');
+      expect(eval('"a" + _("b")'), 'ab');
+    });
+
     test('unsupported constructs raise RenPyPythonError', () {
       expect(
         () => run('with open("x") as f:\n    pass\n'),

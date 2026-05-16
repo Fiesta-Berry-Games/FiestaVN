@@ -2496,6 +2496,8 @@ class _Interpreter {
     },
     'isinstance': (a, k) => _isinstance(a[0], a[1]),
     'type': (a, k) => _typeName(a[0]),
+    // gettext translation marker: returns the string unchanged.
+    '_': (a, k) => a.isEmpty ? '' : a[0],
   };
 
   /// A small set of builtin exception classes so `raise ValueError("...")` and
