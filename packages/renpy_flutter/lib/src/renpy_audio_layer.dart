@@ -107,6 +107,23 @@ class _RenPyAudioLayerState extends State<RenPyAudioLayer> {
           gameRoot: widget.gameRoot,
           asset: asset,
         );
+        if (status.queued) {
+          _playback
+              .queue(
+                channel: status.channel,
+                asset: asset,
+                assetSourcePath: assetSourcePath,
+                fadein: status.fadein,
+                fadeout: status.fadeout,
+                volume: status.volume,
+                mixer: status.mixer,
+                loop: status.loop,
+              )
+              .onError((error, stackTrace) {
+                debugPrint('Failed to queue RenPy audio $asset: $error');
+              });
+          return;
+        }
         if (status.ifChanged == true &&
             _playingAssetSourcePaths[status.channel] == assetSourcePath) {
           return;
@@ -192,6 +209,19 @@ abstract interface class RenPyAudioPlayback {
     bool? loop,
   });
 
+  /// Appends a track to [channel]'s playlist, to begin when the current track
+  /// finishes. If nothing is playing it begins immediately.
+  Future<void> queue({
+    required String channel,
+    required String asset,
+    required String assetSourcePath,
+    String? fadeout,
+    String? volume,
+    String? fadein,
+    String? mixer,
+    bool? loop,
+  });
+
   Future<void> stop({required String channel, String? fadeout});
 
   Future<void> setMuted({required String channel, required bool muted});
@@ -217,6 +247,12 @@ abstract class _AudioPlayersRenPyAudioPlaybackBase
   // Serializes play/stop on a per-channel basis so a rapid second operation
   // cannot drive a player that an earlier sequence is still disposing.
   final Map<String, Future<void>> _channelLocks = {};
+  // Tracks queued via `queue`, keyed by channel, played in order as each
+  // current track completes.
+  final Map<String, List<_QueuedTrack>> _queuedTracks = {};
+  // Per-channel subscription to the current player's completion stream, used to
+  // advance the channel's queue.
+  final Map<String, StreamSubscription<void>> _completionSubs = {};
   bool _disposed = false;
 
   /// Resolves the audioplayers source for the requested asset, or null when the
@@ -245,49 +281,151 @@ abstract class _AudioPlayersRenPyAudioPlaybackBase
     String? mixer,
     bool? loop,
   }) {
+    // A fresh play replaces the channel's playlist, so any queued tracks are
+    // discarded.
+    _queuedTracks.remove(channel);
+    return _serialize(
+      channel,
+      () => _startTrack(
+        channel: channel,
+        asset: asset,
+        assetSourcePath: assetSourcePath,
+        fadeout: fadeout,
+        volume: volume,
+        fadein: fadein,
+        mixer: mixer,
+        loop: loop,
+      ),
+    );
+  }
+
+  @override
+  Future<void> queue({
+    required String channel,
+    required String asset,
+    required String assetSourcePath,
+    String? fadeout,
+    String? volume,
+    String? fadein,
+    String? mixer,
+    bool? loop,
+  }) {
+    final track = _QueuedTrack(
+      asset: asset,
+      assetSourcePath: assetSourcePath,
+      fadeout: fadeout,
+      volume: volume,
+      fadein: fadein,
+      mixer: mixer,
+      loop: loop,
+    );
     return _serialize(channel, () async {
       if (_disposed) return;
-      final source = _sourceFor(asset: asset, assetSourcePath: assetSourcePath);
-      if (source == null) return;
+      // Nothing playing on the channel: a queued track starts immediately.
+      if (_players[channel] == null) {
+        await _startTrack(
+          channel: channel,
+          asset: track.asset,
+          assetSourcePath: track.assetSourcePath,
+          fadeout: track.fadeout,
+          volume: track.volume,
+          fadein: track.fadein,
+          mixer: track.mixer,
+          loop: track.loop,
+        );
+        return;
+      }
+      (_queuedTracks[channel] ??= <_QueuedTrack>[]).add(track);
+    });
+  }
 
-      if (mixer != null) _channelMixers[channel] = mixer;
-      final existingPlayer = _players[channel];
-      final player = existingPlayer ?? audio.AudioPlayer();
-      _players[channel] = player;
-      final fadeoutSeconds = double.tryParse(fadeout ?? '');
-      if (existingPlayer != null &&
-          fadeoutSeconds != null &&
-          fadeoutSeconds > 0) {
-        await _fadeOut(player, _effectiveVolume(channel), fadeoutSeconds);
-        if (!_isCurrentPlayer(channel, player)) return;
-      }
-      if (existingPlayer != null) {
-        await existingPlayer.stop();
-        if (!_isCurrentPlayer(channel, player)) return;
-      }
-      _channelVolumes[channel] = _trackVolume(volume);
-      final effectiveVolume = _effectiveVolume(channel);
-      final fadeinSeconds = double.tryParse(fadein ?? '');
-      await player.setVolume(
-        fadeinSeconds != null && fadeinSeconds > 0 ? 0 : effectiveVolume,
-      );
+  /// Starts [asset] on [channel]'s player, replacing the current track. Wires a
+  /// completion listener so a queued track (if any) starts when this one ends.
+  Future<void> _startTrack({
+    required String channel,
+    required String asset,
+    required String assetSourcePath,
+    String? fadeout,
+    String? volume,
+    String? fadein,
+    String? mixer,
+    bool? loop,
+  }) async {
+    if (_disposed) return;
+    final source = _sourceFor(asset: asset, assetSourcePath: assetSourcePath);
+    if (source == null) return;
+
+    if (mixer != null) _channelMixers[channel] = mixer;
+    final existingPlayer = _players[channel];
+    final player = existingPlayer ?? audio.AudioPlayer();
+    _players[channel] = player;
+    final fadeoutSeconds = double.tryParse(fadeout ?? '');
+    if (existingPlayer != null &&
+        fadeoutSeconds != null &&
+        fadeoutSeconds > 0) {
+      await _fadeOut(player, _effectiveVolume(channel), fadeoutSeconds);
       if (!_isCurrentPlayer(channel, player)) return;
-      await player.setReleaseMode(
-        (loop ?? channel == 'music')
-            ? audio.ReleaseMode.loop
-            : audio.ReleaseMode.release,
-      );
+    }
+    if (existingPlayer != null) {
+      await existingPlayer.stop();
       if (!_isCurrentPlayer(channel, player)) return;
-      await player.play(source);
-      if (fadeinSeconds != null && fadeinSeconds > 0) {
-        if (!_isCurrentPlayer(channel, player)) return;
-        await _fadeIn(player, effectiveVolume, fadeinSeconds);
-      }
+    }
+    _channelVolumes[channel] = _trackVolume(volume);
+    final effectiveVolume = _effectiveVolume(channel);
+    final fadeinSeconds = double.tryParse(fadein ?? '');
+    await player.setVolume(
+      fadeinSeconds != null && fadeinSeconds > 0 ? 0 : effectiveVolume,
+    );
+    if (!_isCurrentPlayer(channel, player)) return;
+    final looping = loop ?? channel == 'music';
+    await player.setReleaseMode(
+      looping ? audio.ReleaseMode.loop : audio.ReleaseMode.release,
+    );
+    if (!_isCurrentPlayer(channel, player)) return;
+    _listenForCompletion(channel, player);
+    await player.play(source);
+    if (fadeinSeconds != null && fadeinSeconds > 0) {
+      if (!_isCurrentPlayer(channel, player)) return;
+      await _fadeIn(player, effectiveVolume, fadeinSeconds);
+    }
+  }
+
+  /// Subscribes to [player]'s completion so the next queued track on [channel]
+  /// starts when the current one finishes. A looping track never completes, so
+  /// it simply holds the queue until replaced.
+  void _listenForCompletion(String channel, audio.AudioPlayer player) {
+    _completionSubs.remove(channel)?.cancel();
+    _completionSubs[channel] = player.onPlayerComplete.listen((_) {
+      if (_disposed || !_isCurrentPlayer(channel, player)) return;
+      _advanceQueue(channel);
+    });
+  }
+
+  /// Starts the next queued track on [channel], if any, after the current track
+  /// completed.
+  Future<void> _advanceQueue(String channel) {
+    return _serialize(channel, () async {
+      if (_disposed) return;
+      final queued = _queuedTracks[channel];
+      if (queued == null || queued.isEmpty) return;
+      final next = queued.removeAt(0);
+      if (queued.isEmpty) _queuedTracks.remove(channel);
+      await _startTrack(
+        channel: channel,
+        asset: next.asset,
+        assetSourcePath: next.assetSourcePath,
+        fadeout: next.fadeout,
+        volume: next.volume,
+        fadein: next.fadein,
+        mixer: next.mixer,
+        loop: next.loop,
+      );
     });
   }
 
   @override
   Future<void> stop({required String channel, String? fadeout}) {
+    _queuedTracks.remove(channel);
     return _serialize(channel, () async {
       final player = _players[channel];
       if (player == null) return;
@@ -300,6 +438,7 @@ abstract class _AudioPlayersRenPyAudioPlaybackBase
 
       await player.stop();
       if (!_isCurrentPlayer(channel, player)) return;
+      await _completionSubs.remove(channel)?.cancel();
       _players.remove(channel);
       _channelMixers.remove(channel);
       _channelVolumes.remove(channel);
@@ -400,10 +539,35 @@ abstract class _AudioPlayersRenPyAudioPlaybackBase
   @override
   Future<void> dispose() async {
     _disposed = true;
+    _queuedTracks.clear();
+    final subs = _completionSubs.values.toList();
+    _completionSubs.clear();
+    await Future.wait(subs.map((sub) => sub.cancel()));
     final players = _players.values.toList();
     _players.clear();
     await Future.wait(players.map((player) => player.dispose()));
   }
+}
+
+/// A track awaiting playback in a channel's queue.
+final class _QueuedTrack {
+  const _QueuedTrack({
+    required this.asset,
+    required this.assetSourcePath,
+    this.fadeout,
+    this.volume,
+    this.fadein,
+    this.mixer,
+    this.loop,
+  });
+
+  final String asset;
+  final String assetSourcePath;
+  final String? fadeout;
+  final String? volume;
+  final String? fadein;
+  final String? mixer;
+  final bool? loop;
 }
 
 /// Production audio backend backed by the web-compatible audioplayers plugin.
@@ -450,6 +614,18 @@ class RenPyNoOpAudioPlayback implements RenPyAudioPlayback {
 
   @override
   Future<void> play({
+    required String channel,
+    required String asset,
+    required String assetSourcePath,
+    String? fadeout,
+    String? volume,
+    String? fadein,
+    String? mixer,
+    bool? loop,
+  }) async {}
+
+  @override
+  Future<void> queue({
     required String channel,
     required String asset,
     required String assetSourcePath,

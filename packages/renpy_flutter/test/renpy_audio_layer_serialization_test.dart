@@ -109,6 +109,114 @@ void main() {
     );
   });
 
+  group('audio queue', () {
+    test('queued track starts after the current track completes', () async {
+      final playback = RenPyBytesAudioPlayback({
+        'music/bgm1.ogg': Uint8List.fromList(const [1]),
+        'music/bgm2.ogg': Uint8List.fromList(const [2]),
+      });
+      addTearDown(playback.dispose);
+
+      await playback.play(
+        channel: 'music',
+        asset: 'bgm1.ogg',
+        assetSourcePath: 'music/bgm1.ogg',
+        loop: false,
+      );
+      await playback.queue(
+        channel: 'music',
+        asset: 'bgm2.ogg',
+        assetSourcePath: 'music/bgm2.ogg',
+        loop: false,
+      );
+
+      // The first track is still playing; the queued track has not started.
+      expect(platform.lastSourceBytes, Uint8List.fromList(const [1]));
+
+      // Simulate the current track finishing; the queued track takes over.
+      platform.emitCompleteForAll();
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(platform.lastSourceBytes, Uint8List.fromList(const [2]));
+      expect(platform.alivePlayerCount, 1);
+    });
+
+    test('queue on an idle channel starts immediately', () async {
+      final playback = RenPyBytesAudioPlayback({
+        'music/bgm.ogg': Uint8List.fromList(const [9]),
+      });
+      addTearDown(playback.dispose);
+
+      await playback.queue(
+        channel: 'music',
+        asset: 'bgm.ogg',
+        assetSourcePath: 'music/bgm.ogg',
+        loop: false,
+      );
+
+      expect(platform.lastSourceBytes, Uint8List.fromList(const [9]));
+      expect(platform.alivePlayerCount, 1);
+    });
+
+    testWidgets('voice plays non-looping through the audio layer', (
+      tester,
+    ) async {
+      final controller = RenPyFlutterController();
+      addTearDown(controller.dispose);
+
+      final playback = _RecordingAudioPlayback();
+
+      await tester.pumpWidget(
+        RenPyAudioLayer(
+          controller: controller,
+          gameRoot: 'game',
+          playback: playback,
+        ),
+      );
+
+      controller.value = const RenPyAudioChange.play(
+        channel: 'voice',
+        asset: 'v/line1.ogg',
+        loop: false,
+      );
+      await tester.pump();
+
+      expect(playback.playedSourcePaths, ['game/v/line1.ogg']);
+      expect(playback.queuedSourcePaths, isEmpty);
+    });
+
+    testWidgets('queued change routes to the backend queue', (tester) async {
+      final controller = RenPyFlutterController();
+      addTearDown(controller.dispose);
+
+      final playback = _RecordingAudioPlayback();
+
+      await tester.pumpWidget(
+        RenPyAudioLayer(
+          controller: controller,
+          gameRoot: 'game',
+          playback: playback,
+        ),
+      );
+
+      controller.value = const RenPyAudioChange.play(
+        channel: 'music',
+        asset: 'bgm1.ogg',
+      );
+      await tester.pump();
+      controller.value = const RenPyAudioChange.play(
+        channel: 'music',
+        asset: 'bgm2.ogg',
+        queued: true,
+      );
+      await tester.pump();
+
+      expect(playback.playedSourcePaths, ['game/bgm1.ogg']);
+      expect(playback.queuedSourcePaths, ['game/bgm2.ogg']);
+    });
+  });
+
   group('ifChanged cache reset on backend swap', () {
     testWidgets('play with ifChanged replays on a swapped backend', (
       tester,
@@ -158,6 +266,7 @@ void main() {
 
 class _RecordingAudioPlayback implements RenPyAudioPlayback {
   final List<String> playedSourcePaths = [];
+  final List<String> queuedSourcePaths = [];
 
   @override
   Future<void> play({
@@ -171,6 +280,20 @@ class _RecordingAudioPlayback implements RenPyAudioPlayback {
     bool? loop,
   }) async {
     playedSourcePaths.add(assetSourcePath);
+  }
+
+  @override
+  Future<void> queue({
+    required String channel,
+    required String asset,
+    required String assetSourcePath,
+    String? fadein,
+    String? mixer,
+    String? fadeout,
+    String? volume,
+    bool? loop,
+  }) async {
+    queuedSourcePaths.add(assetSourcePath);
   }
 
   @override
@@ -198,6 +321,13 @@ class _FakeAudioplayersPlatform extends AudioplayersPlatformInterface {
   Uint8List? lastSourceBytes;
 
   int get alivePlayerCount => _alivePlayers.length;
+
+  /// Emits a completion event on every alive player so queued tracks advance.
+  void emitCompleteForAll() {
+    for (final stream in _eventStreams.values) {
+      stream.add(const AudioEvent(eventType: AudioEventType.complete));
+    }
+  }
 
   void _requireAlive(String playerId, String method) {
     if (!_alivePlayers.contains(playerId)) {

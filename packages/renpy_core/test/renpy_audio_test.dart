@@ -250,4 +250,167 @@ label start:
       ),
     ]);
   });
+
+  test('queue statement emits a queued play event on the channel', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    play music "bgm1.ogg"
+    queue music "bgm2.ogg"
+''', 'audio.rpy').script;
+    final runner = RenPyRunner(script);
+    final audio = <RenPyAudioEvent>[];
+
+    runner.onAudio = audio.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(runner.state, RenPyRunnerState.complete);
+    expect(audio, [
+      const RenPyAudioEvent.play(channel: 'music', asset: 'bgm1.ogg'),
+      const RenPyAudioEvent.queue(channel: 'music', asset: 'bgm2.ogg'),
+    ]);
+    expect(audio.last.queued, isTrue);
+  });
+
+  test('renpy.music.queue emits a queued play event', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    \$ renpy.music.queue("bgm2.ogg")
+''', 'audio.rpy').script;
+    final runner = RenPyRunner(script);
+    final audio = <RenPyAudioEvent>[];
+
+    runner.onAudio = audio.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(runner.state, RenPyRunnerState.complete);
+    expect(audio, [
+      const RenPyAudioEvent.queue(channel: 'music', asset: 'bgm2.ogg'),
+    ]);
+  });
+
+  test('voice line plays a non-looping voice-channel event', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    voice "v/line1.ogg"
+    "Hello there."
+''', 'audio.rpy').script;
+    final runner = RenPyRunner(script);
+    final audio = <RenPyAudioEvent>[];
+
+    runner.onAudio = audio.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    expect(audio, [
+      const RenPyAudioEvent.play(
+        channel: 'voice',
+        asset: 'v/line1.ogg',
+        loop: false,
+      ),
+    ]);
+  });
+
+  test('a second dialogue line interrupts the prior voice', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    voice "v/line1.ogg"
+    "First line."
+    "Second line."
+''', 'audio.rpy').script;
+    final runner = RenPyRunner(script);
+    final audio = <RenPyAudioEvent>[];
+
+    runner.onAudio = audio.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+    // Advance through both dialogue lines.
+    while (runner.state == RenPyRunnerState.waitingForInput) {
+      runner.continueExecution();
+    }
+
+    expect(audio, [
+      const RenPyAudioEvent.play(
+        channel: 'voice',
+        asset: 'v/line1.ogg',
+        loop: false,
+      ),
+      const RenPyAudioEvent.stop(channel: 'voice'),
+    ]);
+  });
+
+  test('a new voice line replaces the prior voice', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    voice "v/line1.ogg"
+    "First line."
+    voice "v/line2.ogg"
+    "Second line."
+''', 'audio.rpy').script;
+    final runner = RenPyRunner(script);
+    final audio = <RenPyAudioEvent>[];
+
+    runner.onAudio = audio.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+    while (runner.state == RenPyRunnerState.waitingForInput) {
+      runner.continueExecution();
+    }
+
+    expect(audio, [
+      const RenPyAudioEvent.play(
+        channel: 'voice',
+        asset: 'v/line1.ogg',
+        loop: false,
+      ),
+      const RenPyAudioEvent.play(
+        channel: 'voice',
+        asset: 'v/line2.ogg',
+        loop: false,
+      ),
+    ]);
+  });
+
+  test('voice sustain keeps the prior voice across one extra line', () {
+    final script =
+        RenPyParser().parse('''
+label start:
+    voice "v/line1.ogg"
+    "First line."
+    voice sustain
+    "Second line."
+    "Third line."
+''', 'audio.rpy').script;
+    final runner = RenPyRunner(script);
+    final audio = <RenPyAudioEvent>[];
+
+    runner.onAudio = audio.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+    while (runner.state == RenPyRunnerState.waitingForInput) {
+      runner.continueExecution();
+    }
+
+    expect(audio, [
+      const RenPyAudioEvent.play(
+        channel: 'voice',
+        asset: 'v/line1.ogg',
+        loop: false,
+      ),
+      // The sustain holds the voice for the second line; the third interrupts.
+      const RenPyAudioEvent.stop(channel: 'voice'),
+    ]);
+  });
 }

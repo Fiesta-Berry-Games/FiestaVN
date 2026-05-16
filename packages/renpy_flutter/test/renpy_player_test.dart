@@ -1704,6 +1704,26 @@ class _RecordingAudioPlayback implements RenPyAudioPlayback {
   }
 
   @override
+  Future<void> queue({
+    required String channel,
+    required String asset,
+    required String assetSourcePath,
+    String? fadein,
+    String? mixer,
+    String? fadeout,
+    String? volume,
+    bool? loop,
+  }) async {
+    calls.add(
+      _AudioCall(
+        channel: channel,
+        asset: asset,
+        assetSourcePath: assetSourcePath,
+      ),
+    );
+  }
+
+  @override
   Future<void> stop({required String channel, String? fadeout}) async {}
 
   @override

@@ -236,6 +236,15 @@ class RenPyRunner {
 
   RenPyDialogueEvent? _lastDialogueEvent;
   _PendingDialogue? _pendingDialogue;
+
+  /// Whether a `voice` line is currently sounding on the dedicated voice
+  /// channel. RenPy voice is one-shot: the next voice line or dialogue
+  /// interrupts it. A `voice sustain` keeps it alive across the next line.
+  bool _voiceActive = false;
+  bool _voiceSustain = false;
+  // True between a `voice` line and the dialogue line it belongs to, so that
+  // first dialogue does not interrupt its own voice.
+  bool _voiceJustStarted = false;
   late RenPyTransitionResolver _transitionResolver;
   final Map<String, RenPyImagePlacement> _transformPlacements = {};
 
@@ -956,6 +965,10 @@ class RenPyRunner {
       _executeIfStatement(stmt);
     } else if (stmt is RenPyPlayStatement) {
       _executePlayStatement(stmt);
+    } else if (stmt is RenPyQueueStatement) {
+      _executeQueueStatement(stmt);
+    } else if (stmt is RenPyVoiceStatement) {
+      _executeVoiceStatement(stmt);
     } else if (stmt is RenPyStopStatement) {
       _executeStopStatement(stmt);
     } else if (stmt is RenPyHideStatement) {
@@ -999,6 +1012,10 @@ class RenPyRunner {
 
   /// Execute a say statement (dialogue).
   void _executeSayStatement(RenPySayStatement stmt) {
+    // A `extend` continues the prior line and so should not interrupt its voice.
+    if (stmt.character != 'extend') {
+      _interruptVoiceForDialogue();
+    }
     final isExtend = stmt.character == 'extend';
     final previous = _lastDialogueEvent;
     final event =
@@ -2010,11 +2027,83 @@ class RenPyRunner {
   }
 
   void _executeStopStatement(RenPyStopStatement stmt) {
+    if (stmt.channel == 'voice') {
+      _voiceActive = false;
+      _voiceSustain = false;
+    }
     onAudio?.call(
       RenPyAudioEvent.stop(channel: stmt.channel, fadeout: stmt.fadeout),
     );
     _position++;
     _executeNext();
+  }
+
+  /// Execute a queue statement: append to the channel's playlist instead of
+  /// replacing the current track.
+  void _executeQueueStatement(RenPyQueueStatement stmt) {
+    final registration = _audioChannels[stmt.channel];
+    final audio = _evaluateAudioPlayExpression(stmt.expression);
+    onAudio?.call(
+      RenPyAudioEvent.queue(
+        fadeout: audio.fadeout,
+        volume: audio.volume,
+        channel: stmt.channel,
+        asset: audio.asset,
+        fadein: audio.fadein,
+        mixer: registration?.mixer,
+        loop: audio.loop ?? registration?.loop,
+      ),
+    );
+    _position++;
+    _executeNext();
+  }
+
+  /// Execute a `voice` statement. Voice is one-shot on the dedicated voice
+  /// channel: this implicitly interrupts any prior voice. `voice sustain`
+  /// instead keeps the currently playing voice alive across the next line.
+  void _executeVoiceStatement(RenPyVoiceStatement stmt) {
+    if (stmt.isSustain) {
+      _voiceSustain = true;
+      _position++;
+      _executeNext();
+      return;
+    }
+
+    final asset = _evaluateAudioAsset(stmt.expression);
+    final registration = _audioChannels['voice'];
+    // Starting a new voice replaces the prior one; the play event itself stops
+    // the current voice track on the channel, so no separate stop is emitted.
+    onAudio?.call(
+      RenPyAudioEvent.play(
+        channel: 'voice',
+        asset: asset,
+        mixer: registration?.mixer,
+        loop: false,
+      ),
+    );
+    _voiceActive = true;
+    _voiceSustain = false;
+    _voiceJustStarted = true;
+    _position++;
+    _executeNext();
+  }
+
+  /// Stops a one-shot voice when the next dialogue line arrives, mirroring
+  /// RenPy's automatic voice interruption. The dialogue line that a `voice`
+  /// statement precedes keeps that voice playing; the line after it interrupts.
+  /// A preceding `voice sustain` keeps the voice alive for one extra line.
+  void _interruptVoiceForDialogue() {
+    if (!_voiceActive) return;
+    if (_voiceJustStarted) {
+      _voiceJustStarted = false;
+      return;
+    }
+    if (_voiceSustain) {
+      _voiceSustain = false;
+      return;
+    }
+    _voiceActive = false;
+    onAudio?.call(const RenPyAudioEvent.stop(channel: 'voice'));
   }
 
   String _evaluateAudioAsset(String expression) {
@@ -2540,6 +2629,9 @@ class RenPyRunner {
     // Re-seed so a restart replays the same deterministic random sequence.
     _renpyRandom = math.Random(_renpyRandomSeed);
     _lastDialogueEvent = null;
+    _voiceActive = false;
+    _voiceSustain = false;
+    _voiceJustStarted = false;
     _transitionResolver = RenPyTransitionResolver.fromScript(script);
     _processDefines();
   }
@@ -2574,17 +2666,52 @@ class RenPyRunner {
             ?.toString() ??
         defaultChannel;
     final registration = _audioChannels[channel];
+    final loop =
+        keywords['loop'] is bool
+            ? keywords['loop'] as bool
+            : registration?.loop;
+    if (function.endsWith('.queue')) {
+      onAudio?.call(
+        RenPyAudioEvent.queue(
+          channel: channel,
+          asset: asset,
+          loop: loop,
+          mixer: registration?.mixer,
+        ),
+      );
+      return;
+    }
     onAudio?.call(
       RenPyAudioEvent.play(
         channel: channel,
         asset: asset,
-        loop:
-            keywords['loop'] is bool
-                ? keywords['loop'] as bool
-                : registration?.loop,
+        loop: loop,
         mixer: registration?.mixer,
       ),
     );
+  }
+
+  /// Emits a one-shot voice play for `renpy.voice("file")` (best-effort). A bare
+  /// `renpy.voice_sustain()` keeps the current voice alive across the next line.
+  void _emitRenpyVoice(List<Object?> positional) {
+    final asset = positional.isNotEmpty ? positional.first?.toString() : null;
+    if (asset == null || asset.isEmpty) return;
+    final registration = _audioChannels['voice'];
+    onAudio?.call(
+      RenPyAudioEvent.play(
+        channel: 'voice',
+        asset: asset,
+        mixer: registration?.mixer,
+        loop: false,
+      ),
+    );
+    _voiceActive = true;
+    _voiceSustain = false;
+    _voiceJustStarted = true;
+  }
+
+  void _emitRenpyVoiceSustain() {
+    if (_voiceActive) _voiceSustain = true;
   }
 }
 
@@ -2634,6 +2761,14 @@ class _RunnerRenPyApi implements RenPyApi {
     Map<String, Object?> keywords,
   ) {
     if (function.endsWith('set_volume')) return;
+    if (function == 'voice') {
+      _runner._emitRenpyVoice(positional);
+      return;
+    }
+    if (function == 'voice_sustain') {
+      _runner._emitRenpyVoiceSustain();
+      return;
+    }
     _runner._emitRenpyApiAudio(function, positional, keywords);
   }
 }

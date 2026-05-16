@@ -399,6 +399,47 @@ class RenPyPlayStatement extends RenPyStatement {
   String toString() => 'Play $channel: $expression';
 }
 
+/// Represents an audio queue statement (e.g. `queue music "next.ogg"`).
+///
+/// Mirrors [RenPyPlayStatement] but the audio is appended to the channel's
+/// playlist to start when the current track ends rather than replacing it.
+class RenPyQueueStatement extends RenPyStatement {
+  /// The audio channel ('sound', 'music', 'voice', ...).
+  final String channel;
+
+  /// The expression that follows the channel - usually a quoted file-name.
+  final String expression;
+
+  RenPyQueueStatement(
+    this.channel,
+    this.expression,
+    String filename,
+    int linenumber,
+  ) : super(filename, linenumber);
+
+  @override
+  String toString() => 'Queue $channel: $expression';
+}
+
+/// Represents a `voice "file.ogg"` statement.
+///
+/// Voice is RenPy's dedicated one-shot dialogue-audio channel: a new voice line
+/// (or the next dialogue) automatically interrupts the previous one.
+class RenPyVoiceStatement extends RenPyStatement {
+  /// The expression that follows `voice` - usually a quoted file-name. A bare
+  /// `voice sustain` keeps the currently playing voice across the next line.
+  final String expression;
+
+  RenPyVoiceStatement(this.expression, String filename, int linenumber)
+    : super(filename, linenumber);
+
+  /// Whether this is `voice sustain` (keep the prior voice playing).
+  bool get isSustain => expression.trim() == 'sustain';
+
+  @override
+  String toString() => 'Voice: $expression';
+}
+
 /// Represents an audio stop statement (e.g. `stop music fadeout 1.0`).
 class RenPyStopStatement extends RenPyStatement {
   final String channel;

@@ -57,8 +57,9 @@ abstract class RenPyApi {
   /// `renpy.with_statement(transition)` - apply a transition.
   void withStatement(Object? transition);
 
-  /// `renpy.music.queue(...)` / `renpy.sound.play(...)` and the volume setters.
-  /// [function] is the dotted suffix after `renpy.`, e.g. `music.queue`.
+  /// `renpy.music.queue(...)` / `renpy.sound.play(...)`, `renpy.voice(...)` /
+  /// `renpy.voice_sustain()`, and the volume setters. [function] is the dotted
+  /// suffix after `renpy.`, e.g. `music.queue` or `voice`.
   void audio(
     String function,
     List<Object?> positional,
@@ -1805,6 +1806,9 @@ class _Interpreter {
       case 'music.set_volume':
       case 'sound.play':
       case 'sound.set_volume':
+      case 'sound.queue':
+      case 'voice':
+      case 'voice_sustain':
         api.audio(function, positional, keywords);
         return null;
       default:

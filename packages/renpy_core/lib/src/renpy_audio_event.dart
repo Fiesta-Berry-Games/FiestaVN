@@ -9,7 +9,23 @@ class RenPyAudioEvent {
     this.ifChanged,
     this.mixer,
     this.loop,
-  }) : action = RenPyAudioAction.play;
+  }) : action = RenPyAudioAction.play,
+       queued = false;
+
+  /// Appends [asset] to [channel]'s playlist, to start when the current track
+  /// ends rather than replacing it (RenPy `queue <channel> "file"` /
+  /// `renpy.music.queue(...)`).
+  const RenPyAudioEvent.queue({
+    required this.channel,
+    required this.asset,
+    this.fadein,
+    this.fadeout,
+    this.volume,
+    this.mixer,
+    this.loop,
+  }) : action = RenPyAudioAction.play,
+       ifChanged = null,
+       queued = true;
 
   const RenPyAudioEvent.stop({required this.channel, this.fadeout})
     : action = RenPyAudioAction.stop,
@@ -18,7 +34,8 @@ class RenPyAudioEvent {
       volume = null,
       ifChanged = null,
       mixer = null,
-      loop = null;
+      loop = null,
+      queued = false;
 
   final RenPyAudioAction action;
   final String channel;
@@ -29,6 +46,10 @@ class RenPyAudioEvent {
   final bool? ifChanged;
   final String? mixer;
   final bool? loop;
+
+  /// Whether a play event should append to the channel's playlist (queue) rather
+  /// than replace the current track. Always false for stop events.
+  final bool queued;
 
   @override
   bool operator ==(Object other) {
@@ -42,7 +63,8 @@ class RenPyAudioEvent {
             volume == other.volume &&
             ifChanged == other.ifChanged &&
             mixer == other.mixer &&
-            loop == other.loop;
+            loop == other.loop &&
+            queued == other.queued;
   }
 
   @override
@@ -56,11 +78,13 @@ class RenPyAudioEvent {
     ifChanged,
     mixer,
     loop,
+    queued,
   );
 
   @override
   String toString() {
-    return 'RenPyAudioEvent.$action(channel: $channel, asset: $asset, '
+    return 'RenPyAudioEvent.${queued ? 'queue' : action.name}'
+        '(channel: $channel, asset: $asset, '
         'fadein: $fadein, fadeout: $fadeout, volume: $volume, '
         'ifChanged: $ifChanged, mixer: $mixer, loop: $loop)';
   }

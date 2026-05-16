@@ -186,6 +186,14 @@ class RenPyParser {
       return _parseStopStatement(line, warnings);
     }
 
+    if (text.startsWith('queue ')) {
+      return _parseQueueStatement(line, warnings);
+    }
+
+    if (text == 'voice' || text.startsWith('voice ')) {
+      return _parseVoiceStatement(line, warnings);
+    }
+
     if (text.startsWith('hide ')) {
       return _parseHideStatement(line, warnings);
     }
@@ -473,7 +481,7 @@ class RenPyParser {
   // be mistaken for a say speaker now that the say pattern accepts attribute
   // tokens after the leading identifier (e.g. `show text "..."`).
   static final _sayKeywordGuard = RegExp(
-    r'''^(?:show|scene|hide|play|stop|jump|call|with|nvl|window|pause|menu|label|image|define|default|screen|style|transform|init|python|return|pass|if|elif|else)\b''',
+    r'''^(?:show|scene|hide|play|stop|queue|voice|jump|call|with|nvl|window|pause|menu|label|image|define|default|screen|style|transform|init|python|return|pass|if|elif|else)\b''',
   );
 
   bool _isSayStatement(String text) {
@@ -1260,6 +1268,56 @@ class RenPyParser {
     return RenPyPlayStatement(
       m.group(1)!, // Channel.
       m.group(2)!.trim(), // Expression.
+      line.filename,
+      line.number,
+    );
+  }
+
+  /// Stub for `queue <channel> "file"`.
+  ///
+  /// Mirrors [_parsePlayStatement] but the audio is appended to the channel's
+  /// playlist rather than replacing the current track.
+  RenPyQueueStatement _parseQueueStatement(
+    GroupedLine line,
+    List<String> warnings,
+  ) {
+    final text = line.text.trim();
+    final rx = RegExp(r'^queue\s+(\w+)\s+(.+)$');
+    final m = rx.firstMatch(text);
+    if (m == null) {
+      throw RenPyParseError(
+        'Invalid queue-audio syntax',
+        line.filename,
+        line.number,
+        0,
+      );
+    }
+    return RenPyQueueStatement(
+      m.group(1)!, // Channel.
+      m.group(2)!.trim(), // Expression.
+      line.filename,
+      line.number,
+    );
+  }
+
+  /// Stub for `voice "file.ogg"` and `voice sustain`.
+  RenPyVoiceStatement _parseVoiceStatement(
+    GroupedLine line,
+    List<String> warnings,
+  ) {
+    final text = line.text.trim();
+    final rx = RegExp(r'^voice(?:\s+(.+))?$');
+    final m = rx.firstMatch(text);
+    if (m == null) {
+      throw RenPyParseError(
+        'Invalid voice syntax',
+        line.filename,
+        line.number,
+        0,
+      );
+    }
+    return RenPyVoiceStatement(
+      (m.group(1) ?? '').trim(),
       line.filename,
       line.number,
     );

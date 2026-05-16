@@ -113,6 +113,7 @@ final class RenPyAudioChange extends RenPyGameStatus {
     this.volume,
     this.ifChanged,
     this.loop,
+    this.queued = false,
   }) : action = RenPyAudioAction.play;
 
   const RenPyAudioChange.stop({required this.channel, this.fadeout})
@@ -122,7 +123,8 @@ final class RenPyAudioChange extends RenPyGameStatus {
       mixer = null,
       volume = null,
       ifChanged = null,
-      loop = null;
+      loop = null,
+      queued = false;
 
   final RenPyAudioAction action;
   final String channel;
@@ -134,9 +136,14 @@ final class RenPyAudioChange extends RenPyGameStatus {
   final bool? ifChanged;
   final bool? loop;
 
+  /// Whether this play should append to the channel's playlist (queue) instead
+  /// of replacing the current track.
+  final bool queued;
+
   @override
   String toString() {
-    return 'RenPyAudioChange.$action(channel: $channel, asset: $asset, '
+    return 'RenPyAudioChange.${queued ? 'queue' : action.name}'
+        '(channel: $channel, asset: $asset, '
         'fadein: $fadein, fadeout: $fadeout, volume: $volume, '
         'ifChanged: $ifChanged, mixer: $mixer, loop: $loop)';
   }
@@ -836,6 +843,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
           ifChanged: event.ifChanged,
           mixer: event.mixer,
           loop: event.loop,
+          queued: event.queued,
         );
       case RenPyAudioAction.stop:
         change = RenPyAudioChange.stop(
