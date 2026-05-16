@@ -4,7 +4,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:renpy_core/renpy_core.dart'
-    show RenPyAtlProgram, RenPyParser, RenPyTransformStatement;
+    show
+        RenPyAtlProgram,
+        RenPyParser,
+        RenPyResolvedImage,
+        RenPyTransformStatement;
 import 'package:renpy_flutter/renpy_flutter.dart';
 
 void main() {
@@ -1169,6 +1173,50 @@ transform slide:
     final later = _spriteAnchor(tester, 'eileen');
 
     expect(later, start);
+  });
+
+  testWidgets('image layer renders a layeredimage as a stack of N layers', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(
+      show: 'eileen',
+      showLayers: const [
+        RenPyResolvedImage(assetPath: 'assets/game/images/eileen_base.png'),
+        RenPyResolvedImage(assetPath: 'assets/game/images/eileen_casual.png'),
+        RenPyResolvedImage(assetPath: 'assets/game/images/eileen_smile.png'),
+      ],
+    );
+    await tester.pump();
+
+    expect(_assetNames(tester), [
+      'assets/game/images/eileen_base.png',
+      'assets/game/images/eileen_casual.png',
+      'assets/game/images/eileen_smile.png',
+    ]);
+  });
+
+  testWidgets('a normal image still renders a single layer', (tester) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(
+      show: 'sylvie green normal',
+      showAsset: 'assets/game/images/sylvie green normal.png',
+    );
+    await tester.pump();
+
+    expect(_assetNames(tester), ['assets/game/images/sylvie green normal.png']);
   });
 }
 

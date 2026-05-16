@@ -8,6 +8,7 @@ export 'renpy_game_project.dart';
 export 'renpy_image_event.dart';
 export 'renpy_image_placement.dart';
 export 'renpy_image_resolver.dart';
+export 'renpy_layeredimage_resolver.dart';
 export 'renpy_pause_event.dart';
 export 'renpy_resolved_image.dart';
 export 'renpy_rpa_archive.dart';

@@ -1,3 +1,4 @@
+import 'package:renpy_parser/src/models/renpy_layeredimage.dart';
 import 'package:renpy_parser/src/models/renpy_script.dart';
 import 'package:renpy_parser/src/models/renpy_statement.dart';
 import 'package:renpy_parser/src/renpy_lexer.dart';
@@ -137,6 +138,12 @@ class RenPyParser {
         text.startsWith('init ') ||
         text.startsWith('init:')) {
       return _parseInitStatement(line, warnings);
+    }
+
+    // Parse layeredimage statement (before `image` so it is not mistaken for
+    // an image statement).
+    if (text.startsWith('layeredimage ')) {
+      return _parseLayeredImageStatement(line, warnings);
     }
 
     // Parse image statement
@@ -307,6 +314,161 @@ class RenPyParser {
       line.number,
       0,
     );
+  }
+
+  /// Parses a `layeredimage name:` declaration and its nested layers.
+  ///
+  /// Recognized children: `always:`, `group <name>:` (with nested
+  /// `attribute <name> [default]:` layers), bare `attribute <name> [default]:`
+  /// (an implicit single-attribute group), and `if <condition>:`. Each layer
+  /// body holds a displayable line plus optional `key value` property lines.
+  /// Unrecognized children are skipped without aborting the declaration.
+  RenPyLayeredImageStatement _parseLayeredImageStatement(
+    GroupedLine line,
+    List<String> warnings,
+  ) {
+    final text = line.text.trim();
+    final headerMatch = RegExp(r'^layeredimage\s+(.+?)\s*:$').firstMatch(text);
+    if (headerMatch == null) {
+      throw RenPyParseError(
+        'Invalid layeredimage statement syntax',
+        line.filename,
+        line.number,
+        0,
+      );
+    }
+
+    final name = headerMatch.group(1)!.trim();
+    final layers = <RenPyLayeredImageLayer>[];
+
+    for (final child in line.block) {
+      final childText = child.text.trim();
+      if (childText.isEmpty || childText.startsWith('#')) continue;
+
+      if (childText == 'always:' || childText == 'always') {
+        final body = _layeredImageLayerBody(child);
+        if (body.displayable != null) {
+          layers.add(
+            RenPyLayeredImageLayer.always(
+              body.displayable!,
+              properties: body.properties,
+            ),
+          );
+        }
+        continue;
+      }
+
+      final groupMatch = RegExp(r'^group\s+(\w+)\s*:?$').firstMatch(childText);
+      if (groupMatch != null) {
+        _collectLayeredImageGroup(groupMatch.group(1)!, child, layers);
+        continue;
+      }
+
+      final attributeMatch = RegExp(
+        r'^attribute\s+(\w+)(\s+default)?\s*:?$',
+      ).firstMatch(childText);
+      if (attributeMatch != null) {
+        // A bare `attribute` outside a `group` forms its own implicit group.
+        final attribute = attributeMatch.group(1)!;
+        final body = _layeredImageLayerBody(child);
+        if (body.displayable != null) {
+          layers.add(
+            RenPyLayeredImageLayer.attribute(
+              group: attribute,
+              attribute: attribute,
+              displayable: body.displayable!,
+              isDefault: attributeMatch.group(2) != null,
+              properties: body.properties,
+            ),
+          );
+        }
+        continue;
+      }
+
+      final ifMatch = RegExp(r'^if\s+(.+?)\s*:$').firstMatch(childText);
+      if (ifMatch != null) {
+        final body = _layeredImageLayerBody(child);
+        if (body.displayable != null) {
+          layers.add(
+            RenPyLayeredImageLayer.condition(
+              condition: ifMatch.group(1)!.trim(),
+              displayable: body.displayable!,
+              properties: body.properties,
+            ),
+          );
+        }
+        continue;
+      }
+
+      warnings.add(
+        'Warning: Skipped unsupported layeredimage entry at '
+        '${child.filename}:${child.number}: $childText',
+      );
+    }
+
+    return RenPyLayeredImageStatement(name, layers, line.filename, line.number);
+  }
+
+  void _collectLayeredImageGroup(
+    String group,
+    GroupedLine groupLine,
+    List<RenPyLayeredImageLayer> layers,
+  ) {
+    for (final child in groupLine.block) {
+      final childText = child.text.trim();
+      if (childText.isEmpty || childText.startsWith('#')) continue;
+
+      final attributeMatch = RegExp(
+        r'^attribute\s+(\w+)(\s+default)?\s*:?$',
+      ).firstMatch(childText);
+      if (attributeMatch == null) continue;
+
+      final body = _layeredImageLayerBody(child);
+      if (body.displayable == null) continue;
+      layers.add(
+        RenPyLayeredImageLayer.attribute(
+          group: group,
+          attribute: attributeMatch.group(1)!,
+          displayable: body.displayable!,
+          isDefault: attributeMatch.group(2) != null,
+          properties: body.properties,
+        ),
+      );
+    }
+  }
+
+  /// Reads the body of a layeredimage layer: the first displayable line and any
+  /// `key value` property lines (`at`, `if_all`, `if_any`, `if_not`, ...).
+  _LayeredImageLayerBody _layeredImageLayerBody(GroupedLine line) {
+    String? displayable;
+    final properties = <String, String>{};
+
+    for (final child in line.block) {
+      final childText = child.text.trim();
+      if (childText.isEmpty || childText.startsWith('#')) continue;
+
+      final propertyMatch = RegExp(
+        r'^(at|if_all|if_any|if_not|align|pos|xpos|ypos|xalign|yalign|'
+        r'anchor|offset|zoom)\s+(.+)$',
+      ).firstMatch(childText);
+      if (propertyMatch != null) {
+        properties[propertyMatch.group(1)!] = propertyMatch.group(2)!.trim();
+        continue;
+      }
+
+      displayable ??= _unquoteDisplayable(childText);
+    }
+
+    return _LayeredImageLayerBody(displayable, properties);
+  }
+
+  String _unquoteDisplayable(String text) {
+    if (text.length >= 2 &&
+        (text.startsWith('"') && text.endsWith('"') ||
+            text.startsWith("'") && text.endsWith("'"))) {
+      return text.substring(1, text.length - 1);
+    }
+    return text;
   }
 
   RenPyNvlStatement _parseNvlStatement(
@@ -1478,6 +1640,13 @@ class _QuotedPrefix {
 
   final String value;
   final String remainder;
+}
+
+class _LayeredImageLayerBody {
+  const _LayeredImageLayerBody(this.displayable, this.properties);
+
+  final String? displayable;
+  final Map<String, String> properties;
 }
 
 /// Represents an init block statement.

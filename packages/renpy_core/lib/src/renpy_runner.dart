@@ -9,6 +9,7 @@ import 'renpy_dialogue_event.dart';
 import 'renpy_expression_evaluator.dart';
 import 'renpy_image_event.dart';
 import 'renpy_image_placement.dart';
+import 'renpy_layeredimage_resolver.dart';
 import 'renpy_pause_event.dart';
 import 'renpy_persistent_store.dart';
 import 'renpy_python.dart';
@@ -259,6 +260,15 @@ class RenPyRunner {
   /// screen on demand.
   final Map<String, RenPyScreenStatement> _screens = {};
 
+  /// Registered `layeredimage` declarations, used to resolve a shown
+  /// layeredimage into its ordered layer image names.
+  RenPyLayeredImageRegistry _layeredImages = RenPyLayeredImageRegistry();
+
+  /// The active attribute selection (group -> attribute) for each currently
+  /// shown layeredimage, keyed by `layer::tag`. Lets an incremental
+  /// `show eileen frown` update only the changed group while keeping the rest.
+  final Map<String, Map<String, String>> _layeredImageAttributes = {};
+
   /// Parsed `style` declarations, keyed by style name, including their `is`
   /// parent links. Resolved through the parent chain by the screen runtime.
   final Map<String, RenPyStyle> _styles = {};
@@ -382,6 +392,9 @@ class RenPyRunner {
     // Initialize with the default block of statements
     _currentBlock = script.statements;
     _transitionResolver = RenPyTransitionResolver.fromScript(script);
+
+    // Register layeredimage declarations so `show` can resolve their layers.
+    _layeredImages = RenPyLayeredImageRegistry.fromScript(script);
 
     // Process define statements to set up characters and variables
     _processDefines();
@@ -1284,6 +1297,10 @@ class RenPyRunner {
 
     final placement = _placementFor(stmt.atExpression);
     _diagnosePlacement(placement);
+    final layers = _resolveLayeredImageLayers(
+      stmt.imageName,
+      stmt.onLayerExpression,
+    );
     onImageEvent?.call(
       RenPyImageEvent.show(
         stmt.imageName,
@@ -1293,6 +1310,7 @@ class RenPyRunner {
         zOrder: _parseZOrder(stmt.zOrderExpression),
         behind: stmt.behindExpression,
         displayableText: stmt.displayableText,
+        layers: layers,
       ),
     );
     if (onImage != null) {
@@ -1302,6 +1320,38 @@ class RenPyRunner {
 
     _position++;
     _executeNext();
+  }
+
+  /// Resolves a `show <layeredimage> <attrs...>` into the ordered list of layer
+  /// image names to stack, updating the per-sprite active-attribute state. The
+  /// first show of a tag seeds each group's `default`; later shows merge in the
+  /// named attributes, swapping only their groups. Returns an empty list for a
+  /// non-layeredimage show (the caller falls back to single-image rendering).
+  List<String> _resolveLayeredImageLayers(String? imageName, String? onLayer) {
+    if (imageName == null || !_layeredImages.isLayeredImage(imageName)) {
+      return const [];
+    }
+
+    final tag = _imageTag(imageName);
+    final key =
+        '${onLayer?.trim().isNotEmpty == true ? onLayer!.trim() : 'master'}::$tag';
+    final base =
+        _layeredImageAttributes[key] ??
+        _layeredImages.defaultAttributes(imageName);
+    final merged = _layeredImages.mergeAttributes(imageName, base);
+    _layeredImageAttributes[key] = merged;
+
+    return _layeredImages.resolveLayers(
+      imageName,
+      merged,
+      evaluateCondition: _evaluateCondition,
+    );
+  }
+
+  String _imageTag(String imageName) {
+    final clean = imageName.split('#').first.trim();
+    if (clean.isEmpty) return clean;
+    return clean.split(RegExp(r'\s+')).first;
   }
 
   int? _parseZOrder(String? expression) {
@@ -1326,6 +1376,14 @@ class RenPyRunner {
   void _executeSceneStatement(RenPySceneStatement stmt) {
     final placement = _placementFor(stmt.atExpression);
     _diagnosePlacement(placement);
+    // A scene clears its layer, so drop the layeredimage attribute state for it.
+    final sceneLayer =
+        stmt.onLayerExpression?.trim().isNotEmpty == true
+            ? stmt.onLayerExpression!.trim()
+            : 'master';
+    _layeredImageAttributes.removeWhere(
+      (key, _) => key.startsWith('$sceneLayer::'),
+    );
     onImageEvent?.call(
       RenPyImageEvent.scene(
         stmt.imageName,
@@ -1353,6 +1411,13 @@ class RenPyRunner {
       _executeNext();
       return;
     }
+
+    final hideTag = _imageTag(stmt.imageName);
+    final hideLayer =
+        stmt.onLayerExpression?.trim().isNotEmpty == true
+            ? stmt.onLayerExpression!.trim()
+            : 'master';
+    _layeredImageAttributes.remove('$hideLayer::$hideTag');
 
     onImageEvent?.call(
       RenPyImageEvent.hide(stmt.imageName, onLayer: stmt.onLayerExpression),

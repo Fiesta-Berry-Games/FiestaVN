@@ -73,6 +73,7 @@ final class RenPyImageChange extends RenPyGameStatus {
     this.sceneImage,
     this.showImage,
     this.showText,
+    this.showLayers = const [],
   });
 
   final String? scene;
@@ -93,6 +94,10 @@ final class RenPyImageChange extends RenPyGameStatus {
   final RenPyResolvedImage? sceneImage;
   final RenPyResolvedImage? showImage;
   final String? showText;
+
+  /// The resolved, ordered (bottom-to-top) layer images of a `show` that named
+  /// a layeredimage. Empty for an ordinary single-image show.
+  final List<RenPyResolvedImage> showLayers;
 }
 
 /// Emitted when a rollback or load replaces the full visual presentation.
@@ -794,6 +799,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
         if (event.displayableText == null) {
           _diagnoseResolvedImage(event.imageName, image);
         }
+        final showLayers = _resolveLayeredImageLayers(event.layers);
         change = RenPyImageChange(
           show: event.imageName,
           showAt: event.at,
@@ -804,6 +810,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
           showAsset: image?.assetPath,
           showImage: image,
           showText: event.displayableText,
+          showLayers: showLayers,
         );
       case RenPyImageAction.hide:
         change = RenPyImageChange(
@@ -813,6 +820,19 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     }
     _recordImageChange(change);
     value = change;
+  }
+
+  /// Resolves each layeredimage layer name to an asset, dropping any that fail
+  /// to resolve so a partially-missing composite still renders the rest.
+  List<RenPyResolvedImage> _resolveLayeredImageLayers(List<String> names) {
+    if (names.isEmpty) return const [];
+    final resolved = <RenPyResolvedImage>[];
+    for (final name in names) {
+      final image = _imageResolver.resolveImage(name);
+      _diagnoseResolvedImage(name, image);
+      if (image != null) resolved.add(image);
+    }
+    return resolved;
   }
 
   void _onImageDefinition(RenPyImageDefinitionEvent event) {

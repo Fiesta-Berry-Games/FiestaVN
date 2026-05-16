@@ -1,5 +1,14 @@
 import 'renpy_image_placement.dart';
 
+bool _listEquals<T>(List<T> a, List<T> b) {
+  if (identical(a, b)) return true;
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i += 1) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
 /// The kind of image command emitted while running a RenPy script.
 enum RenPyImageAction { scene, show, hide }
 
@@ -40,7 +49,8 @@ class RenPyImageEvent {
     this.zOrder,
   }) : action = RenPyImageAction.scene,
        behind = null,
-       displayableText = null;
+       displayableText = null,
+       layers = const [];
 
   const RenPyImageEvent.show(
     this.imageName, {
@@ -50,6 +60,7 @@ class RenPyImageEvent {
     this.zOrder,
     this.behind,
     this.displayableText,
+    this.layers = const [],
   }) : action = RenPyImageAction.show;
 
   const RenPyImageEvent.hide(this.imageName, {this.onLayer})
@@ -58,7 +69,8 @@ class RenPyImageEvent {
       placement = null,
       zOrder = null,
       behind = null,
-      displayableText = null;
+      displayableText = null,
+      layers = const [];
 
   final RenPyImageAction action;
   final String? imageName;
@@ -81,6 +93,11 @@ class RenPyImageEvent {
   /// Inline displayable text from `show text "..."`.
   final String? displayableText;
 
+  /// The ordered (bottom-to-top) layer image names of a resolved layeredimage
+  /// `show`, or empty for an ordinary single-image show. Each entry is a plain
+  /// image name the host resolves to an asset like any other image.
+  final List<String> layers;
+
   @override
   bool operator ==(Object other) {
     return identical(this, other) ||
@@ -92,7 +109,8 @@ class RenPyImageEvent {
             onLayer == other.onLayer &&
             zOrder == other.zOrder &&
             behind == other.behind &&
-            displayableText == other.displayableText;
+            displayableText == other.displayableText &&
+            _listEquals(layers, other.layers);
   }
 
   @override
@@ -105,6 +123,7 @@ class RenPyImageEvent {
     zOrder,
     behind,
     displayableText,
+    Object.hashAll(layers),
   );
 
   @override
@@ -112,6 +131,6 @@ class RenPyImageEvent {
     return 'RenPyImageEvent.$action('
         'imageName: $imageName, at: $at, placement: $placement, '
         'onLayer: $onLayer, zOrder: $zOrder, behind: $behind, '
-        'displayableText: $displayableText)';
+        'displayableText: $displayableText, layers: $layers)';
   }
 }

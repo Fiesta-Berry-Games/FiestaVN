@@ -157,11 +157,24 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
         final atl = _resolveAtl(status.showAt);
 
         final text = status.showText;
+        final layers = _renderedLayers(status.showLayers);
         if (text != null) {
           _putSprite(
             name,
             _RenPySpriteState.text(
               text: text,
+              placement: placement,
+              zOrder: status.showZOrder ?? 0,
+              atl: atl,
+            ),
+            behind: status.showBehind,
+            layer: status.showOnLayer,
+          );
+        } else if (layers.isNotEmpty) {
+          _putSprite(
+            name,
+            _RenPySpriteState.layered(
+              layers: layers,
               placement: placement,
               zOrder: status.showZOrder ?? 0,
               atl: atl,
@@ -190,6 +203,17 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
         }
       }
     });
+  }
+
+  /// Maps the resolved layeredimage layer images to renderable images, dropping
+  /// any that carry no asset path so the rest of the composite still draws.
+  List<_RenPyRenderedImage> _renderedLayers(List<RenPyResolvedImage> layers) {
+    final rendered = <_RenPyRenderedImage>[];
+    for (final layer in layers) {
+      final image = _RenPyRenderedImage.fromResolved(layer);
+      if (image != null) rendered.add(image);
+    }
+    return rendered;
   }
 
   /// Resolves the `at` clause to a compiled ATL program, trying the whole
@@ -599,7 +623,8 @@ class _RenPySpriteState {
     this.zOrder = 0,
     this.atl,
   }) : solidColor = null,
-       text = null;
+       text = null,
+       layers = const [];
 
   const _RenPySpriteState.text({
     required this.text,
@@ -607,7 +632,8 @@ class _RenPySpriteState {
     this.zOrder = 0,
     this.atl,
   }) : image = null,
-       solidColor = null;
+       solidColor = null,
+       layers = const [];
 
   const _RenPySpriteState.solid({
     required this.solidColor,
@@ -615,11 +641,26 @@ class _RenPySpriteState {
     this.zOrder = 0,
   }) : image = null,
        text = null,
-       atl = null;
+       atl = null,
+       layers = const [];
+
+  /// A layeredimage composite: [layers] drawn bottom-to-top in one sprite.
+  const _RenPySpriteState.layered({
+    required this.layers,
+    required this.placement,
+    this.zOrder = 0,
+    this.atl,
+  }) : image = null,
+       solidColor = null,
+       text = null;
 
   final _RenPyRenderedImage? image;
   final Color? solidColor;
   final String? text;
+
+  /// The ordered (bottom-to-top) layer images of a layeredimage composite, or
+  /// empty for a single-image / solid / text sprite.
+  final List<_RenPyRenderedImage> layers;
   final RenPyImagePlacement placement;
   final int zOrder;
 
@@ -756,7 +797,12 @@ class _RenPyDisplayableSpriteState extends State<_RenPyDisplayableSprite>
             screenScale: screenScale,
           );
           Widget content =
-              sprite.text == null
+              sprite.layers.isNotEmpty
+                  ? _RenPyLayeredSpriteImage(
+                    layers: sprite.layers,
+                    imageProvider: widget.imageProvider,
+                  )
+                  : sprite.text == null
                   ? _RenPySpriteImage(
                     image: sprite.image!,
                     imageProvider: widget.imageProvider,
@@ -1050,6 +1096,43 @@ class _RenPySpriteImage extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// Renders a layeredimage composite: each layer image stacked bottom-to-top.
+/// The first layer establishes the composite's intrinsic size; the remaining
+/// layers fill that box so they register pixel-for-pixel like real RenPy.
+class _RenPyLayeredSpriteImage extends StatelessWidget {
+  const _RenPyLayeredSpriteImage({
+    required this.layers,
+    required this.imageProvider,
+  });
+
+  final List<_RenPyRenderedImage> layers;
+  final RenPyImageProviderFactory imageProvider;
+
+  @override
+  Widget build(BuildContext context) {
+    if (layers.length == 1) {
+      return _RenPySpriteImage(
+        image: layers.first,
+        imageProvider: imageProvider,
+      );
+    }
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        _RenPySpriteImage(image: layers.first, imageProvider: imageProvider),
+        for (final layer in layers.skip(1))
+          Positioned.fill(
+            child: _RenPySpriteImage(
+              image: layer,
+              imageProvider: imageProvider,
+            ),
+          ),
+      ],
     );
   }
 }
