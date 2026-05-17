@@ -35,7 +35,13 @@ class RenPyLabelStatement extends RenPyBlockStatement {
 class RenPySayStatement extends RenPyStatement {
   final String? character; // null for narrator
   final String? text;
-  final List<String> attributes; // sprite attributes, e.g. e happy "Hi"
+  final List<String>
+  attributes; // permanent sprite attributes, e.g. e happy "Hi"
+
+  /// Temporary sprite attributes introduced by the `@` form, shown only for
+  /// this line, e.g. `e happy @ sad "..."` -> temporaryAttributes `['sad']`.
+  /// A bare `@` with no following tokens (`e @ "..."`) leaves this empty.
+  final List<String> temporaryAttributes;
 
   RenPySayStatement(
     this.character,
@@ -43,6 +49,7 @@ class RenPySayStatement extends RenPyStatement {
     String filename,
     int linenumber, {
     this.attributes = const [],
+    this.temporaryAttributes = const [],
   }) : super(filename, linenumber);
 
   @override

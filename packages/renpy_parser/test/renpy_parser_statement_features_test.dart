@@ -38,6 +38,36 @@ void main() {
       expect(say.first.character, 'e');
       expect(say.first.text, 'Hi');
       expect(say.first.attributes, isEmpty);
+      expect(say.first.temporaryAttributes, isEmpty);
+    });
+  });
+
+  group('say `@` temporary attributes', () {
+    test('speaker with a temporary attr and no permanent attrs', () {
+      final say = _say(
+        _parse('    annika @ laugh "What?! [player_name], no!"'),
+      );
+      expect(say, hasLength(1));
+      expect(say.first.character, 'annika');
+      expect(say.first.text, 'What?! [player_name], no!');
+      expect(say.first.attributes, isEmpty);
+      expect(say.first.temporaryAttributes, ['laugh']);
+    });
+
+    test('permanent and temporary attrs together', () {
+      final say = _say(_parse('    e happy @ sad "x"'));
+      expect(say.first.character, 'e');
+      expect(say.first.text, 'x');
+      expect(say.first.attributes, ['happy']);
+      expect(say.first.temporaryAttributes, ['sad']);
+    });
+
+    test('bare `@` resets attributes for the line', () {
+      final say = _say(_parse('    e @ "reset"'));
+      expect(say.first.character, 'e');
+      expect(say.first.text, 'reset');
+      expect(say.first.attributes, isEmpty);
+      expect(say.first.temporaryAttributes, isEmpty);
     });
   });
 
@@ -173,6 +203,30 @@ line two"""
       expect(calls.first.isScreen, isFalse);
       expect(calls.first.isExpression, isTrue);
       expect(calls.first.target, 'bar');
+    });
+
+    test('multi-line parenthesized args are captured, not split off', () {
+      final result = RenPyParser().parse('''
+label start:
+    call screen save_reminder_screen(_("Would you like to save your progress up to now?"),
+        yes_action=[ShowMenu('save'), Return()],
+        no_action=Return())
+''', 'sample.rpy');
+      final calls = result.script.findStatements<RenPyCallStatement>(
+        (_) => true,
+      );
+      expect(calls, hasLength(1));
+      expect(calls.first.isScreen, isTrue);
+      expect(calls.first.screenName, 'save_reminder_screen');
+      // The whole argument list, across all physical lines, is captured rather
+      // than the call falling through to a jump targeting the word `screen`.
+      expect(calls.first.target, 'screen');
+      expect(
+        calls.first.screenArgs,
+        contains('Would you like to save your progress up to now?'),
+      );
+      expect(calls.first.screenArgs, contains('yes_action'));
+      expect(calls.first.screenArgs, contains('no_action=Return()'));
     });
   });
 

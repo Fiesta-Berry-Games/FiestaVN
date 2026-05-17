@@ -620,22 +620,23 @@ class RenPyParser {
   // - Character literal (quoted) followed by quoted text: "Character" "Hello"
   //
   // The leading character group is an identifier optionally followed by
-  // attribute tokens (`\w+`, `-word`, `+word`); the attributes are captured
-  // together in group 2 and split apart in _parseSayStatement.
+  // permanent attribute tokens (`\w+`, `-word`, `+word`) captured in group 2,
+  // then an optional `@` introducing the temporary-attribute run captured in
+  // group 3; both runs are split apart in _parseSayStatement.
   static final _sayPattern = RegExp(
-    r'''^(?:([a-zA-Z_]\w*)((?:\s+[-+]?\w+)*)|"([^"]+)"|\'([^\']+)\'|`([^`]+)`)?''' // Optional speaker + attributes
+    r'''^(?:([a-zA-Z_]\w*)((?:\s+[-+]?\w+)*)(?:\s+@((?:\s+[-+]?\w+)*))?|"([^"]+)"|\'([^\']+)\'|`([^`]+)`)?''' // Optional speaker + attributes
     r'\s*' // Optional whitespace
-    r'''(["\'])((?:\\.|[^\\])*?)\6''', // Quoted text
+    r'''(["\'])((?:\\.|[^\\])*?)\7''', // Quoted text
     dotAll: true,
   );
 
-  // Matches a triple-quoted say body, optionally preceded by a speaker and
-  // sprite attributes. Group 1 is the identifier speaker, group 2 the
-  // attribute run, group 3 the triple-quote delimiter and group 4 the body.
+  // Matches a triple-quoted say body, optionally preceded by a speaker, its
+  // permanent attribute run (group 2) and an optional `@` temporary-attribute
+  // run (group 3). Group 4 is the triple-quote delimiter and group 5 the body.
   static final _tripleQuotedSayPattern = RegExp(
-    r'''^(?:([a-zA-Z_]\w*)((?:\s+[-+]?\w+)*))?'''
+    r'''^(?:([a-zA-Z_]\w*)((?:\s+[-+]?\w+)*)(?:\s+@((?:\s+[-+]?\w+)*))?)?'''
     r'\s*'
-    r'''("""|\'\'\')([\s\S]*?)\3''',
+    r'''("""|\'\'\')([\s\S]*?)\4''',
     dotAll: true,
   );
 
@@ -692,13 +693,15 @@ class RenPyParser {
     if (tripleMatch != null) {
       final speaker = tripleMatch.group(1);
       final attributes = _splitSayAttributes(tripleMatch.group(2));
-      final speech = _unescapeString(tripleMatch.group(4) ?? '');
+      final temporaryAttributes = _splitSayAttributes(tripleMatch.group(3));
+      final speech = _unescapeString(tripleMatch.group(5) ?? '');
       return RenPySayStatement(
         speaker,
         speech,
         line.filename,
         line.number,
         attributes: attributes,
+        temporaryAttributes: temporaryAttributes,
       );
     }
 
@@ -713,14 +716,16 @@ class RenPyParser {
       );
     }
 
-    // Groups 1/3/4/5 are different ways to specify the speaker; group 2 holds
-    // the optional sprite attribute run for the identifier form.
+    // Groups 1/4/5/6 are different ways to specify the speaker; group 2 holds
+    // the optional permanent sprite attribute run for the identifier form and
+    // group 3 the optional `@` temporary attribute run.
     final speaker =
-        match.group(1) ?? match.group(3) ?? match.group(4) ?? match.group(5);
+        match.group(1) ?? match.group(4) ?? match.group(5) ?? match.group(6);
     final attributes = _splitSayAttributes(match.group(2));
+    final temporaryAttributes = _splitSayAttributes(match.group(3));
 
-    // Group 7 is the quoted text content.
-    final speech = _unescapeString(match.group(7) ?? '');
+    // Group 8 is the quoted text content.
+    final speech = _unescapeString(match.group(8) ?? '');
 
     return RenPySayStatement(
       speaker,
@@ -728,6 +733,7 @@ class RenPyParser {
       line.filename,
       line.number,
       attributes: attributes,
+      temporaryAttributes: temporaryAttributes,
     );
   }
 
@@ -895,9 +901,13 @@ class RenPyParser {
     // call screen <name>(<args>) calls an interactive screen that blocks for a
     // Return value. The screen name and the raw argument string are captured
     // distinctly; the literal `screen` token stays in `target` for back-compat.
+    // dotAll lets the parenthesized argument list span multiple physical lines;
+    // the lexer joins bracket continuations into one logical line whose text
+    // still carries the embedded newlines.
     final screenMatch = RegExp(
       r'^call\s+screen\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(\((.*)\))?'
       r'(?:\s+from\s+[a-zA-Z_][a-zA-Z0-9_]*)?\s*$',
+      dotAll: true,
     ).firstMatch(text);
     if (screenMatch != null) {
       return RenPyCallStatement(
