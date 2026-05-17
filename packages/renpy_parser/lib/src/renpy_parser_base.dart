@@ -258,6 +258,32 @@ class RenPyParser {
       return _parseIfStatement(line, warnings);
     }
 
+    // Parse top-level while loop.
+    if (text.startsWith('while ')) {
+      return _parseWhileStatement(line, warnings);
+    }
+
+    // Parse top-level for loop.
+    if (text.startsWith('for ')) {
+      return _parseForStatement(line, warnings);
+    }
+
+    // Parse break / continue loop control.
+    if (text == 'break') {
+      return RenPyLoopControlStatement(
+        RenPyLoopControlAction.breakLoop,
+        line.filename,
+        line.number,
+      );
+    }
+    if (text == 'continue') {
+      return RenPyLoopControlStatement(
+        RenPyLoopControlAction.continueLoop,
+        line.filename,
+        line.number,
+      );
+    }
+
     // Parse pass statement.
     if (text == 'pass') {
       return RenPyPassStatement(line.filename, line.number);
@@ -644,7 +670,7 @@ class RenPyParser {
   // be mistaken for a say speaker now that the say pattern accepts attribute
   // tokens after the leading identifier (e.g. `show text "..."`).
   static final _sayKeywordGuard = RegExp(
-    r'''^(?:show|scene|hide|play|stop|queue|voice|jump|call|with|nvl|window|pause|menu|label|image|define|default|screen|style|transform|init|python|return|pass|if|elif|else)\b''',
+    r'''^(?:show|scene|hide|play|stop|queue|voice|jump|call|with|nvl|window|pause|menu|label|image|define|default|screen|style|transform|init|python|return|pass|if|elif|else|while|for|break|continue)\b''',
   );
 
   bool _isSayStatement(String text) {
@@ -800,6 +826,13 @@ class RenPyParser {
     String? caption;
     String? setVariable;
 
+    // Capture the optional menu name (`menu <name>:`). A named menu is a jump
+    // target; an anonymous `menu:` leaves [name] null.
+    final headerMatch = RegExp(
+      r'^menu(?:\s+([a-zA-Z_][a-zA-Z0-9_]*))?\s*:$',
+    ).firstMatch(line.text.trim());
+    final name = headerMatch?.group(1);
+
     // Parse the menu items (choices).
     for (final choiceLine in line.block) {
       final choiceText = choiceLine.text.trim();
@@ -854,6 +887,7 @@ class RenPyParser {
       line.number,
       caption: caption,
       setVariable: setVariable,
+      name: name,
     );
   }
 
@@ -1415,6 +1449,53 @@ class RenPyParser {
     }
 
     return RenPyIfStatement(entries, line.filename, line.number);
+  }
+
+  RenPyWhileStatement _parseWhileStatement(
+    GroupedLine line,
+    List<String> warnings,
+  ) {
+    final text = line.text.trim();
+    final match = RegExp(r'^while\s+(.+?)\s*:$').firstMatch(text);
+    if (match == null) {
+      throw RenPyParseError(
+        'Invalid while syntax',
+        line.filename,
+        line.number,
+        0,
+      );
+    }
+
+    return RenPyWhileStatement(
+      match.group(1)!.trim(),
+      _parseBlock(line.block, warnings),
+      line.filename,
+      line.number,
+    );
+  }
+
+  RenPyForStatement _parseForStatement(
+    GroupedLine line,
+    List<String> warnings,
+  ) {
+    final text = line.text.trim();
+    final match = RegExp(r'^for\s+(.+?)\s+in\s+(.+?)\s*:$').firstMatch(text);
+    if (match == null) {
+      throw RenPyParseError(
+        'Invalid for syntax',
+        line.filename,
+        line.number,
+        0,
+      );
+    }
+
+    return RenPyForStatement(
+      match.group(1)!.trim(),
+      match.group(2)!.trim(),
+      _parseBlock(line.block, warnings),
+      line.filename,
+      line.number,
+    );
   }
 
   /// Stub for `play sound/music/voice ...`.

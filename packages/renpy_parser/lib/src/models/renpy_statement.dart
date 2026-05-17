@@ -68,17 +68,24 @@ class RenPyMenuStatement extends RenPyStatement {
   final String? caption;
   final String? setVariable;
 
+  /// The optional menu name from `menu <name>:`. RenPy registers a named menu
+  /// as a label so `jump`/`call` can re-enter it (the "guess again" retry
+  /// pattern). Null for an anonymous `menu:`.
+  final String? name;
+
   RenPyMenuStatement(
     this.items,
     String filename,
     int linenumber, {
     this.caption,
     this.setVariable,
+    this.name,
   }) : super(filename, linenumber);
 
   @override
   String toString() =>
-      'Menu${caption != null ? ' "$caption"' : ''} with ${items.length} choices';
+      'Menu${name != null ? ' $name' : ''}'
+      '${caption != null ? ' "$caption"' : ''} with ${items.length} choices';
 }
 
 /// Represents a menu choice.
@@ -285,6 +292,59 @@ class IfEntry {
   final List<RenPyStatement> block;
 
   IfEntry(this.condition, this.block);
+}
+
+/// Represents a top-level `while <condition>:` loop whose [block] holds ordinary
+/// script statements (dialogue, menu, jump, `$`, ...). Distinct from the
+/// `while` inside a `python:` block, which the Python interpreter runs.
+class RenPyWhileStatement extends RenPyBlockStatement {
+  final String condition;
+
+  RenPyWhileStatement(
+    this.condition,
+    List<RenPyStatement> block,
+    String filename,
+    int linenumber,
+  ) : super(block, filename, linenumber);
+
+  @override
+  String toString() => 'While: $condition';
+}
+
+/// Represents a top-level `for <variable> in <iterable>:` loop whose [block]
+/// holds ordinary script statements. Distinct from the `for` inside a
+/// `python:` block, which the Python interpreter runs.
+class RenPyForStatement extends RenPyBlockStatement {
+  /// The loop target text, e.g. `q` or `i, value`.
+  final String variable;
+
+  /// The iterable expression text, e.g. `questions` or `[1, 2, 3]`.
+  final String iterable;
+
+  RenPyForStatement(
+    this.variable,
+    this.iterable,
+    List<RenPyStatement> block,
+    String filename,
+    int linenumber,
+  ) : super(block, filename, linenumber);
+
+  @override
+  String toString() => 'For: $variable in $iterable';
+}
+
+enum RenPyLoopControlAction { breakLoop, continueLoop }
+
+/// Represents a top-level `break` or `continue` loop-control statement.
+class RenPyLoopControlStatement extends RenPyStatement {
+  final RenPyLoopControlAction action;
+
+  RenPyLoopControlStatement(this.action, String filename, int linenumber)
+    : super(filename, linenumber);
+
+  @override
+  String toString() =>
+      action == RenPyLoopControlAction.breakLoop ? 'Break' : 'Continue';
 }
 
 /// Represents a pass statement (pass).

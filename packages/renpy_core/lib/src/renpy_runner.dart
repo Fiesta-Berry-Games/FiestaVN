@@ -20,10 +20,16 @@ import 'renpy_transition_intent.dart';
 import 'renpy_transition_resolver.dart';
 import 'renpy_runner_snapshot.dart';
 
-enum _ExecutionContextKind { block, labelFallthrough, call }
+enum _ExecutionContextKind { block, labelFallthrough, call, loop }
 
 class _ExecutionContext {
-  _ExecutionContext(this.block, this.position, this.kind, {this.callerLabel});
+  _ExecutionContext(
+    this.block,
+    this.position,
+    this.kind, {
+    this.callerLabel,
+    this.loop,
+  });
 
   final List<RenPyStatement> block;
   final int position; // where we should resume afterwards
@@ -32,14 +38,41 @@ class _ExecutionContext {
   /// The label that was current when a call frame was pushed, restored on
   /// return so the public [RenPyRunner.currentLabel] reports the caller.
   final String? callerLabel;
+
+  /// For a [_ExecutionContextKind.loop] frame, the loop statement to re-enter
+  /// when the body block ends. [block]/[position] point at the loop statement
+  /// itself so a `break` can resume after it.
+  final RenPyStatement? loop;
 }
 
-class _LabelContext {
-  const _LabelContext(this.label, this.parentBlock, this.index);
+/// Runtime iteration state for an executing top-level `for` loop, keyed by the
+/// loop statement's identity. Holds the pending items so each pass binds the
+/// next value before re-running the body.
+class _ForLoopState {
+  _ForLoopState(this.items);
 
-  final RenPyLabelStatement label;
+  final List<Object?> items;
+  int index = 0;
+}
+
+/// Resolves a jump/call target to its location in source order. A target is
+/// either a `label` statement or a named `menu` (`menu name:`), both of which
+/// RenPy treats as jump targets. [statement] is the resolved statement,
+/// [parentBlock]/[index] its position, and [name] the target name.
+class _LabelContext {
+  const _LabelContext(this.statement, this.parentBlock, this.index, this.name);
+
+  final RenPyStatement statement;
   final List<RenPyStatement> parentBlock;
   final int index;
+  final String name;
+
+  /// The block to descend into for a label target, or null for a named menu
+  /// (whose own statement must run in place to present its choices).
+  RenPyLabelStatement? get label =>
+      statement is RenPyLabelStatement
+          ? statement as RenPyLabelStatement
+          : null;
 }
 
 /// Records where a nested block lives in source order: the block that owns it
@@ -208,6 +241,18 @@ class RenPyRunner {
   /// statement exists (otherwise the script completes). Since `List` uses
   /// identity equality, an ordinary map keys safely by block instance.
   final Map<List<RenPyStatement>, _BlockOwner> _blockOwners = {};
+
+  /// Per-`for`-statement iteration state, keyed by the statement's identity, so
+  /// each loop pass binds the next item. Cleared when the loop exhausts.
+  final Map<RenPyForStatement, _ForLoopState> _forLoopStates = Map.identity();
+
+  /// Guard against a runaway top-level `while` whose condition never goes false
+  /// (a script bug should not hang the app). Counts consecutive body passes per
+  /// `while` statement and aborts with a diagnostic past the cap. Cleared when
+  /// the loop exits normally.
+  final Map<RenPyWhileStatement, int> _whileIterationCounts = Map.identity();
+
+  static const int _maxScriptLoopIterations = 100000;
 
   /// The current state of the runner
   RenPyRunnerState _state = RenPyRunnerState.ready;
@@ -717,9 +762,7 @@ class RenPyRunner {
         callerLabel: _currentLabel,
       ),
     );
-    _currentLabel = context.label.name;
-    _currentBlock = context.label.block;
-    _position = 0;
+    _enterLabelTarget(context);
     _state = RenPyRunnerState.running;
     _executeNext();
   }
@@ -950,6 +993,11 @@ class RenPyRunner {
         final ctx = _stack.removeLast();
         _currentBlock = ctx.block;
         _position = ctx.position;
+        // A loop body that ran to its end re-enters the loop statement to
+        // re-check the condition (while) or advance the iterator (for).
+        if (ctx.kind == _ExecutionContextKind.loop) {
+          return _reenterLoop(ctx.loop!);
+        }
         return _executeNext(); // continue immediately
       }
 
@@ -1005,6 +1053,12 @@ class RenPyRunner {
       _executeDefaultStatement(stmt);
     } else if (stmt is RenPyIfStatement) {
       _executeIfStatement(stmt);
+    } else if (stmt is RenPyWhileStatement) {
+      _executeWhileStatement(stmt);
+    } else if (stmt is RenPyForStatement) {
+      _executeForStatement(stmt);
+    } else if (stmt is RenPyLoopControlStatement) {
+      _executeLoopControlStatement(stmt);
     } else if (stmt is RenPyPlayStatement) {
       _executePlayStatement(stmt);
     } else if (stmt is RenPyQueueStatement) {
@@ -2100,6 +2154,188 @@ class RenPyRunner {
     }
   }
 
+  /// Execute a top-level `while` loop. Each pass re-evaluates the condition and,
+  /// when true, runs the body block with a loop frame so the body's end returns
+  /// here. A high iteration cap protects against a runaway condition.
+  void _executeWhileStatement(RenPyWhileStatement stmt) {
+    final iterations = (_whileIterationCounts[stmt] ?? 0);
+    if (iterations >= _maxScriptLoopIterations) {
+      _whileIterationCounts.remove(stmt);
+      _emitDiagnostic(
+        RenPyDiagnostic(
+          code: RenPyDiagnosticCode.unknownStatement,
+          message:
+              'while loop exceeded $_maxScriptLoopIterations iterations; '
+              'aborting to avoid a hang.',
+          detail: stmt.condition,
+        ),
+      );
+      _exitLoop();
+      return;
+    }
+
+    if (!_evaluateCondition(stmt.condition)) {
+      _whileIterationCounts.remove(stmt);
+      _exitLoop();
+      return;
+    }
+
+    _whileIterationCounts[stmt] = iterations + 1;
+    _enterLoopBody(stmt, stmt.block);
+  }
+
+  /// Execute a top-level `for` loop. On first entry the iterable is evaluated
+  /// and its items captured; each pass binds the loop variable to the next item
+  /// and runs the body, returning here when the body ends.
+  void _executeForStatement(RenPyForStatement stmt) {
+    var state = _forLoopStates[stmt];
+    if (state == null) {
+      final items = _iterableForExpression(stmt.iterable);
+      if (items == null) {
+        // Unevaluable iterable: skip the loop gracefully.
+        _emitDiagnostic(
+          RenPyDiagnostic(
+            code: RenPyDiagnosticCode.unknownStatement,
+            message: 'Skipped for loop over an unevaluable iterable.',
+            detail: stmt.iterable,
+          ),
+        );
+        _exitLoop();
+        return;
+      }
+      state = _ForLoopState(items);
+      _forLoopStates[stmt] = state;
+    }
+
+    if (state.index >= state.items.length) {
+      _forLoopStates.remove(stmt);
+      _exitLoop();
+      return;
+    }
+
+    final item = state.items[state.index];
+    state.index += 1;
+    _bindLoopVariable(stmt.variable, item);
+    _enterLoopBody(stmt, stmt.block);
+  }
+
+  /// Pushes a loop frame and descends into [body]. When [body] ends, the loop
+  /// frame routes control back through [_reenterLoop] to [loop].
+  void _enterLoopBody(RenPyStatement loop, List<RenPyStatement> body) {
+    _stack.add(
+      _ExecutionContext(
+        _currentBlock,
+        _position,
+        _ExecutionContextKind.loop,
+        loop: loop,
+      ),
+    );
+    if (body.isEmpty) {
+      // Empty body: re-enter immediately rather than descending into nothing.
+      _stack.removeLast();
+      _reenterLoop(loop);
+      return;
+    }
+    _currentBlock = body;
+    _position = 0;
+    _executeNext();
+  }
+
+  /// Re-runs a loop statement after its body block finished one pass. The loop
+  /// frame has already been popped and [_currentBlock]/[_position] restored to
+  /// the loop statement, so executing it re-checks the condition / advances.
+  void _reenterLoop(RenPyStatement loop) {
+    if (loop is RenPyWhileStatement) {
+      _executeWhileStatement(loop);
+    } else if (loop is RenPyForStatement) {
+      _executeForStatement(loop);
+    } else {
+      // Defensive: nothing to re-enter, fall through past it.
+      _position++;
+      _executeNext();
+    }
+  }
+
+  /// Continues execution at the statement after a loop once it has exhausted or
+  /// been broken out of. The loop statement sits at [_currentBlock]/[_position].
+  void _exitLoop() {
+    _position++;
+    _executeNext();
+  }
+
+  /// Execute a `break` / `continue` inside a top-level loop. Unwinds the stack
+  /// to the nearest loop frame: `break` exits past the loop; `continue` re-runs
+  /// the loop statement (re-check condition / advance iterator).
+  void _executeLoopControlStatement(RenPyLoopControlStatement stmt) {
+    while (_stack.isNotEmpty) {
+      final top = _stack.last;
+      if (top.kind == _ExecutionContextKind.call) {
+        // Do not unwind across a call boundary; a stray break/continue here is
+        // a no-op, matching RenPy's tolerance of out-of-loop control.
+        break;
+      }
+      _stack.removeLast();
+      if (top.kind == _ExecutionContextKind.loop) {
+        _currentBlock = top.block;
+        _position = top.position;
+        final loop = top.loop!;
+        if (stmt.action == RenPyLoopControlAction.breakLoop) {
+          if (loop is RenPyWhileStatement) _whileIterationCounts.remove(loop);
+          if (loop is RenPyForStatement) _forLoopStates.remove(loop);
+          _exitLoop();
+        } else {
+          _reenterLoop(loop);
+        }
+        return;
+      }
+    }
+
+    // No enclosing loop frame: treat as a no-op and continue.
+    _position++;
+    _executeNext();
+  }
+
+  /// Binds a `for` loop target to [item] in the store. Supports a single name
+  /// and simple tuple unpacking (`for i, v in ...`). RenPy leaves the loop
+  /// variable assigned in the store after the loop, which this mirrors.
+  void _bindLoopVariable(String target, Object? item) {
+    final names =
+        target
+            .replaceAll('(', '')
+            .replaceAll(')', '')
+            .split(',')
+            .map((n) => n.trim())
+            .where((n) => n.isNotEmpty)
+            .toList();
+    if (names.length <= 1) {
+      _setVariable(target.trim(), item);
+      return;
+    }
+
+    if (item is Iterable) {
+      final values = item.toList();
+      for (var i = 0; i < names.length && i < values.length; i += 1) {
+        _setVariable(names[i], values[i]);
+      }
+      return;
+    }
+    // Not unpackable: bind the whole item to the first name.
+    _setVariable(names.first, item);
+  }
+
+  /// Evaluates a `for` iterable expression to a list of items, or null when it
+  /// cannot be turned into an iterable. Lists/sets iterate their elements,
+  /// maps iterate their keys (Python semantics) and strings their characters.
+  List<Object?>? _iterableForExpression(String expression) {
+    final value = _evaluateExpression(expression);
+    if (value is List) return List<Object?>.of(value);
+    if (value is Set) return value.toList();
+    if (value is Map) return value.keys.toList();
+    if (value is Iterable) return value.toList();
+    if (value is String) return value.split('');
+    return null;
+  }
+
   /// Execute a play statement.
   void _executePlayStatement(RenPyPlayStatement stmt) {
     final registration = _audioChannels[stmt.channel];
@@ -2328,10 +2564,23 @@ class RenPyRunner {
         callerLabel: _currentLabel,
       ),
     );
-    _currentLabel = context.label.name;
-    _currentBlock = context.label.block;
-    _position = 0;
+    _enterLabelTarget(context);
     _executeNext();
+  }
+
+  /// Moves execution into a resolved jump/call target. For a `label` it
+  /// descends into the label's block; for a named `menu` it runs the menu
+  /// statement in place so its choices are presented.
+  void _enterLabelTarget(_LabelContext context) {
+    _currentLabel = context.name;
+    final label = context.label;
+    if (label == null) {
+      _currentBlock = context.parentBlock;
+      _position = context.index;
+      return;
+    }
+    _currentBlock = label.block;
+    _position = 0;
   }
 
   /// Registers a blocking `call screen` request and waits for a Return value.
@@ -2447,14 +2696,29 @@ class RenPyRunner {
     _stack
       ..clear()
       ..addAll(
-        snapshot.stack.map(
-          (frame) => _ExecutionContext(
-            _blockForPath(frame.blockPath),
+        snapshot.stack.map((frame) {
+          final block = _blockForPath(frame.blockPath);
+          final kind = _contextKindFor(frame.kind);
+          // A loop frame's block/position point at the loop statement itself;
+          // recover that statement so the body's end can re-enter the loop.
+          RenPyStatement? loop;
+          if (kind == _ExecutionContextKind.loop &&
+              frame.position >= 0 &&
+              frame.position < block.length) {
+            final statement = block[frame.position];
+            if (statement is RenPyWhileStatement ||
+                statement is RenPyForStatement) {
+              loop = statement;
+            }
+          }
+          return _ExecutionContext(
+            block,
             frame.position,
-            _contextKindFor(frame.kind),
+            kind,
             callerLabel: frame.callerLabel,
-          ),
-        ),
+            loop: loop,
+          );
+        }),
       );
     _currentBlock = _blockForPath(snapshot.currentBlockPath);
     _position = snapshot.position;
@@ -2493,6 +2757,8 @@ class RenPyRunner {
     }
 
     _stack.clear();
+    _forLoopStates.clear();
+    _whileIterationCounts.clear();
     _pendingDialogue = null;
     _prepareLabelContext(context);
     _state = RenPyRunnerState.ready;
@@ -2554,12 +2820,24 @@ class RenPyRunner {
       for (var index = 0; index < block.length; index += 1) {
         final statement = block[index];
         if (statement is RenPyLabelStatement && statement.name == name) {
-          return _LabelContext(statement, block, index);
+          return _LabelContext(statement, block, index, name);
+        }
+        // A named menu (`menu name:`) is a jump/call target too: re-entering it
+        // runs the menu in place so its choices are presented again.
+        if (statement is RenPyMenuStatement && statement.name == name) {
+          return _LabelContext(statement, block, index, name);
         }
 
         if (statement is RenPyBlockStatement) {
           final nested = search(statement.block);
           if (nested != null) return nested;
+        }
+        // Menu choice blocks can themselves contain labels or named menus.
+        if (statement is RenPyMenuStatement) {
+          for (final item in statement.items) {
+            final nested = search(item.block);
+            if (nested != null) return nested;
+          }
         }
       }
       return null;
@@ -2569,8 +2847,18 @@ class RenPyRunner {
   }
 
   void _prepareLabelContext(_LabelContext context) {
-    _currentLabel = context.label.name;
-    _currentBlock = context.label.block;
+    _currentLabel = context.name;
+
+    final label = context.label;
+    if (label == null) {
+      // A named menu target: run the menu statement in place. Fall-through after
+      // it is resolved through the block-owner chain, like any other statement.
+      _currentBlock = context.parentBlock;
+      _position = context.index;
+      return;
+    }
+
+    _currentBlock = label.block;
     _position = 0;
 
     final nextPosition = context.index + 1;
@@ -2586,9 +2874,17 @@ class RenPyRunner {
   }
 
   void _discardNonCallContexts() {
+    var discardedLoop = false;
     while (_stack.isNotEmpty &&
         _stack.last.kind != _ExecutionContextKind.call) {
+      if (_stack.last.kind == _ExecutionContextKind.loop) discardedLoop = true;
       _stack.removeLast();
+    }
+    // A jump out of a loop abandons its iteration; re-reaching the loop later
+    // re-evaluates the condition/iterable from scratch, so drop any held state.
+    if (discardedLoop) {
+      _forLoopStates.clear();
+      _whileIterationCounts.clear();
     }
   }
 
@@ -2756,6 +3052,8 @@ class RenPyRunner {
   ///
   /// [_persistent] is deliberately left untouched so cross-game data persists.
   void _resetScriptState() {
+    _forLoopStates.clear();
+    _whileIterationCounts.clear();
     _variables.clear();
     // config/gui derive entirely from define/default and are rebuilt by
     // _processDefines below; clear them so a restart re-seeds from a clean
