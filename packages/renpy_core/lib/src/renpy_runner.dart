@@ -42,6 +42,18 @@ class _LabelContext {
   final int index;
 }
 
+/// Records where a nested block lives in source order: the block that owns it
+/// (the parent block) and the index of the owning statement within that parent.
+/// Used to resolve RenPy label fall-through - when a block ends, execution
+/// continues with the statement that textually follows its owner, recursing up
+/// the enclosing-block chain.
+class _BlockOwner {
+  const _BlockOwner(this.parentBlock, this.ownerIndex);
+
+  final List<RenPyStatement> parentBlock;
+  final int ownerIndex;
+}
+
 class _PendingDialogue {
   const _PendingDialogue(this.event, this.searchStart);
 
@@ -187,6 +199,15 @@ class RenPyRunner {
 
   /// Stack for nested blocks, label fallthrough, and call return addresses.
   final List<_ExecutionContext> _stack = [];
+
+  /// Maps each nested statement block (by identity) to its owner: the parent
+  /// block and the index of the owning statement within it. Built once at load
+  /// from the parsed script and used to implement label fall-through - when a
+  /// block ends with an empty call stack, execution continues at the statement
+  /// after its owner in source order, climbing this chain until a following
+  /// statement exists (otherwise the script completes). Since `List` uses
+  /// identity equality, an ordinary map keys safely by block instance.
+  final Map<List<RenPyStatement>, _BlockOwner> _blockOwners = {};
 
   /// The current state of the runner
   RenPyRunnerState _state = RenPyRunnerState.ready;
@@ -391,6 +412,7 @@ class RenPyRunner {
       ) {
     // Initialize with the default block of statements
     _currentBlock = script.statements;
+    _buildBlockOwners();
     _transitionResolver = RenPyTransitionResolver.fromScript(script);
 
     // Register layeredimage declarations so `show` can resolve their layers.
@@ -931,13 +953,20 @@ class RenPyRunner {
         return _executeNext(); // continue immediately
       }
 
-      // otherwise original end-of-script behaviour:
-      if (_currentLabel != null) {
-        _currentLabel = null;
-        _complete();
-      } else {
-        _complete();
+      // The call stack is empty. In RenPy a label's block ending without a
+      // jump/return does not stop the script: execution falls through to the
+      // statement that textually follows the block's owner in source order,
+      // climbing the enclosing-block chain. Only when there is genuinely no
+      // following statement does the script complete.
+      final fallthrough = _fallThrough(_currentBlock);
+      if (fallthrough != null) {
+        _currentBlock = fallthrough.block;
+        _position = fallthrough.position;
+        return _executeNext();
       }
+
+      _currentLabel = null;
+      _complete();
       return;
     }
 
@@ -2467,6 +2496,57 @@ class RenPyRunner {
     _pendingDialogue = null;
     _prepareLabelContext(context);
     _state = RenPyRunnerState.ready;
+  }
+
+  /// Records the owner (parent block + owning-statement index) of every nested
+  /// statement block reachable from the script, so [_fallThrough] can continue
+  /// in source order when a block ends. Descends through every block-bearing
+  /// statement: labels, `init`, `if`/`elif`/`else` entries, and menu choices.
+  void _buildBlockOwners() {
+    void register(List<RenPyStatement> block) {
+      for (var index = 0; index < block.length; index += 1) {
+        final statement = block[index];
+        if (statement is RenPyIfStatement) {
+          for (final entry in statement.entries) {
+            _blockOwners[entry.block] = _BlockOwner(block, index);
+            register(entry.block);
+          }
+        } else if (statement is RenPyMenuStatement) {
+          for (final item in statement.items) {
+            _blockOwners[item.block] = _BlockOwner(block, index);
+            register(item.block);
+          }
+        } else if (statement is RenPyBlockStatement) {
+          _blockOwners[statement.block] = _BlockOwner(block, index);
+          register(statement.block);
+        }
+      }
+    }
+
+    register(script.statements);
+  }
+
+  /// Resolves RenPy label fall-through for [block] when it ends with no call
+  /// frame to return to: execution continues with the statement that textually
+  /// follows the block's owner in source order. When that owner is the last
+  /// statement in its own (parent) block, the search climbs to the parent's
+  /// owner, recursing up to the top level. Returns the next context to run, or
+  /// null when there is genuinely no following statement (the script ends).
+  _ExecutionContext? _fallThrough(List<RenPyStatement> block) {
+    var current = block;
+    while (true) {
+      final owner = _blockOwners[current];
+      if (owner == null) return null;
+      final next = owner.ownerIndex + 1;
+      if (next < owner.parentBlock.length) {
+        return _ExecutionContext(
+          owner.parentBlock,
+          next,
+          _ExecutionContextKind.labelFallthrough,
+        );
+      }
+      current = owner.parentBlock;
+    }
   }
 
   _LabelContext? _findLabelContext(String name) {
