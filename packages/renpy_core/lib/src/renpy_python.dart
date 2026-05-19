@@ -134,6 +134,8 @@ class RenPyMapScope implements RenPyPythonScope {
     if (name.startsWith('persistent.')) return _persistent;
     if (name.startsWith('config.')) return _config;
     if (name.startsWith('gui.')) return _gui;
+    // `store.x` is the explicit spelling of the default namespace, so it maps
+    // onto the same backing store as the bare name `x`.
     return _store;
   }
 
@@ -141,7 +143,10 @@ class RenPyMapScope implements RenPyPythonScope {
     final dot = name.indexOf('.');
     if (dot < 0) return name;
     final prefix = name.substring(0, dot);
-    if (prefix == 'persistent' || prefix == 'config' || prefix == 'gui') {
+    if (prefix == 'persistent' ||
+        prefix == 'config' ||
+        prefix == 'gui' ||
+        prefix == 'store') {
       return name.substring(dot + 1);
     }
     return name;
@@ -1401,7 +1406,9 @@ class _Interpreter {
   bool _isScopedName(String name) =>
       name.startsWith('persistent.') ||
       name.startsWith('config.') ||
-      name.startsWith('gui.');
+      name.startsWith('gui.') ||
+      // `store.x` is the explicit spelling of the default namespace.
+      name.startsWith('store.');
 
   Object? unary(String op, Object? value) {
     switch (op) {
@@ -2813,7 +2820,8 @@ class _LocalsScope implements RenPyPythonScope {
     if (_globals.contains(name) ||
         name.startsWith('persistent.') ||
         name.startsWith('config.') ||
-        name.startsWith('gui.')) {
+        name.startsWith('gui.') ||
+        name.startsWith('store.')) {
       _parent.write(name, value);
       return;
     }
