@@ -49,6 +49,10 @@ enum RenPyScreenActionKind {
 
   /// `Function(callable, ...)` - best-effort call of a store function.
   function,
+
+  /// `[A, B, ...]` - a list literal of actions, executed in order. Carried in
+  /// [RenPyScreenAction.actions].
+  multiple,
 }
 
 /// A platform-neutral descriptor for a RenPy screen action.
@@ -72,6 +76,7 @@ class RenPyScreenAction {
     this.functionName,
     this.positional = const [],
     this.keywords = const {},
+    this.actions = const [],
     this.raw,
   });
 
@@ -108,6 +113,10 @@ class RenPyScreenAction {
   /// For Function/Show, the already-evaluated keyword arguments.
   final Map<String, Object?> keywords;
 
+  /// For [RenPyScreenActionKind.multiple], the ordered sub-actions parsed from a
+  /// list literal `[A, B, ...]`. Empty for every other kind.
+  final List<RenPyScreenAction> actions;
+
   /// The raw action source, kept for diagnostics and fallthrough.
   final String? raw;
 
@@ -127,6 +136,23 @@ class RenPyScreenAction {
     final trimmed = source.trim();
     if (trimmed.isEmpty) {
       return RenPyScreenAction(kind: RenPyScreenActionKind.nullAction);
+    }
+
+    // A top-level list literal `[A, B, ...]` is a sequence of actions executed
+    // in order (e.g. `timer 3.0 action [Hide("foo"), Return()]`).
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      final inner = trimmed.substring(1, trimmed.length - 1);
+      final elements = _splitTopLevel(inner);
+      final actions = <RenPyScreenAction>[
+        for (final element in elements)
+          if (element.trim().isNotEmpty)
+            RenPyScreenAction.parse(element, evaluator, scope),
+      ];
+      return RenPyScreenAction(
+        kind: RenPyScreenActionKind.multiple,
+        actions: actions,
+        raw: trimmed,
+      );
     }
 
     final open = trimmed.indexOf('(');

@@ -725,6 +725,13 @@ class RenPyRunner {
         _applySetMembership(action, add: false);
       case RenPyScreenActionKind.function:
         _applyFunctionAction(action);
+      case RenPyScreenActionKind.multiple:
+        // Execute each sub-action in order. Order matters so that e.g.
+        // `[Hide("foo"), Return()]` hides the screen before resolving the
+        // pending call screen via the Return path.
+        for (final sub in action.actions) {
+          executeScreenAction(sub);
+        }
       case RenPyScreenActionKind.nullAction:
         break;
     }
