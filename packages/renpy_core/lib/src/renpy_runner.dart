@@ -304,6 +304,11 @@ class RenPyRunner {
   RenPyDialogueEvent? _lastDialogueEvent;
   _PendingDialogue? _pendingDialogue;
 
+  /// A pending sprite revert from an `@`-say temporary-attribute swap: the image
+  /// name to re-show once the swapped line is dismissed. Null when no swap is in
+  /// flight.
+  String? _pendingAttributeRevert;
+
   /// Whether a `voice` line is currently sounding on the dedicated voice
   /// channel. RenPy voice is one-shot: the next voice line or dialogue
   /// interrupts it. A `voice sustain` keeps it alive across the next line.
@@ -334,6 +339,12 @@ class RenPyRunner {
   /// shown layeredimage, keyed by `layer::tag`. Lets an incremental
   /// `show eileen frown` update only the changed group while keeping the rest.
   final Map<String, Map<String, String>> _layeredImageAttributes = {};
+
+  /// The currently-shown image name for each plain (non-layeredimage) sprite
+  /// tag, keyed by tag. Updated on `show`/`scene`/`hide`. Used by the `@`-say
+  /// temporary-attribute swap to detect a shown sprite, swap to the temporary
+  /// attributes for one line, then revert.
+  final Map<String, String> _shownImageNames = {};
 
   /// Parsed `style` declarations, keyed by style name, including their `is`
   /// parent links. Resolved through the parent chain by the screen runtime.
@@ -512,6 +523,15 @@ class RenPyRunner {
     ).firstMatch(expression);
     if (colorMatch != null) {
       params['color'] = colorMatch.group(1);
+    }
+
+    // The `image=` keyword links a character to the sprite tag whose attributes
+    // an `@`-say line temporarily swaps.
+    final imageMatch = RegExp(
+      r'''image\s*=\s*["\']([^"\']*)["\']''',
+    ).firstMatch(expression);
+    if (imageMatch != null) {
+      params['image'] = imageMatch.group(1);
     }
 
     _characters[name] = params;
@@ -1098,6 +1118,8 @@ class RenPyRunner {
       // Do nothing
       _position++;
       _executeNext();
+    } else if (stmt is RenPyPauseStatement) {
+      _executePauseStatement(stmt);
     } else {
       // Unknown statement type, just skip it.
       print('Warning: Unknown statement type: ${stmt.runtimeType}');
@@ -1133,6 +1155,9 @@ class RenPyRunner {
             ? RenPyDialogueEvent(text: stmt.text ?? '')
             : _dialogueEventForSayStatement(stmt);
 
+    // `@`-say temporary attributes swap the speaker's sprite for this one line.
+    _applyTemporaryAttributes(stmt);
+
     _position++;
 
     // Interior {w}/{p} waits always pause, even when the line ends with {nw}.
@@ -1154,12 +1179,56 @@ class RenPyRunner {
 
     // A trailing {nw} suppresses only the terminal wait.
     if (_hasNoWaitTag(event.text)) {
+      _revertTemporaryAttributes();
       _executeNext();
       return;
     }
 
     // Wait for player input.
     _state = RenPyRunnerState.waitingForInput;
+  }
+
+  /// Emits a SHOW event applying [stmt]'s `@` temporary attributes to the
+  /// speaker's currently-shown sprite, recording the prior image for revert.
+  /// Best-effort: a narrator line, a speaker with no shown sprite, or an
+  /// unresolvable tag does nothing (no diagnostic, no throw).
+  void _applyTemporaryAttributes(RenPySayStatement stmt) {
+    if (stmt.temporaryAttributes.isEmpty) return;
+    final speaker = stmt.character;
+    if (speaker == null) return;
+
+    // Resolve the sprite tag: the character's `image=` keyword if defined,
+    // otherwise the speaker id itself.
+    final tag = (_characters[speaker]?['image'] as String?) ?? speaker;
+    final shown = _shownImageNames[tag];
+    if (shown == null) return;
+
+    final tempName = '$tag ${stmt.temporaryAttributes.join(' ')}';
+    onImageEvent?.call(RenPyImageEvent.show(tempName));
+    if (onImage != null) onImage!(null, tempName, null);
+    _pendingAttributeRevert = shown;
+  }
+
+  /// Re-shows the sprite captured by [_applyTemporaryAttributes], reverting the
+  /// temporary `@`-say attribute swap once the line is dismissed.
+  void _revertTemporaryAttributes() {
+    final revert = _pendingAttributeRevert;
+    if (revert == null) return;
+    _pendingAttributeRevert = null;
+    onImageEvent?.call(RenPyImageEvent.show(revert));
+    if (onImage != null) onImage!(null, revert, null);
+  }
+
+  /// Execute a `pause`/`pause <duration>` statement, mirroring the
+  /// `$ renpy.pause(...)` path: fire [onPause] with the same event payload, then
+  /// wait for input/timeout and advance. A bare `pause` (no duration) behaves
+  /// like the existing "wait for input" pause.
+  void _executePauseStatement(RenPyPauseStatement stmt) {
+    final duration =
+        stmt.duration == null ? null : _renpyPauseDuration(stmt.duration!);
+    onPause?.call(RenPyPauseEvent(duration: duration));
+    _state = RenPyRunnerState.waitingForInput;
+    _position++;
   }
 
   bool _hasNoWaitTag(String text) => RegExp(r'\{nw\}').hasMatch(text);
@@ -1220,6 +1289,10 @@ class RenPyRunner {
     _pendingDialogue = null;
     _emitDialogueEvent(pending.event);
     if (_hasNoWaitTag(pending.event.text)) {
+      // Mirror the no-pending {nw} path: a `@`-say sprite swap must revert
+      // before advancing so the temporary attribute does not leak into the
+      // next line on the interior-wait + trailing-{nw} combination.
+      _revertTemporaryAttributes();
       _executeNext();
       return;
     }
@@ -1406,10 +1479,19 @@ class RenPyRunner {
     if (onImage != null) {
       onImage!(null, stmt.imageName, null);
     }
+    _recordShownImage(stmt.imageName);
     _emitInlineTransition(stmt.withExpression);
 
     _position++;
     _executeNext();
+  }
+
+  /// Records the currently-shown image name for its tag so the `@`-say
+  /// temporary-attribute swap can detect and later revert the sprite.
+  void _recordShownImage(String imageName) {
+    final tag = _imageTag(imageName);
+    if (tag.isEmpty) return;
+    _shownImageNames[tag] = imageName.split('#').first.trim();
   }
 
   /// Resolves a `show <layeredimage> <attrs...>` into the ordered list of layer
@@ -1474,6 +1556,8 @@ class RenPyRunner {
     _layeredImageAttributes.removeWhere(
       (key, _) => key.startsWith('$sceneLayer::'),
     );
+    // A scene clears the image layer, so any shown sprites are gone.
+    _shownImageNames.clear();
     onImageEvent?.call(
       RenPyImageEvent.scene(
         stmt.imageName,
@@ -1508,6 +1592,7 @@ class RenPyRunner {
             ? stmt.onLayerExpression!.trim()
             : 'master';
     _layeredImageAttributes.remove('$hideLayer::$hideTag');
+    _shownImageNames.remove(hideTag);
 
     onImageEvent?.call(
       RenPyImageEvent.hide(stmt.imageName, onLayer: stmt.onLayerExpression),
@@ -2661,6 +2746,8 @@ class RenPyRunner {
         _continuePendingDialogue(pending);
         return;
       }
+      // The swapped line is now dismissed: revert the `@`-say sprite swap.
+      _revertTemporaryAttributes();
       _executeNext();
     }
   }
