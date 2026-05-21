@@ -626,16 +626,31 @@ class RenPyParser {
     );
   }
 
+  /// Builds the body of an `init python:` / `init python in <store>:` block.
+  ///
+  /// The earlier implementation iterated only the TOP-LEVEL lines and kept just
+  /// each line's trimmed text, silently dropping every nested child line (a
+  /// `class`/`def`/`if`/`for` body, etc.). This mirrors the non-init `python:`
+  /// path (`_parsePythonStatement`) instead: the full nested body is
+  /// reconstructed with relative indentation via `_collectPythonBlockLines`, so
+  /// the entire block survives as a single RenPyPythonStatement carrying the
+  /// complete indented source.
   List<RenPyStatement> _parsePythonBlockLines(List<GroupedLine> lines) {
+    if (lines.isEmpty) return const [];
+
+    final pythonBlock = <String>[];
+    final baseIndent = lines.first.indent;
+    _collectPythonBlockLines(lines, baseIndent, pythonBlock);
+
+    final code = pythonBlock.join('\n');
+
     return [
-      for (final line in lines)
-        if (line.text.trim().isNotEmpty && !line.text.trim().startsWith('#'))
-          RenPyPythonStatement(
-            line.text.trim(),
-            true,
-            line.filename,
-            line.number,
-          ),
+      RenPyPythonStatement(
+        code,
+        true,
+        lines.first.filename,
+        lines.first.number,
+      ),
     ];
   }
 
