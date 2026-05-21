@@ -1410,6 +1410,21 @@ class _Interpreter {
       // `store.x` is the explicit spelling of the default namespace.
       name.startsWith('store.');
 
+  /// Whether the dotted call target [full] is a runtime-irrelevant build/gui
+  /// config directive that should execute as a silent no-op returning None.
+  ///
+  /// `build.<anything>(...)` is the packaging configuration object, which has
+  /// no effect inside the player, so every method on it is treated as a no-op.
+  /// `gui.init(...)` is likewise a config-time call (the rest of the `gui.`
+  /// namespace stays a live scope for `gui.foo = x` reads/writes - only the
+  /// `init` *call* is special-cased here). Anything else returns false so the
+  /// caller keeps its normal resolution and the unknown-name fallback fires.
+  bool _isConfigNoOpCall(String full) {
+    if (full.startsWith('build.')) return true;
+    if (full == 'gui.init') return true;
+    return false;
+  }
+
   Object? unary(String op, Object? value) {
     switch (op) {
       case '-':
@@ -1684,6 +1699,16 @@ class _Interpreter {
           keywords,
         );
       }
+      // Build/packaging and `gui.init` config directives have no runtime
+      // gameplay effect in Ren'Py's player. They appear in real games'
+      // `init python:` blocks (build.classify/archive/documentation, etc.)
+      // and must execute as silent no-ops returning None rather than raising
+      // a NameError on the `build`/`gui` namespace. This is deliberately
+      // narrow: only these known config surfaces are stubbed; any other
+      // unknown call still falls through and throws.
+      if (full != null && _isConfigNoOpCall(full)) {
+        return null;
+      }
       if (full != null && _isScopedName(full) && scope.has(full)) {
         return _callMethod(
           scope.read(full),
@@ -1789,10 +1814,16 @@ class _Interpreter {
         }
         return api.randomRandint(_asInt(positional[0]), _asInt(positional[1]));
       case 'random.choice':
-        if (positional.isEmpty) {
+        // Accept both the positional form `choice(seq)` and the keyword form
+        // `choice(seq=seq)` (the latter is common in real games, ~96x in
+        // LearnToCodeRPG). The RenPyApi takes a positional List, so coerce
+        // whichever the caller supplied into one.
+        final choiceSeq =
+            positional.isNotEmpty ? positional.first : keywords['seq'];
+        if (choiceSeq == null && !keywords.containsKey('seq')) {
           throw RenPyPythonError('renpy.random.choice expects a sequence');
         }
-        return api.randomChoice(_asIterable(positional.first).toList());
+        return api.randomChoice(_asIterable(choiceSeq).toList());
       case 'notify':
         api.notify(positional.isEmpty ? null : positional.first);
         return null;
