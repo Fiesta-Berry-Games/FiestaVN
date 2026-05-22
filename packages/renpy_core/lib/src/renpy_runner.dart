@@ -94,6 +94,17 @@ class _PendingDialogue {
   final int searchStart;
 }
 
+/// A collected `init python:` block awaiting execution at load. [priority] is
+/// the init priority (lower runs first), [sourceIndex] breaks priority ties in
+/// source order, and [lines] are the block's top-level Python source lines.
+class _InitPythonBlock {
+  const _InitPythonBlock(this.priority, this.sourceIndex, this.lines);
+
+  final int priority;
+  final int sourceIndex;
+  final List<String> lines;
+}
+
 class _InlineWaitTag {
   const _InlineWaitTag({required this.end, this.duration});
 
@@ -446,7 +457,27 @@ class RenPyRunner {
   AudioCallback? onAudio;
   TransitionCallback? onTransition;
   PauseCallback? onPause;
-  RenPyDiagnosticCallback? onDiagnostic;
+
+  RenPyDiagnosticCallback? _onDiagnostic;
+
+  /// Diagnostics emitted before [onDiagnostic] was wired (notably during
+  /// construction, where `_processDefines` runs init-python blocks). They are
+  /// flushed to the callback the moment one is assigned so a host that wires the
+  /// callback after constructing the runner still observes load-time skips.
+  final List<RenPyDiagnostic> _pendingDiagnostics = [];
+
+  RenPyDiagnosticCallback? get onDiagnostic => _onDiagnostic;
+
+  set onDiagnostic(RenPyDiagnosticCallback? callback) {
+    _onDiagnostic = callback;
+    if (callback != null && _pendingDiagnostics.isNotEmpty) {
+      final pending = List<RenPyDiagnostic>.of(_pendingDiagnostics);
+      _pendingDiagnostics.clear();
+      for (final diagnostic in pending) {
+        callback(diagnostic);
+      }
+    }
+  }
 
   /// Invoked for `renpy.notify(message)`. When unset the call is a no-op.
   void Function(String message)? onNotify;
@@ -474,19 +505,96 @@ class RenPyRunner {
     // Register layeredimage declarations so `show` can resolve their layers.
     _layeredImages = RenPyLayeredImageRegistry.fromScript(script);
 
+    // Seed the standard mutable config collections so init-time
+    // `config.X.append(...)` / `.update(...)` calls have a list/dict to act on.
+    _seedConfigDefaults();
+
     // Process define statements to set up characters and variables
     _processDefines();
   }
 
-  /// Process all define statements in the script
+  /// Standard Ren'Py `config.` attributes that ship as mutable collections.
+  /// Games commonly extend these in `init python:` (e.g.
+  /// `config.overlay_screens.append("quick_menu")`), so they must already exist
+  /// as the right empty container or the append/update would skip. A `define
+  /// config.X` / `default config.X` later overrides any of these.
+  static const List<String> _configListDefaults = [
+    'overlay_screens',
+    'character_id_prefixes',
+    'layers',
+    'transient_layers',
+    'context_clear_layers',
+    'overlay_layers',
+    'top_layers',
+    'bottom_layers',
+    'sticky_layers',
+    'menu_clear_layers',
+    'detached_layers',
+    'python_callbacks',
+    'start_callbacks',
+    'interact_callbacks',
+    'predict_callbacks',
+    'periodic_callbacks',
+    'label_callbacks',
+    'translate_clean_stores',
+    'searchpath',
+    'keymap_overrides',
+  ];
+
+  static const List<String> _configDictDefaults = [
+    'layer_clipping',
+    'tag_layer',
+    'adv_nvl_transition',
+    'name_overrides',
+  ];
+
+  /// Seeds [_config] with the standard mutable Ren'Py config collections so
+  /// `config.X.append(...)` / `config.X.update(...)` in `init python:` operate
+  /// on a real container instead of skipping.
+  void _seedConfigDefaults() {
+    for (final name in _configListDefaults) {
+      _config.putIfAbsent(name, () => <dynamic>[]);
+    }
+    for (final name in _configDictDefaults) {
+      _config.putIfAbsent(name, () => <dynamic, dynamic>{});
+    }
+  }
+
+  /// Process all init-time declarations in the script in RenPy's load order:
+  ///
+  ///  1. Register UI/transform metadata (transform/screen/style) and collect
+  ///     the `init python:` blocks, ordered by init priority then source order.
+  ///  2. Run every `init python:` body through the Python executor so the
+  ///     classes/functions/variables they declare exist BEFORE any `define`/
+  ///     `default` expression that depends on them is evaluated.
+  ///  3. Evaluate `define` statements (init-time bindings).
+  ///  4. Apply `default` statements LAST (game-start bindings), so
+  ///     `default x = SomeClass()` constructs a real instance against a scope
+  ///     that already has the class.
+  ///
+  /// Each init-python body is wrapped so a failure emits a skip diagnostic and
+  /// load continues; an unsupported block never aborts construction.
   void _processDefines() {
-    void process(List<RenPyStatement> statements) {
+    final defines = <RenPyDefineStatement>[];
+    final defaults = <RenPyDefaultStatement>[];
+    // Init-python blocks paired with their priority and a monotonically
+    // increasing source index, so a stable sort orders them by priority first
+    // and source order for ties (RenPy's init-block ordering).
+    final initPythonBlocks = <_InitPythonBlock>[];
+    var sourceIndex = 0;
+
+    void collect(List<RenPyStatement> statements) {
       for (final statement in statements) {
         if (statement is RenPyDefineStatement) {
-          _applyDefinition(statement.name, statement.expression);
+          defines.add(statement);
         } else if (statement is RenPyDefaultStatement) {
-          _applyDefault(statement.name, statement.expression);
+          defaults.add(statement);
         } else if (statement is RenPyPythonStatement) {
+          // A standalone top-level python statement (not inside an `init`
+          // block) keeps its prior load behavior: only audio-channel
+          // registration is applied here. Its `init python:` counterpart is
+          // gathered from the enclosing RenPyInitStatement below and fully
+          // executed.
           _applyAudioChannelRegistration(statement.code);
         } else if (statement is RenPyTransformStatement) {
           _applyTransformStatement(statement);
@@ -495,12 +603,78 @@ class RenPyRunner {
         } else if (statement is RenPyStyleStatement) {
           _registerStyle(statement);
         } else if (statement is RenPyInitStatement) {
-          process(statement.block);
+          if (statement.isPython) {
+            // The parser splits an `init python:` body into one
+            // RenPyPythonStatement per top-level line; gather them back into a
+            // single block so multi-line constructs (class/def/assignment runs)
+            // execute together against the shared scope.
+            final lines = <String>[
+              for (final inner in statement.block)
+                if (inner is RenPyPythonStatement) inner.code,
+            ];
+            initPythonBlocks.add(
+              _InitPythonBlock(statement.priority, sourceIndex++, lines),
+            );
+          } else {
+            collect(statement.block);
+          }
         }
       }
     }
 
-    process(script.statements);
+    collect(script.statements);
+
+    // Stable sort by priority; ties keep source order via the recorded index.
+    initPythonBlocks.sort((a, b) {
+      final byPriority = a.priority.compareTo(b.priority);
+      if (byPriority != 0) return byPriority;
+      return a.sourceIndex.compareTo(b.sourceIndex);
+    });
+
+    for (final block in initPythonBlocks) {
+      _runInitPythonBlock(block.lines);
+    }
+
+    for (final define in defines) {
+      _applyDefinition(define.name, define.expression);
+    }
+
+    for (final aDefault in defaults) {
+      _applyDefault(aDefault.name, aDefault.expression);
+    }
+  }
+
+  /// Runs one collected `init python:` block. The parser hands the body as a
+  /// single entry carrying the full indented source, so it is split into
+  /// physical lines: every TOP-LEVEL (column-0) `renpy.music.register_channel`
+  /// call is peeled off and registered here (the block executor does not model
+  /// it), while the rest of the block - including any nested body - is joined
+  /// and executed as a single Python block. Peeling is restricted to top-level
+  /// lines so a `register_channel` inside a nested `def`/`if` body stays with
+  /// the block rather than being lifted out and corrupting its structure. A
+  /// failure emits a skip diagnostic and load continues - load never throws on
+  /// an unsupported body.
+  void _runInitPythonBlock(List<String> lines) {
+    final executable = <String>[];
+    for (final entry in lines) {
+      for (final line in entry.split('\n')) {
+        final isTopLevel = line.isNotEmpty && line[0] != ' ' && line[0] != '\t';
+        if (isTopLevel && _applyAudioChannelRegistration(line)) continue;
+        executable.add(line);
+      }
+    }
+    if (executable.every((line) => line.trim().isEmpty)) return;
+
+    final code = executable.join('\n');
+    if (_tryExecutePythonBlock(code)) return;
+
+    _emitDiagnostic(
+      RenPyDiagnostic(
+        code: RenPyDiagnosticCode.skippedPython,
+        message: 'Skipped unsupported init Python block.',
+        detail: code,
+      ),
+    );
   }
 
   /// Parse a character definition.
@@ -576,7 +750,8 @@ class RenPyRunner {
   bool _isNamespacedName(String name) =>
       name.startsWith('persistent.') ||
       name.startsWith('config.') ||
-      name.startsWith('gui.');
+      name.startsWith('gui.') ||
+      name.startsWith('store.');
 
   void _applyTransformStatement(RenPyTransformStatement statement) {
     final name = _transformName(statement.signature);
@@ -978,6 +1153,13 @@ class RenPyRunner {
       return _VariableLookup(_pythonScope.has(name), _pythonScope.read(name));
     }
 
+    // `store.x` is the explicit spelling of the default namespace, so it reads
+    // the same backing slot as the bare name `x`.
+    if (name.startsWith('store.')) {
+      final field = name.substring('store.'.length);
+      return _VariableLookup(_variables.containsKey(field), _variables[field]);
+    }
+
     return _VariableLookup(_variables.containsKey(name), _variables[name]);
   }
 
@@ -1116,6 +1298,13 @@ class RenPyRunner {
       _executeNext();
     } else if (stmt is RenPyPassStatement) {
       // Do nothing
+      _position++;
+      _executeNext();
+    } else if (stmt is RenPyWindowStatement) {
+      // `window show` / `window hide` / `window auto` control the visibility of
+      // the (empty) dialogue window between lines. With no dialogue window
+      // renderer in this runner they have no engine-visible effect, so treat
+      // them as advancing no-ops rather than unknown statements.
       _position++;
       _executeNext();
     } else if (stmt is RenPyPauseStatement) {
@@ -1711,6 +1900,8 @@ class RenPyRunner {
       return;
     }
 
+    if (_tryExecuteRenpySay(stmt.code)) return;
+
     if (_isRecognizedNoOpPythonCall(stmt.code)) {
       _position++;
       _executeNext();
@@ -1778,7 +1969,14 @@ class RenPyRunner {
   }
 
   void _emitDiagnostic(RenPyDiagnostic diagnostic) {
-    onDiagnostic?.call(diagnostic);
+    final callback = _onDiagnostic;
+    if (callback != null) {
+      callback(diagnostic);
+    } else {
+      // No callback wired yet (e.g. a load-time skip during construction);
+      // buffer it so it is delivered once a host assigns [onDiagnostic].
+      _pendingDiagnostics.add(diagnostic);
+    }
   }
 
   /// Evaluates [code] as a single Python expression for its side effects,
@@ -1922,6 +2120,17 @@ class RenPyRunner {
     // store key so subsequent reads resolve them as namespaced names.
     if (name.startsWith('config.') || name.startsWith('gui.')) {
       _pythonScope.write(name, value);
+      return;
+    }
+
+    // `store.x` is the explicit spelling of the default store namespace, so it
+    // writes the same backing slot as the bare name `x`. This mirrors
+    // _lookupVariable's read aliasing so a runtime `$ store.x = ...` is visible
+    // both as `store.x` and bare `x` (without this, the read path strips the
+    // prefix while the write kept the literal `store.x` key, so the value was
+    // lost).
+    if (name.startsWith('store.')) {
+      _variables[name.substring('store.'.length)] = value;
       return;
     }
 
@@ -2115,6 +2324,89 @@ class RenPyRunner {
   bool? _pythonAudioBool(String? expression) {
     if (expression == null) return null;
     return _evaluateExpression(expression) == true;
+  }
+
+  /// Handles a bare `renpy.say(who, what, interact=...)` statement, the
+  /// programmatic form of a say line. The Python `renpy.*` dispatch does not
+  /// model `say` (it needs the dialogue pipeline), so it is intercepted here
+  /// before falling back: a None/empty `who` emits a narrator line, otherwise
+  /// the speaker is resolved like a say statement's character. `interact=False`
+  /// advances without blocking for input; otherwise the runner waits as it
+  /// would after a normal say. Returns true when the call was claimed.
+  bool _tryExecuteRenpySay(String code) {
+    final match = RegExp(
+      r'^renpy\.say\s*\((.*)\)$',
+      dotAll: true,
+    ).firstMatch(code.trim());
+    if (match == null) return false;
+
+    final args = _pythonCallArguments(match.group(1)!);
+    // `renpy.say(who, what)` - who is positional[0], what is positional[1].
+    // `what` may also arrive as the `what=` keyword.
+    final whatExpr =
+        args.positional.length > 1 ? args.positional[1] : args.keywords['what'];
+    if (whatExpr == null) return false;
+
+    final whoExpr =
+        args.positional.isNotEmpty
+            ? args.positional.first
+            : args.keywords['who'];
+
+    // `_evaluateExpression` never throws - it falls back to a literal so an
+    // unresolvable argument still emits a best-effort line rather than aborting.
+    final what = _evaluateExpression(whatExpr);
+    final who = whoExpr == null ? null : _evaluateExpression(whoExpr);
+
+    final interactExpr = args.keywords['interact'];
+    final interactive = interactExpr == null || interactExpr.trim() != 'False';
+
+    final speaker = _renpySaySpeaker(who, whoExpr);
+    final event = _dialogueEventForRenpySay(speaker, what?.toString() ?? '');
+
+    _position++;
+    _emitDialogueEvent(event);
+
+    if (interactive) {
+      _state = RenPyRunnerState.waitingForInput;
+    } else {
+      _executeNext();
+    }
+    return true;
+  }
+
+  /// Resolves the speaker id for `renpy.say`. A None/empty `who` is the
+  /// narrator (null id). When `who` resolves to a Character whose store name is
+  /// the source expression (e.g. `renpy.say(e, "Hi")`), that bare name is used
+  /// so a defined character's display name/color is applied.
+  String? _renpySaySpeaker(Object? who, String? whoExpr) {
+    if (who == null) {
+      final trimmed = whoExpr?.trim();
+      if (trimmed == null || trimmed.isEmpty || trimmed == 'None') return null;
+      // A bare identifier naming a defined character is used directly.
+      if (_characters.containsKey(trimmed)) return trimmed;
+      return null;
+    }
+    final text = who.toString().trim();
+    return text.isEmpty ? null : text;
+  }
+
+  /// Builds the dialogue event for a `renpy.say`. When [speaker] names a defined
+  /// character its display name/color are applied; otherwise [speaker] is shown
+  /// verbatim (or null for the narrator).
+  RenPyDialogueEvent _dialogueEventForRenpySay(String? speaker, String text) {
+    if (speaker != null && _characters.containsKey(speaker)) {
+      return RenPyDialogueEvent(
+        characterId: speaker,
+        displayName: _characters[speaker]!['name'] as String?,
+        text: text,
+        color: _characters[speaker]!['color'] as String?,
+      );
+    }
+    return RenPyDialogueEvent(
+      characterId: speaker,
+      displayName: speaker,
+      text: text,
+    );
   }
 
   RenPyPauseEvent? _renpyPauseEvent(String code) {
@@ -3170,6 +3462,7 @@ class RenPyRunner {
     _voiceSustain = false;
     _voiceJustStarted = false;
     _transitionResolver = RenPyTransitionResolver.fromScript(script);
+    _seedConfigDefaults();
     _processDefines();
   }
 
