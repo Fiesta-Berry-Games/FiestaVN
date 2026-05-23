@@ -666,15 +666,7 @@ class RenPyRunner {
     if (executable.every((line) => line.trim().isEmpty)) return;
 
     final code = executable.join('\n');
-    if (_tryExecutePythonBlock(code)) return;
-
-    _emitDiagnostic(
-      RenPyDiagnostic(
-        code: RenPyDiagnosticCode.skippedPython,
-        message: 'Skipped unsupported init Python block.',
-        detail: code,
-      ),
-    );
+    _executePythonBlockResilient(code);
   }
 
   /// Parse a character definition.
@@ -1839,18 +1831,7 @@ class RenPyRunner {
     // single-statement fast paths below use `dotAll` regexes that would
     // otherwise misread the whole block as one giant assignment value.
     if (stmt.code.contains('\n')) {
-      if (_tryExecutePythonBlock(stmt.code)) {
-        _position++;
-        _executeNext();
-        return;
-      }
-      _emitDiagnostic(
-        RenPyDiagnostic(
-          code: RenPyDiagnosticCode.skippedPython,
-          message: 'Skipped unsupported Python statement.',
-          detail: stmt.code,
-        ),
-      );
+      _executePythonBlockResilient(stmt.code);
       _position++;
       _executeNext();
       return;
@@ -1955,6 +1936,95 @@ class RenPyRunner {
     } on RenPyPythonError {
       return false;
     }
+  }
+
+  /// Executes a (possibly multi-line) Python [code] block resiliently so an
+  /// unsupported statement skips without discarding its supported siblings.
+  ///
+  /// A single (possibly compound) statement is run all-or-nothing: there is
+  /// nothing to split, and a block relying on a non-indented logical-line
+  /// continuation stays intact. A block with multiple TOP-LEVEL statements is
+  /// run one statement at a time, each EXACTLY ONCE, emitting a skip diagnostic
+  /// only for the individual statements that fail.
+  ///
+  /// Crucially this does NOT try the whole block first and then retry on
+  /// failure: the executor applies statements incrementally and only then
+  /// throws, so a whole-block attempt would commit the side effects of the
+  /// statements before the failure (a `+=` counter, a `list.append`) and the
+  /// per-statement retry would then apply them a SECOND time. Running each
+  /// top-level statement independently from the start applies every supported
+  /// statement exactly once. Never throws.
+  void _executePythonBlockResilient(String code) {
+    final segments = _topLevelPythonStatements(code);
+
+    if (segments.length <= 1) {
+      if (_tryExecutePythonBlock(code)) return;
+      _emitDiagnostic(
+        RenPyDiagnostic(
+          code: RenPyDiagnosticCode.skippedPython,
+          message: 'Skipped unsupported Python statement.',
+          detail: code,
+        ),
+      );
+      return;
+    }
+
+    for (final segment in segments) {
+      if (_tryExecutePythonBlock(segment)) continue;
+      _emitDiagnostic(
+        RenPyDiagnostic(
+          code: RenPyDiagnosticCode.skippedPython,
+          message: 'Skipped unsupported Python statement.',
+          detail: segment,
+        ),
+      );
+    }
+  }
+
+  /// Splits a Python [code] block into its TOP-LEVEL (column-0) statements,
+  /// keeping each compound statement (a `def`/`class`/`if`/`for`/`while`/`with`/
+  /// `try` header plus its indented body, and any `elif`/`else`/`except`/
+  /// `finally` continuations) intact as a single segment. Blank lines and
+  /// comment-only lines attach to the following statement. Returns the segments
+  /// in source order; a single-segment result signals the caller to keep the
+  /// all-or-nothing fallback.
+  List<String> _topLevelPythonStatements(String code) {
+    final lines = code.split('\n');
+    final segments = <String>[];
+    final current = <String>[];
+
+    bool isContinuation(String stripped) =>
+        stripped.startsWith('elif') ||
+        stripped.startsWith('else') ||
+        stripped.startsWith('except') ||
+        stripped.startsWith('finally');
+
+    void flush() {
+      if (current.isEmpty) return;
+      final joined = current.join('\n');
+      if (joined.trim().isNotEmpty) segments.add(joined);
+      current.clear();
+    }
+
+    for (final line in lines) {
+      final isTopLevel = line.isNotEmpty && line[0] != ' ' && line[0] != '\t';
+      if (!isTopLevel) {
+        // Indented body, blank, or comment line: part of the current statement.
+        current.add(line);
+        continue;
+      }
+      final stripped = line.trimLeft();
+      // A bare continuation keyword (`else:`/`elif`/`except`/`finally`) belongs
+      // to the compound statement already in progress, so keep it attached.
+      if (current.isNotEmpty && isContinuation(stripped)) {
+        current.add(line);
+        continue;
+      }
+      flush();
+      current.add(line);
+    }
+    flush();
+    return segments;
   }
 
   void _diagnosePlacement(RenPyImagePlacement? placement) {
