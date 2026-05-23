@@ -39,6 +39,10 @@ dependencies:
   renpy_core:
     path: ../../packages/renpy_core
 
+dependency_overrides:
+  renpy_parser:
+    path: ../../packages/renpy_parser
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -96,3 +100,6 @@ flutter:
     - assets/games/1/game/images/
     - assets/games/2/game/script.rpy
     - assets/games/2/game/images/
+    - assets/games/3/game/script.rpy
+    - assets/games/the_question/game/script.rpy
+    - assets/games/the_question/game/images/

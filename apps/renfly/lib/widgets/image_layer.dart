@@ -11,9 +11,9 @@ class ImageLayer extends StatefulWidget {
 }
 
 class _ImageLayerState extends State<ImageLayer> {
-  final _sprites   = <String, Widget>{}; // Character → widget.
-  final _positions = <String, bool>{};   // Character → atLeft?
-  bool  _sceneCleared = false;
+  final _sprites = <String, Widget>{}; // Character → widget.
+  final _positions = <String, bool>{}; // Character → atLeft?
+  String? _backgroundAsset;
 
   @override
   void initState() {
@@ -30,7 +30,7 @@ class _ImageLayerState extends State<ImageLayer> {
       if (s.scene != null) {
         _sprites.clear();
         _positions.clear();
-        _sceneCleared = true;
+        _backgroundAsset = s.scene == 'black' ? null : s.sceneAsset;
       }
 
       // ── hide ──────────────────────────────────────────────────────────────
@@ -44,10 +44,9 @@ class _ImageLayerState extends State<ImageLayer> {
       if (s.show != null) {
         final clean = s.show!.split('#')[0].trim();
         final parts = clean.split(RegExp(r'\s+'));
-        if (parts.length < 2) return; // Malformed.
+        if (parts.isEmpty) return; // Malformed.
 
         final name = parts[0]; // Character name.
-        final anim = parts[1]; // idle / wave / angry …
 
         // Optional "at left/right".
         bool? explicitLeft;
@@ -70,8 +69,8 @@ class _ImageLayerState extends State<ImageLayer> {
         }
         _positions[name] = atLeft;
 
-        // Build static image path (character_animation.png format).
-        final imagePath = 'assets/games/1/game/images/${name}_$anim.png';
+        final imagePath = s.showAsset;
+        if (imagePath == null) return;
 
         // Check if we already have a sprite for this character.
         if (_sprites.containsKey(name)) {
@@ -101,6 +100,18 @@ class _ImageLayerState extends State<ImageLayer> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      Stack(fit: StackFit.expand, children: _sprites.values.toList());
+  Widget build(BuildContext context) => Stack(
+    fit: StackFit.expand,
+    children: [
+      if (_backgroundAsset != null)
+        Image.asset(
+          _backgroundAsset!,
+          fit: BoxFit.cover,
+          errorBuilder:
+              (context, error, stackTrace) =>
+                  Container(color: const Color(0xFF202020)),
+        ),
+      ..._sprites.values,
+    ],
+  );
 }

@@ -15,28 +15,43 @@ class DialogueView extends StatelessWidget {
           final who = status.character;
           return GestureDetector(
             onTap: controller.continueGame,
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              color: Colors.black.withOpacity(0.6),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (who != null)
-                    Text(
-                      who,
-                      style: Theme.of(
-                        context,
-                      ).textTheme.titleMedium?.copyWith(color: Colors.white),
+            behavior: HitTestBehavior.opaque,
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: SafeArea(
+                minimum: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                child: Container(
+                  width: double.infinity,
+                  constraints: const BoxConstraints(minHeight: 112),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.72),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.16),
                     ),
-                  const SizedBox(height: 4),
-                  Text(
-                    status.text,
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodyLarge?.copyWith(color: Colors.white),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                ],
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (who != null) ...[
+                        Text(
+                          who,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(color: Colors.white),
+                        ),
+                        const SizedBox(height: 4),
+                      ],
+                      Text(
+                        status.text,
+                        style: Theme.of(
+                          context,
+                        ).textTheme.bodyLarge?.copyWith(color: Colors.white),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           );

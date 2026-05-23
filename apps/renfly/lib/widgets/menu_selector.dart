@@ -18,16 +18,38 @@ class MenuSelector extends StatelessWidget {
         return Material(
           color: Colors.black54,
           child: Center(
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                for (var i = 0; i < status.choices.length; ++i)
-                  ElevatedButton(
-                    key: ValueKey('menu_choice_$i'),
-                    onPressed: () => status.onChoice(i),
-                    child: Text(status.choices[i]),
+                if (status.caption != null) ...[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 12,
+                    ),
+                    child: Text(
+                      status.caption!,
+                      style: Theme.of(
+                        context,
+                      ).textTheme.titleMedium?.copyWith(color: Colors.white),
+                      textAlign: TextAlign.center,
+                    ),
                   ),
+                  const SizedBox(height: 12),
+                ],
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    for (var i = 0; i < status.choices.length; ++i)
+                      ElevatedButton(
+                        key: ValueKey('menu_choice_$i'),
+                        onPressed: () => status.onChoice(i),
+                        child: Text(status.choices[i]),
+                      ),
+                  ],
+                ),
               ],
             ),
           ),
