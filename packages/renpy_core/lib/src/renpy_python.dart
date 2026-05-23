@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:math' as math;
 
 /// A namespace the [RenPyPythonEvaluator] reads variables from and writes
@@ -1400,6 +1401,17 @@ class _Interpreter {
       // Unknown module member: an opaque stub keeps deeper chains alive.
       return _StubModule('${target.name}.$name');
     }
+    if (target is _UnsupportedMember) target.raise();
+    if (target is _PythonDate) {
+      switch (name) {
+        case 'year':
+          return target.year;
+        case 'month':
+          return target.month;
+        case 'day':
+          return target.day;
+      }
+    }
     return _BoundMethod(target, name);
   }
 
@@ -1446,7 +1458,7 @@ class _Interpreter {
       case '+':
         return _add(a, b);
       case '-':
-        return _numeric(a, b, (x, y) => x - y);
+        return _subtract(a, b);
       case '*':
         return _multiply(a, b);
       case '/':
@@ -1496,7 +1508,28 @@ class _Interpreter {
     if (a is String && b is String) return a + b;
     if (a is num && b is num) return a + b;
     if (a is List && b is List) return [...a, ...b];
+    // date + timedelta / timedelta + date.
+    if (a is _PythonDate && b is _TimeDelta) {
+      return _PythonDate(a.ordinal + b.wholeDays);
+    }
+    if (a is _TimeDelta && b is _PythonDate) {
+      return _PythonDate(b.ordinal + a.wholeDays);
+    }
+    if (a is _TimeDelta && b is _TimeDelta) return _TimeDelta(a.days + b.days);
     throw RenPyPythonError('unsupported operands for +');
+  }
+
+  Object? _subtract(Object? a, Object? b) {
+    if (a is num && b is num) return a - b;
+    // date - timedelta -> date; date - date -> timedelta.
+    if (a is _PythonDate && b is _TimeDelta) {
+      return _PythonDate(a.ordinal - b.wholeDays);
+    }
+    if (a is _PythonDate && b is _PythonDate) {
+      return _TimeDelta(a.ordinal - b.ordinal);
+    }
+    if (a is _TimeDelta && b is _TimeDelta) return _TimeDelta(a.days - b.days);
+    throw RenPyPythonError('unsupported numeric operands');
   }
 
   Object? _multiply(Object? a, Object? b) {
@@ -1506,11 +1539,6 @@ class _Interpreter {
     if (a is List && b is int) return [for (var i = 0; i < b; i += 1) ...a];
     if (a is int && b is List) return [for (var i = 0; i < a; i += 1) ...b];
     throw RenPyPythonError('unsupported operands for *');
-  }
-
-  Object? _numeric(Object? a, Object? b, num Function(num, num) f) {
-    if (a is num && b is num) return f(a, b);
-    throw RenPyPythonError('unsupported numeric operands');
   }
 
   Object? _modulo(Object? a, Object? b) {
@@ -1588,6 +1616,16 @@ class _Interpreter {
         _ => false,
       };
     }
+    if (a is _PythonDate && b is _PythonDate) {
+      final c = a.compareTo(b);
+      return switch (op) {
+        '<' => c < 0,
+        '<=' => c <= 0,
+        '>' => c > 0,
+        '>=' => c >= 0,
+        _ => false,
+      };
+    }
     throw RenPyPythonError('unorderable operands for `$op`');
   }
 
@@ -1609,6 +1647,10 @@ class _Interpreter {
     if (target is String) {
       final i = _intIndex(index, target.length);
       return target[i];
+    }
+    if (target is _DefaultDict) {
+      // A missing-key read auto-creates and inserts the factory default.
+      return target[index];
     }
     if (target is Map) {
       if (!target.containsKey(index)) {
@@ -1754,6 +1796,17 @@ class _Interpreter {
     }
     if (callee is _PythonClass) {
       return _instantiate(callee, positional, keywords);
+    }
+    if (callee is _UnsupportedMember) callee.raise();
+    if (callee is _DefaultDictType) {
+      _DefaultDictType._factoryInterp = this;
+      return callee.construct(positional);
+    }
+    if (callee is _DateType) {
+      return callee.construct(positional);
+    }
+    if (callee is _TimeDeltaType) {
+      return callee.construct(positional, keywords);
     }
     if (callee is _StubModule) {
       // Calling an opaque stub yields another opaque stub.
@@ -2145,6 +2198,14 @@ class _Interpreter {
     if (receiver is List) return _listMethod(receiver, name, positional);
     if (receiver is Map) return _dictMethod(receiver, name, positional);
     if (receiver is Set) return _setMethod(receiver, name, positional);
+    if (receiver is _DateType) {
+      if (name == 'today') return receiver.today();
+      throw RenPyPythonError('no date method `$name`');
+    }
+    if (receiver is _PythonDate) {
+      if (name == 'weekday') return receiver.weekday();
+      throw RenPyPythonError('no date method `$name`');
+    }
     throw RenPyPythonError('no method `$name` on ${_typeName(receiver)}');
   }
 
@@ -2774,6 +2835,246 @@ class _StubModule {
       'cos': (a, k) => math.cos(a[0] as num),
     },
   );
+
+  /// The `collections` module subset. Only `defaultdict` is concrete; every
+  /// other member resolves to an opaque stub whose *use* raises (graceful skip)
+  /// rather than crashing.
+  static _StubModule collectionsModule() => _StubModule(
+    'collections',
+    attributes: {'defaultdict': const _DefaultDictType()},
+  );
+
+  /// The `datetime` module subset: `date`, `timedelta` and `datetime` itself.
+  /// Members beyond these resolve to an opaque stub.
+  static _StubModule datetimeModule() => _StubModule(
+    'datetime',
+    attributes: {
+      'date': const _DateType(),
+      'datetime': const _DateType(),
+      'timedelta': const _TimeDeltaType(),
+    },
+  );
+}
+
+/// A known module's member that this interpreter does not implement.
+///
+/// Unlike an opaque [_StubModule] (which keeps deep `os.path.join(...)` chains
+/// alive), this poisons on *use*: calling it, reading an attribute or invoking a
+/// method raises [RenPyPythonError] so the runner skips the block instead of
+/// threading a meaningless stub through gameplay state.
+class _UnsupportedMember {
+  _UnsupportedMember(this.name);
+
+  final String name;
+
+  Never raise() => throw RenPyPythonError('`$name` is not supported');
+}
+
+// ---------------------------------------------------------------------------
+// collections.defaultdict
+// ---------------------------------------------------------------------------
+
+/// The `collections.defaultdict` type, callable to build a [_DefaultDict].
+///
+/// `defaultdict(int)` / `defaultdict(list)` / `defaultdict(dict)` (and a bare
+/// `defaultdict()` with no factory) are the patterns seen in real games. The
+/// factory is captured as a Dart closure so missing-key reads can synthesize a
+/// default without re-entering the interpreter.
+class _DefaultDictType {
+  const _DefaultDictType();
+
+  _DefaultDict construct(List<Object?> positional) {
+    final factoryArg = positional.isEmpty ? null : positional.first;
+    return _DefaultDict(_factoryFor(factoryArg));
+  }
+
+  /// Maps a Python factory value onto a Dart default-producing closure.
+  /// `int`->0, `float`->0.0, `list`->[], `dict`->{}, `set`->{}; a builtin or
+  /// user callable is invoked with no arguments; `None`/absent yields `null`
+  /// (matching `defaultdict()` raising only on missing-key access in CPython,
+  /// but we degrade to `null` to stay non-fatal).
+  Object? Function()? _factoryFor(Object? factory) {
+    if (factory == null) return null;
+    if (factory is _BuiltinFunction) {
+      switch (factory.name) {
+        case 'int':
+          return () => 0;
+        case 'float':
+          return () => 0.0;
+        case 'str':
+          return () => '';
+        case 'list':
+        case 'tuple':
+          return () => <Object?>[];
+        case 'dict':
+          return () => <Object?, Object?>{};
+        case 'set':
+          return () => <Object?>{};
+        case 'bool':
+          return () => false;
+      }
+      return () => factory.invoke(_factoryInterp!, const [], const {});
+    }
+    if (factory is _UserFunction) {
+      return () => factory.invoke(const [], const {});
+    }
+    if (factory is _PythonClass) {
+      throw RenPyPythonError(
+        'defaultdict with a class factory is not supported',
+      );
+    }
+    throw RenPyPythonError('defaultdict factory is not callable');
+  }
+
+  /// Interpreter used to invoke a builtin factory closure (e.g. a stray
+  /// callable). Set transiently while constructing; the common `int`/`list`
+  /// cases never need it.
+  static _Interpreter? _factoryInterp;
+}
+
+/// A `defaultdict`: a real [Map] (so every existing dict path - subscript set,
+/// `in`, `.get`, `.items`, `len`, iteration, update - works unchanged) that
+/// auto-creates and inserts a default value on a missing-key READ.
+class _DefaultDict extends MapBase<Object?, Object?> {
+  _DefaultDict(this.defaultFactory);
+
+  /// Produces a fresh default for a missing key, or `null` when none was given.
+  final Object? Function()? defaultFactory;
+
+  final Map<Object?, Object?> _backing = {};
+
+  @override
+  Object? operator [](Object? key) {
+    if (_backing.containsKey(key)) return _backing[key];
+    final value = defaultFactory == null ? null : defaultFactory!();
+    _backing[key] = value;
+    return value;
+  }
+
+  @override
+  void operator []=(Object? key, Object? value) => _backing[key] = value;
+
+  @override
+  void clear() => _backing.clear();
+
+  @override
+  Iterable<Object?> get keys => _backing.keys;
+
+  @override
+  Object? remove(Object? key) => _backing.remove(key);
+
+  // containsKey is delegated to the backing map so membership tests and `.get`
+  // never trigger the auto-insert behavior reserved for `[]`.
+  @override
+  bool containsKey(Object? key) => _backing.containsKey(key);
+}
+
+// ---------------------------------------------------------------------------
+// datetime
+// ---------------------------------------------------------------------------
+
+/// The `datetime.date` (and, as a loose alias, `datetime.datetime`) type.
+///
+/// `date.today()` is the only constructor exercised in the wild here; the
+/// direct `date(y, m, d)` form is also accepted. Dates are modeled by an
+/// integer day-count (proleptic ordinal) so arithmetic with [_TimeDelta] and
+/// ordering work; the calendar fields are derived approximately - exact
+/// correctness is secondary to "advances monotonically and never throws".
+class _DateType {
+  const _DateType();
+
+  /// `date.today()` - a fixed reference date so runs are deterministic. The
+  /// absolute value is unimportant; only relative arithmetic/ordering matters.
+  _PythonDate today() => _PythonDate.fromYmd(2020, 1, 1);
+
+  _PythonDate construct(List<Object?> positional) {
+    if (positional.length >= 3) {
+      return _PythonDate.fromYmd(
+        (positional[0] as num).toInt(),
+        (positional[1] as num).toInt(),
+        (positional[2] as num).toInt(),
+      );
+    }
+    throw RenPyPythonError('date() expects (year, month, day)');
+  }
+}
+
+/// The `datetime.timedelta` type, callable as `timedelta(days=, weeks=, ...)`.
+class _TimeDeltaType {
+  const _TimeDeltaType();
+
+  _TimeDelta construct(
+    List<Object?> positional,
+    Map<String, Object?> keywords,
+  ) {
+    num days = 0;
+    if (positional.isNotEmpty) days += (positional.first as num);
+    days += ((keywords['days'] as num?) ?? 0);
+    days += ((keywords['weeks'] as num?) ?? 0) * 7;
+    days += ((keywords['hours'] as num?) ?? 0) / 24;
+    return _TimeDelta(days);
+  }
+}
+
+/// A date value backed by an integer day-count, supporting `+`/`-` with a
+/// [_TimeDelta], `-` between dates (yielding a [_TimeDelta]), comparison and
+/// the `.year`/`.month`/`.day`/`.weekday()` reads used in practice.
+class _PythonDate implements Comparable<_PythonDate> {
+  _PythonDate(this.ordinal);
+
+  /// Builds an ordinal from a y/m/d via Dart's [DateTime], which keeps the
+  /// derived `.year`/`.month`/`.day` exact for in-range dates.
+  factory _PythonDate.fromYmd(int year, int month, int day) {
+    final dt = DateTime.utc(year, month, day);
+    return _PythonDate(
+      dt.millisecondsSinceEpoch ~/ Duration.millisecondsPerDay,
+    );
+  }
+
+  /// Days since the Unix epoch (1970-01-01). Negative is allowed.
+  final int ordinal;
+
+  DateTime get _dt => DateTime.fromMillisecondsSinceEpoch(
+    ordinal * Duration.millisecondsPerDay,
+    isUtc: true,
+  );
+
+  int get year => _dt.year;
+  int get month => _dt.month;
+  int get day => _dt.day;
+
+  /// Python's `date.weekday()`: Monday is 0 .. Sunday is 6. Dart's
+  /// `DateTime.weekday` is Monday 1 .. Sunday 7.
+  int weekday() => _dt.weekday - 1;
+
+  @override
+  int compareTo(_PythonDate other) => ordinal.compareTo(other.ordinal);
+
+  @override
+  bool operator ==(Object other) =>
+      other is _PythonDate && other.ordinal == ordinal;
+
+  @override
+  int get hashCode => ordinal.hashCode;
+
+  @override
+  String toString() {
+    final m = month.toString().padLeft(2, '0');
+    final d = day.toString().padLeft(2, '0');
+    return '$year-$m-$d';
+  }
+}
+
+/// A `timedelta`, modeled as a (possibly fractional) number of days.
+class _TimeDelta {
+  _TimeDelta(this.days);
+
+  final num days;
+
+  int get wholeDays => days.floor();
+
+  @override
+  String toString() => '$days days';
 }
 
 // ---------------------------------------------------------------------------
@@ -3191,18 +3492,39 @@ class _ImportStatement implements _Statement {
 
   static Object? _moduleFor(String module) {
     if (module == 'math') return _StubModule.mathModule();
-    // `from math import sqrt` binds `math.sqrt` to the concrete stub member.
-    if (module.startsWith('math.')) {
-      final member = module.substring('math.'.length);
-      final mathModule = _StubModule.mathModule();
-      if (mathModule.attributes.containsKey(member)) {
-        return mathModule.attributes[member];
-      }
-      final fn = mathModule.functions[member];
-      if (fn != null) return _BuiltinFunction('math.$member', fn);
-    }
+    if (module == 'collections') return _StubModule.collectionsModule();
+    if (module == 'datetime') return _StubModule.datetimeModule();
+    final concrete = _memberOf(module, 'math', _StubModule.mathModule());
+    if (concrete != _absent) return concrete;
+    final collected = _memberOf(
+      module,
+      'collections',
+      _StubModule.collectionsModule(),
+    );
+    if (collected != _absent) return collected;
+    final dated = _memberOf(module, 'datetime', _StubModule.datetimeModule());
+    if (dated != _absent) return dated;
     return _StubModule(module);
   }
+
+  /// Resolves `from <prefix> import <member>` against a concrete [stub],
+  /// returning the bound value or the [_absent] sentinel when [module] is not a
+  /// member of [prefix]. An unknown member of a known module yields an opaque
+  /// stub, so referencing it is fine but *using* it raises (graceful skip).
+  static Object? _memberOf(String module, String prefix, _StubModule stub) {
+    final dotted = '$prefix.';
+    if (!module.startsWith(dotted)) return _absent;
+    final member = module.substring(dotted.length);
+    if (stub.attributes.containsKey(member)) return stub.attributes[member];
+    final fn = stub.functions[member];
+    if (fn != null) return _BuiltinFunction('$prefix.$member', fn);
+    // An unimplemented member of a *known* module: bind a poison value so the
+    // name resolves, but *using* it raises RenPyPythonError (graceful skip)
+    // rather than silently producing a stub and corrupting state.
+    return _UnsupportedMember(module);
+  }
+
+  static const Object _absent = Object();
 }
 
 /// A `raise` statement.
