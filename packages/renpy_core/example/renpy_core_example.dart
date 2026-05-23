@@ -56,7 +56,7 @@ Future<void> main(List<String> args) async {
     if (hide != null) stdout.writeln('[Hide ] $hide');
   };
 
-  runner.onMenu = (choices, onChoice) {
+  runner.onMenu = (choices, onChoice, caption) {
     stdout.writeln('\n— Menu —');
     for (var i = 0; i < choices.length; i++) {
       stdout.writeln('  ${i + 1}. ${choices[i]}');

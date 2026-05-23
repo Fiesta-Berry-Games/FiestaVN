@@ -29,7 +29,11 @@ typedef DialogueCallback = void Function(String? character, String text);
 
 /// Callback for menu events
 typedef MenuCallback =
-    void Function(List<String> choices, Function(int) onChoice);
+    void Function(
+      List<String> choices,
+      Function(int) onChoice,
+      String? caption,
+    );
 
 /// Callback for image events
 typedef ImageCallback =
@@ -82,17 +86,22 @@ class RenPyRunner {
 
   /// Process all define statements in the script
   void _processDefines() {
-    script.findStatements<RenPyDefineStatement>((stmt) => true).forEach((
-      define,
-    ) {
-      if (define.expression.contains('Character(')) {
-        // Parse character definition
-        _parseCharacter(define.name, define.expression);
-      } else {
-        // Regular variable
-        _variables[define.name] = define.expression;
+    void process(List<RenPyStatement> statements) {
+      for (final statement in statements) {
+        if (statement is RenPyDefineStatement) {
+          _applyDefinition(statement.name, statement.expression);
+        } else if (statement is RenPyDefaultStatement) {
+          _variables.putIfAbsent(
+            statement.name,
+            () => _evaluateExpression(statement.expression),
+          );
+        } else if (statement is RenPyInitStatement) {
+          process(statement.block);
+        }
       }
-    });
+    }
+
+    process(script.statements);
   }
 
   /// Parse a character definition.
@@ -103,7 +112,7 @@ class RenPyRunner {
 
     // Extract the character name (first parameter to Character()).
     final nameMatch = RegExp(
-      r'''Character\s*\(\s*["\']([^"\']*)["\']''',
+      r'''Character\s*\(\s*(?:_\(\s*)?["\']([^"\']*)["\']''',
     ).firstMatch(expression);
     if (nameMatch != null) {
       params['name'] = nameMatch.group(1);
@@ -111,13 +120,58 @@ class RenPyRunner {
 
     // Extract other parameters like color.
     final colorMatch = RegExp(
-      r''''color\s*=\s*["\']([^"\']*)["\']''',
+      r'''color\s*=\s*["\']([^"\']*)["\']''',
     ).firstMatch(expression);
     if (colorMatch != null) {
       params['color'] = colorMatch.group(1);
     }
 
     _characters[name] = params;
+  }
+
+  void _applyDefinition(String name, String expression) {
+    if (expression.contains('Character(') ||
+        expression.contains('Character (')) {
+      _parseCharacter(name, expression);
+    } else {
+      _variables[name] = _evaluateExpression(expression);
+    }
+  }
+
+  dynamic _evaluateExpression(String expression) {
+    final value = expression.trim();
+    if (value == 'True' || value == 'true') return true;
+    if (value == 'False' || value == 'false') return false;
+    if (value == 'None' || value == 'null') return null;
+    if (value == '[]') return <dynamic>[];
+
+    final quoted = RegExp(r'''^["'](.*)["']$''').firstMatch(value);
+    if (quoted != null) return quoted.group(1);
+
+    final integer = int.tryParse(value);
+    if (integer != null) return integer;
+
+    final decimal = double.tryParse(value);
+    if (decimal != null) return decimal;
+
+    return value;
+  }
+
+  bool _evaluateCondition(String condition) {
+    final value = condition.trim();
+    if (value == 'True' || value == 'true') return true;
+    if (value == 'False' || value == 'false') return false;
+    if (value.startsWith('not ')) {
+      return !_evaluateCondition(value.substring(4));
+    }
+    if (value.startsWith('!')) return !_evaluateCondition(value.substring(1));
+
+    final variable = _variables[value];
+    if (variable is bool) return variable;
+    if (variable is num) return variable != 0;
+    if (variable is String) return variable.isNotEmpty;
+    if (variable is Iterable) return variable.isNotEmpty;
+    return variable != null;
   }
 
   /// Start or resume execution.
@@ -145,8 +199,8 @@ class RenPyRunner {
         // Pop back to the parent context (e.g., we’re done with a menu branch)
         final ctx = _stack.removeLast();
         _currentBlock = ctx.block;
-        _position     = ctx.position;
-        return _executeNext();        // continue immediately
+        _position = ctx.position;
+        return _executeNext(); // continue immediately
       }
 
       // otherwise original end-of-script behaviour:
@@ -188,10 +242,19 @@ class RenPyRunner {
       _executePythonStatement(stmt);
     } else if (stmt is RenPyDefineStatement) {
       _executeDefineStatement(stmt);
+    } else if (stmt is RenPyDefaultStatement) {
+      _executeDefaultStatement(stmt);
     } else if (stmt is RenPyIfStatement) {
       _executeIfStatement(stmt);
-    }
-    else if (stmt is RenPyPlayStatement) { _executePlayStatement(stmt); }else if (stmt is RenPyPassStatement) {
+    } else if (stmt is RenPyPlayStatement) {
+      _executePlayStatement(stmt);
+    } else if (stmt is RenPyHideStatement) {
+      _executeHideStatement(stmt);
+    } else if (stmt is RenPyReturnStatement) {
+      _executeReturnStatement(stmt);
+    } else if (stmt is RenPyCallStatement) {
+      _executeCallStatement(stmt);
+    } else if (stmt is RenPyPassStatement) {
       // Do nothing
       _position++;
       _executeNext();
@@ -248,14 +311,24 @@ class RenPyRunner {
 
   /// Execute a menu statement.
   void _executeMenuStatement(RenPyMenuStatement stmt) {
-    // No callback?  Fall back to first choice.
-    if (onMenu == null) {
-      _executeMenuChoice(stmt.items.first);
+    final items =
+        stmt.items
+            .where((choice) => _evaluateCondition(choice.condition))
+            .toList();
+    if (items.isEmpty) {
+      _position++;
+      _executeNext();
       return;
     }
 
-    final choices = stmt.items.map((c) => c.text).toList();
-    onMenu!(choices, (index) => _executeMenuChoice(stmt.items[index]));
+    // No callback?  Fall back to first choice.
+    if (onMenu == null) {
+      _executeMenuChoice(items.first);
+      return;
+    }
+
+    final choices = items.map((c) => c.text).toList();
+    onMenu!(choices, (index) => _executeMenuChoice(items[index]), stmt.caption);
 
     // Wait for UI / test harness.
     _state = RenPyRunnerState.waitingForInput;
@@ -274,8 +347,8 @@ class RenPyRunner {
     }
 
     _currentBlock = choice.block;
-    _position     = 0;
-    _state        = RenPyRunnerState.running; // We just answered – keep going.
+    _position = 0;
+    _state = RenPyRunnerState.running; // We just answered – keep going.
     _executeNext();
   }
 
@@ -293,6 +366,15 @@ class RenPyRunner {
   void _executeSceneStatement(RenPySceneStatement stmt) {
     if (onImage != null) {
       onImage!(stmt.imageName, null, null);
+    }
+
+    _position++;
+    _executeNext();
+  }
+
+  void _executeHideStatement(RenPyHideStatement stmt) {
+    if (onImage != null) {
+      onImage!(null, null, stmt.imageName);
     }
 
     _position++;
@@ -322,12 +404,17 @@ class RenPyRunner {
   /// Execute a define statement.
   void _executeDefineStatement(RenPyDefineStatement stmt) {
     // Most define statements are handled during initialization but we still need to handle runtime definitions.
+    _applyDefinition(stmt.name, stmt.expression);
 
-    if (stmt.expression.contains('Character(')) {
-      _parseCharacter(stmt.name, stmt.expression);
-    } else {
-      _variables[stmt.name] = stmt.expression;
-    }
+    _position++;
+    _executeNext();
+  }
+
+  void _executeDefaultStatement(RenPyDefaultStatement stmt) {
+    _variables.putIfAbsent(
+      stmt.name,
+      () => _evaluateExpression(stmt.expression),
+    );
 
     _position++;
     _executeNext();
@@ -335,12 +422,17 @@ class RenPyRunner {
 
   /// Execute an if statement
   void _executeIfStatement(RenPyIfStatement stmt) {
-    // TODO: Evaluate the condition.
-    // For now, we'll just execute the first block.
-    print('_executeIfStatement Unimplemented: choosing first block.');
+    IfEntry? entry;
+    for (final candidate in stmt.entries) {
+      if (_evaluateCondition(candidate.condition)) {
+        entry = candidate;
+        break;
+      }
+    }
 
-    if (stmt.entries.isNotEmpty) {
-      _currentBlock = stmt.entries[0].block;
+    if (entry != null) {
+      _stack.add(_ExecutionContext(_currentBlock, _position + 1));
+      _currentBlock = entry.block;
       _position = 0;
       _executeNext();
     } else {
@@ -357,6 +449,32 @@ class RenPyRunner {
     // TODO: Handle sound playing.
     print('[Play ${stmt.channel}] ${stmt.expression}');
     _position++;
+    _executeNext();
+  }
+
+  void _executeReturnStatement(RenPyReturnStatement stmt) {
+    if (_stack.isEmpty) {
+      _state = RenPyRunnerState.complete;
+      return;
+    }
+
+    final ctx = _stack.removeLast();
+    _currentBlock = ctx.block;
+    _position = ctx.position;
+    _state = RenPyRunnerState.running;
+    _executeNext();
+  }
+
+  void _executeCallStatement(RenPyCallStatement stmt) {
+    final label = script.findLabel(stmt.target);
+    if (label == null) {
+      throw Exception('Label not found: ${stmt.target}');
+    }
+
+    _stack.add(_ExecutionContext(_currentBlock, _position + 1));
+    _currentLabel = label.name;
+    _currentBlock = label.block;
+    _position = 0;
     _executeNext();
   }
 
