@@ -44,6 +44,10 @@ dependencies:
   path: ^1.8.3
   spine_flutter: ^4.2.36
 
+dependency_overrides:
+  renpy_parser:
+    path: ../../packages/renpy_parser
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
