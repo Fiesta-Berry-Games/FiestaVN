@@ -50,12 +50,18 @@ class RenPySayStatement extends RenPyStatement {
 /// Represents a menu statement with choices.
 class RenPyMenuStatement extends RenPyStatement {
   final List<MenuChoice> items;
+  final String? caption;
 
-  RenPyMenuStatement(this.items, String filename, int linenumber)
-    : super(filename, linenumber);
+  RenPyMenuStatement(
+    this.items,
+    String filename,
+    int linenumber, {
+    this.caption,
+  }) : super(filename, linenumber);
 
   @override
-  String toString() => 'Menu with ${items.length} choices';
+  String toString() =>
+      'Menu${caption != null ? ' "$caption"' : ''} with ${items.length} choices';
 }
 
 /// Represents a menu choice.
@@ -187,6 +193,22 @@ class RenPyDefineStatement extends RenPyStatement {
   String toString() => 'Define: $name = $expression';
 }
 
+/// Represents a default statement (default name = expression).
+class RenPyDefaultStatement extends RenPyStatement {
+  final String name;
+  final String expression;
+
+  RenPyDefaultStatement(
+    this.name,
+    this.expression,
+    String filename,
+    int linenumber,
+  ) : super(filename, linenumber);
+
+  @override
+  String toString() => 'Default: $name = $expression';
+}
+
 /// Represents an if statement (if condition: block).
 class RenPyIfStatement extends RenPyBlockStatement {
   final List<IfEntry> entries;
@@ -264,11 +286,11 @@ class RenPyPlayStatement extends RenPyStatement {
   final String expression;
 
   RenPyPlayStatement(
-      this.channel,
-      this.expression,
-      String filename,
-      int linenumber,
-      ) : super(filename, linenumber);
+    this.channel,
+    this.expression,
+    String filename,
+    int linenumber,
+  ) : super(filename, linenumber);
 
   @override
   String toString() => 'Play $channel: $expression';

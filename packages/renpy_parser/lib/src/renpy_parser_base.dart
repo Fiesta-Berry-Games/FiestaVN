@@ -65,7 +65,7 @@ class RenPyParser {
 
   /// Parse a single statement from a grouped logical line
   RenPyStatement? _parseStatement(GroupedLine line, List<String> warnings) {
-    final text = line.text.trim();
+    final text = line.text.trim().replaceFirst('\uFEFF', '');
 
     // Skip empty lines and comments.
     if (text.isEmpty || text.startsWith('#')) {
@@ -118,6 +118,11 @@ class RenPyParser {
       return _parseJumpStatement(line, warnings);
     }
 
+    // Parse call statement.
+    if (text.startsWith('call ')) {
+      return _parseCallStatement(line, warnings);
+    }
+
     // Parse show statement.
     if (text.startsWith('show ')) {
       return _parseShowStatement(line, warnings);
@@ -132,6 +137,14 @@ class RenPyParser {
       return _parsePlayStatement(line, warnings);
     }
 
+    if (text.startsWith('hide ')) {
+      return _parseHideStatement(line, warnings);
+    }
+
+    if (text.startsWith('with ')) {
+      return _parseWithStatement(line, warnings);
+    }
+
     // Parse python statement.
     if (text.startsWith('python') || text.startsWith('\$')) {
       return _parsePythonStatement(line, warnings);
@@ -142,6 +155,11 @@ class RenPyParser {
       return _parseDefineStatement(line, warnings);
     }
 
+    // Parse default statement.
+    if (text.startsWith('default ')) {
+      return _parseDefaultStatement(line, warnings);
+    }
+
     // Parse if statement.
     if (text.startsWith('if ')) {
       return _parseIfStatement(line, warnings);
@@ -150,6 +168,10 @@ class RenPyParser {
     // Parse pass statement.
     if (text == 'pass') {
       return RenPyPassStatement(line.filename, line.number);
+    }
+
+    if (text == 'return' || text.startsWith('return ')) {
+      return _parseReturnStatement(line, warnings);
     }
 
     // If we couldn't identify the statement type, create a generic statement.
@@ -299,9 +321,18 @@ class RenPyParser {
         match.group(1) ?? match.group(2) ?? match.group(3) ?? match.group(4);
 
     // Group 6 is the quoted text content
-    final speech = match.group(6) ?? '';
+    final speech = _unescapeString(match.group(6) ?? '');
 
     return RenPySayStatement(speaker, speech, line.filename, line.number);
+  }
+
+  String _unescapeString(String value) {
+    return value
+        .replaceAll(r'\"', '"')
+        .replaceAll(r"\'", "'")
+        .replaceAll(r'\n', '\n')
+        .replaceAll(r'\t', '\t')
+        .replaceAll(r'\\', '\\');
   }
 
   RenPyMenuStatement _parseMenuStatement(
@@ -319,6 +350,7 @@ class RenPyParser {
     }
 
     final items = <MenuChoice>[];
+    String? caption;
 
     // Parse the menu items (choices).
     for (final choiceLine in line.block) {
@@ -329,8 +361,14 @@ class RenPyParser {
         continue;
       }
 
+      if (!choiceText.endsWith(':') && _isSayStatement(choiceText)) {
+        final say = _parseSayStatement(choiceLine, warnings);
+        caption ??= say.text;
+        continue;
+      }
+
       // Parse choice text.
-      final choiceRegex = RegExp(r'''^["'`](.+?)["'`]\s*:''');
+      final choiceRegex = RegExp(r'''^["'`](.+?)["'`](?:\s+if\s+(.+?))?\s*:''');
       final match = choiceRegex.firstMatch(choiceText);
 
       if (match == null) {
@@ -340,7 +378,8 @@ class RenPyParser {
         continue;
       }
 
-      final choiceLabel = match.group(1)!;
+      final choiceLabel = _unescapeString(match.group(1)!);
+      final condition = match.group(2)?.trim() ?? 'True';
       List<RenPyStatement> choiceBlock = [];
 
       // Parse the block for this choice if it exists.
@@ -349,15 +388,16 @@ class RenPyParser {
       }
 
       items.add(
-        MenuChoice(
-          text: choiceLabel,
-          condition: 'True', // Default.
-          block: choiceBlock,
-        ),
+        MenuChoice(text: choiceLabel, condition: condition, block: choiceBlock),
       );
     }
 
-    return RenPyMenuStatement(items, line.filename, line.number);
+    return RenPyMenuStatement(
+      items,
+      line.filename,
+      line.number,
+      caption: caption,
+    );
   }
 
   RenPyJumpStatement _parseJumpStatement(
@@ -379,6 +419,28 @@ class RenPyParser {
 
     final target = match.group(1)!;
     return RenPyJumpStatement(target, line.filename, line.number);
+  }
+
+  RenPyCallStatement _parseCallStatement(
+    GroupedLine line,
+    List<String> warnings,
+  ) {
+    final text = line.text.trim();
+    final callRegex = RegExp(
+      r'^call\s+([a-zA-Z_][a-zA-Z0-9_]*)(?:\s+from\s+[a-zA-Z_][a-zA-Z0-9_]*)?',
+    );
+    final match = callRegex.firstMatch(text);
+
+    if (match == null) {
+      throw RenPyParseError(
+        'Invalid call syntax',
+        line.filename,
+        line.number,
+        0,
+      );
+    }
+
+    return RenPyCallStatement(match.group(1)!, line.filename, line.number);
   }
 
   RenPyShowStatement _parseShowStatement(
@@ -451,6 +513,55 @@ class RenPyParser {
     );
   }
 
+  RenPyHideStatement _parseHideStatement(
+    GroupedLine line,
+    List<String> warnings,
+  ) {
+    final text = line.text.trim();
+    final hideRegex = RegExp(r'^hide\s+(.+?)(?:\s+with\s+(.+?))?$');
+    final match = hideRegex.firstMatch(text);
+
+    if (match == null) {
+      throw RenPyParseError(
+        'Invalid hide syntax',
+        line.filename,
+        line.number,
+        0,
+      );
+    }
+
+    return RenPyHideStatement(
+      match.group(1)!.trim(),
+      match.group(2),
+      line.filename,
+      line.number,
+    );
+  }
+
+  RenPyWithStatement _parseWithStatement(
+    GroupedLine line,
+    List<String> warnings,
+  ) {
+    final text = line.text.trim();
+    final withRegex = RegExp(r'^with\s+(.+)$');
+    final match = withRegex.firstMatch(text);
+
+    if (match == null) {
+      throw RenPyParseError(
+        'Invalid with syntax',
+        line.filename,
+        line.number,
+        0,
+      );
+    }
+
+    return RenPyWithStatement(
+      match.group(1)!.trim(),
+      line.filename,
+      line.number,
+    );
+  }
+
   RenPyPythonStatement _parsePythonStatement(
     GroupedLine line,
     List<String> warnings,
@@ -508,6 +619,33 @@ class RenPyParser {
     );
   }
 
+  RenPyDefaultStatement _parseDefaultStatement(
+    GroupedLine line,
+    List<String> warnings,
+  ) {
+    final text = line.text.trim();
+    final defaultRegex = RegExp(
+      r'^default\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$',
+    );
+    final match = defaultRegex.firstMatch(text);
+
+    if (match == null) {
+      throw RenPyParseError(
+        'Invalid default syntax',
+        line.filename,
+        line.number,
+        0,
+      );
+    }
+
+    return RenPyDefaultStatement(
+      match.group(1)!,
+      match.group(2)!.trim(),
+      line.filename,
+      line.number,
+    );
+  }
+
   RenPyIfStatement _parseIfStatement(GroupedLine line, List<String> warnings) {
     final text = line.text.trim();
     final ifRegex = RegExp(r'^if\s+(.+?)\s*:');
@@ -532,17 +670,15 @@ class RenPyParser {
     return RenPyIfStatement(entries, line.filename, line.number);
   }
 
-
-
   /// Stub for `play sound/music/voice …`.
   ///
   /// Syntax accepted:
   ///   play sound "file.ogg"
   ///   play music my_sound
   RenPyPlayStatement _parsePlayStatement(
-      GroupedLine line,
-      List<String> warnings,
-      ) {
+    GroupedLine line,
+    List<String> warnings,
+  ) {
     final text = line.text.trim();
     final rx = RegExp(r'^play\s+(\w+)\s+(.+)$');
     final m = rx.firstMatch(text);
@@ -555,8 +691,21 @@ class RenPyParser {
       );
     }
     return RenPyPlayStatement(
-      m.group(1)!,          // Channel.
-      m.group(2)!.trim(),   // Expression.
+      m.group(1)!, // Channel.
+      m.group(2)!.trim(), // Expression.
+      line.filename,
+      line.number,
+    );
+  }
+
+  RenPyReturnStatement _parseReturnStatement(
+    GroupedLine line,
+    List<String> warnings,
+  ) {
+    final text = line.text.trim();
+    final expression = text == 'return' ? null : text.substring(6).trim();
+    return RenPyReturnStatement(
+      expression == '' ? null : expression,
       line.filename,
       line.number,
     );
