@@ -872,10 +872,27 @@ class RenPyRunner {
         _resolveCallScreen(action.hasValue ? action.value : null);
       case RenPyScreenActionKind.jump:
         final label = action.label;
-        if (label != null) jumpToLabel(label);
+        if (label != null) {
+          // A Jump from a blocking call screen dismisses the modal before
+          // transferring control, mirroring the Return path, then resumes so
+          // the jump target actually runs. Without a blocking call screen the
+          // existing behavior is preserved: `jumpToLabel` arms the target and
+          // the caller drives execution with its own `run()`.
+          final dismissed = _dismissCallScreen();
+          jumpToLabel(label);
+          if (dismissed && _state == RenPyRunnerState.ready) {
+            _state = RenPyRunnerState.running;
+            _executeNext();
+          }
+        }
       case RenPyScreenActionKind.call:
         final label = action.label;
-        if (label != null) _callLabelFromAction(label);
+        if (label != null) {
+          // Likewise, a Call from a blocking call screen first dismisses the
+          // modal; _callLabelFromAction then pushes the return frame and pumps.
+          _dismissCallScreen();
+          _callLabelFromAction(label);
+        }
       case RenPyScreenActionKind.showScreen:
       case RenPyScreenActionKind.showMenu:
         final name = action.screenName;
@@ -975,6 +992,22 @@ class RenPyRunner {
       _state = RenPyRunnerState.running;
       _executeNext();
     }
+  }
+
+  /// Dismisses a pending blocking `call screen` without landing a Return value,
+  /// used when a Jump/Call action transfers control away from the modal. Clears
+  /// [_callScreen], removes the call screen from the screen layer, and notifies
+  /// listeners - mirroring the cleanup half of [_resolveCallScreen] so the
+  /// runner does not stay wedged drawing the dismissed modal. Returns whether a
+  /// call screen was actually dismissed; a no-op (returning false) when none is
+  /// in flight.
+  bool _dismissCallScreen() {
+    final call = _callScreen;
+    if (call == null) return false;
+    _callScreen = null;
+    _shownScreens.removeWhere((s) => s.tag == call.tag);
+    _notifyScreenLayerChanged();
+    return true;
   }
 
   void _applySetField(RenPyScreenAction action) {
