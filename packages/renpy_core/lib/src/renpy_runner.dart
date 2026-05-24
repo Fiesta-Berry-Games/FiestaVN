@@ -708,19 +708,38 @@ class RenPyRunner {
         expression.contains('Character (')) {
       _parseCharacter(name, expression);
     } else {
+      final previousResolver = _transitionResolver;
       _transitionResolver = _transitionResolver.withDefinition(
         name,
         expression,
       );
+      // A recognized transition was registered with the resolver (the resolver
+      // instance changed), or the expression names/aliases a known transition
+      // (e.g. `define myfade = fade`); the stored value is only a passthrough
+      // fallback, so a non-evaluable transition expression must NOT diagnose.
+      final isTransition =
+          !identical(previousResolver, _transitionResolver) ||
+          _transitionResolver.resolve(expression) != null;
       // Namespaced targets (`config.X`, `gui.X`, `persistent.X`, ...) are
       // written into the matching scope rather than as a flat store key, so
       // `config.X` / `gui.X` reads resolve from defines. Bare names keep their
       // existing `_variables` storage so transitions and characters are
       // unchanged.
       if (_isNamespacedName(name)) {
-        _pythonScope.write(name, _evaluateExpression(expression));
+        _pythonScope.write(
+          name,
+          _evaluateDefinitionExpression(
+            name,
+            expression,
+            diagnose: !isTransition,
+          ),
+        );
       } else {
-        _variables[name] = _evaluateExpression(expression);
+        _variables[name] = _evaluateDefinitionExpression(
+          name,
+          expression,
+          diagnose: !isTransition,
+        );
       }
     }
   }
@@ -732,11 +751,52 @@ class RenPyRunner {
   void _applyDefault(String name, String expression) {
     if (_isNamespacedName(name)) {
       if (!_pythonScope.has(name)) {
-        _pythonScope.write(name, _evaluateExpression(expression));
+        _pythonScope.write(
+          name,
+          _evaluateDefinitionExpression(name, expression),
+        );
       }
       return;
     }
-    _variables.putIfAbsent(name, () => _evaluateExpression(expression));
+    _variables.putIfAbsent(
+      name,
+      () => _evaluateDefinitionExpression(name, expression),
+    );
+  }
+
+  /// Evaluates a `define`/`default` right-hand side like [_evaluateExpression],
+  /// but surfaces a silent fallback: when the Python evaluator cannot evaluate
+  /// the expression (e.g. an undefined class constructor that throws), it still
+  /// stores the literal/passthrough fallback so load continues, yet now emits a
+  /// [RenPyDiagnosticCode.skippedDefinition] diagnostic naming the binding so
+  /// the failure is visible. This is a dedicated code (not [skippedPython]) so a
+  /// load-time config/styling fallback (e.g. `define gui.x = Borders(...)`) is
+  /// not conflated with a runtime gameplay skip. Expressions that evaluate
+  /// cleanly (plain literals, numbers, strings, supported calls) stay silent.
+  dynamic _evaluateDefinitionExpression(
+    String name,
+    String expression, {
+    bool diagnose = true,
+  }) {
+    final value = expression.trim();
+
+    // The imagemap shim is a supported result, not a fallback: keep it silent.
+    final imagemapResult = _renpyImagemapResult(value);
+    if (imagemapResult != null) return imagemapResult;
+
+    try {
+      return _pythonEvaluator.evaluate(value, _pythonScope);
+    } on RenPyPythonError catch (error) {
+      if (!diagnose) return _evaluateExpressionFallback(value);
+      _emitDiagnostic(
+        RenPyDiagnostic(
+          code: RenPyDiagnosticCode.skippedDefinition,
+          message: 'Failed to evaluate $name; stored literal fallback.',
+          detail: '$name = $expression ($error)',
+        ),
+      );
+      return _evaluateExpressionFallback(value);
+    }
   }
 
   bool _isNamespacedName(String name) =>
