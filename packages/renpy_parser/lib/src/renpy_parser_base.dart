@@ -293,6 +293,16 @@ class RenPyParser {
       return _parseReturnStatement(line, warnings);
     }
 
+    // Recognize `translate` blocks as no-ops. Real Ren'Py games ship
+    // localization via top-level `translate <lang> ...` statements
+    // (`python:`, `strings:`, an `<identifier>:` say block, or a single-line
+    // form). When running the default language we ignore all translations, so
+    // we return a `RenPyPassStatement` (which the runner already no-ops) and
+    // discard the block body without re-parsing it.
+    if (text == 'translate' || text.startsWith('translate ')) {
+      return RenPyPassStatement(line.filename, line.number);
+    }
+
     // If we couldn't identify the statement type, create a generic statement.
     warnings.add(
       'Warning: Unknown statement type at ${line.filename}:${line.number}: $text',
