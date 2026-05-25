@@ -425,13 +425,17 @@ class _Lexer {
   _Token _next() {
     final ch = _source[_pos];
 
-    // String prefixes: f"", r"", plain quotes.
+    // String prefixes: f"", r"", b"", u"", plain quotes.
+    // A `u`/`U` prefix is a plain Python 3 string (just `str`), so it is
+    // neither an f-string nor raw.
     if (ch == 'f' ||
         ch == 'F' ||
         ch == 'r' ||
         ch == 'R' ||
         ch == 'b' ||
-        ch == 'B') {
+        ch == 'B' ||
+        ch == 'u' ||
+        ch == 'U') {
       final next = _pos + 1 < _source.length ? _source[_pos + 1] : '';
       if (next == '"' || next == "'") {
         final isFString = ch == 'f' || ch == 'F';
@@ -2755,6 +2759,11 @@ class _Interpreter {
     'type': (a, k) => _typeName(a[0]),
     // gettext translation marker: returns the string unchanged.
     '_': (a, k) => a.isEmpty ? '' : a[0],
+    // Cosmetic Ren'Py GUI displayable-region helper. We don't render, so this
+    // is a best-effort builtin that accepts any args and returns an inert,
+    // opaque marker so `define gui.x = Borders(...)` evaluates and stores a
+    // value instead of being skipped. Never throws.
+    'Borders': (a, k) => _GuiPlaceholder('Borders', a, k),
   };
 
   /// A small set of builtin exception classes so `raise ValueError("...")` and
@@ -2845,6 +2854,21 @@ class _Interpreter {
 
 typedef _BuiltinImpl =
     Object? Function(List<Object?> positional, Map<String, Object?> keywords);
+
+/// An inert, opaque marker returned by cosmetic Ren'Py GUI displayable
+/// constructors (e.g. `Borders(...)`) that we do not actually render. It simply
+/// captures its name and arguments so a `define` evaluates to a non-null value
+/// instead of failing with `name '...' is not defined`.
+class _GuiPlaceholder {
+  _GuiPlaceholder(this.name, this.args, this.kwargs);
+
+  final String name;
+  final List<Object?> args;
+  final Map<String, Object?> kwargs;
+
+  @override
+  String toString() => '<$name>';
+}
 
 /// A whitelisted builtin function resolved as a first-class value so it can be
 /// passed around (e.g. as the second argument to `isinstance`).
