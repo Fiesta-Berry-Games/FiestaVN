@@ -66,6 +66,30 @@ abstract class RenPyApi {
     List<Object?> positional,
     Map<String, Object?> keywords,
   );
+
+  /// `renpy.call(label, ...)` - transfer control to [label], returning to the
+  /// caller afterwards. A host that drives a call stack throws a
+  /// [RenPyControlFlowSignal] so the transfer escapes the Python interpreter;
+  /// the no-op host does nothing.
+  void call(String label, {List<Object?> args, Map<String, Object?> kwargs});
+
+  /// `renpy.jump(label)` - transfer control to [label] without a return frame.
+  /// A driving host throws a [RenPyControlFlowSignal]; the no-op host does
+  /// nothing.
+  void jump(String label);
+
+  /// `renpy.show_screen(name, ...)` - best-effort, NON-blocking screen show.
+  /// A no-op host ignores it; a driving host routes to its screen layer. Never
+  /// starts a blocking modal.
+  void showScreen(
+    String name,
+    List<Object?> positional,
+    Map<String, Object?> keywords,
+  );
+
+  /// `renpy.hide_screen(name)` - best-effort screen hide. A no-op host ignores
+  /// it; a driving host removes the screen from its layer.
+  void hideScreen(String name);
 }
 
 /// A [RenPyApi] whose every method is a no-op (or a neutral return). Used when
@@ -101,6 +125,26 @@ class _NoOpRenPyApi implements RenPyApi {
     List<Object?> positional,
     Map<String, Object?> keywords,
   ) {}
+
+  @override
+  void call(
+    String label, {
+    List<Object?> args = const [],
+    Map<String, Object?> kwargs = const {},
+  }) {}
+
+  @override
+  void jump(String label) {}
+
+  @override
+  void showScreen(
+    String name,
+    List<Object?> positional,
+    Map<String, Object?> keywords,
+  ) {}
+
+  @override
+  void hideScreen(String name) {}
 }
 
 /// A scope backed by plain Dart maps, one per RenPy namespace.
@@ -174,6 +218,43 @@ class RenPyMapScope implements RenPyPythonScope {
   }
 }
 
+/// A non-error control-transfer signal raised by `renpy.call(...)` /
+/// `renpy.jump(...)` evaluated from a `$` statement or `python:` block.
+///
+/// This is deliberately NOT a [RenPyPythonError]: the interpreter's entry
+/// points rethrow it intact so it escapes the Python subset and the runner can
+/// perform a real label call/jump. The runner's host shim throws this from its
+/// [RenPyApi.call] / [RenPyApi.jump] implementation; the no-op host never does.
+class RenPyControlFlowSignal implements Exception {
+  RenPyControlFlowSignal.call(
+    this.label, {
+    List<Object?>? args,
+    Map<String, Object?>? kwargs,
+  }) : kind = 'call',
+       args = args ?? const [],
+       kwargs = kwargs ?? const {};
+
+  RenPyControlFlowSignal.jump(this.label)
+    : kind = 'jump',
+      args = const [],
+      kwargs = const {};
+
+  /// Either `'call'` or `'jump'`.
+  final String kind;
+
+  /// The target label name.
+  final String label;
+
+  /// Positional arguments passed to `renpy.call(label, ...)`.
+  final List<Object?> args;
+
+  /// Keyword arguments passed to `renpy.call(label, ...)`.
+  final Map<String, Object?> kwargs;
+
+  @override
+  String toString() => 'RenPyControlFlowSignal($kind -> $label)';
+}
+
 /// Thrown when the evaluator meets a name, syntax or operation it does not
 /// support. Callers catch this and fall back to their previous handling so a
 /// partial Python subset never regresses behavior that used to work.
@@ -215,6 +296,11 @@ class RenPyPythonEvaluator {
       final node = parser.parseExpression();
       parser.expectEnd();
       return node.eval(_Interpreter(scope));
+    } on RenPyControlFlowSignal {
+      // A `renpy.call`/`renpy.jump` requested control transfer. Let it escape
+      // the interpreter intact so the runner can perform a real label change;
+      // it is NOT an error and must not be normalized into a skip diagnostic.
+      rethrow;
     } on RenPyPythonError {
       rethrow;
     } catch (e) {
@@ -255,6 +341,11 @@ class RenPyPythonExecutor {
       for (final statement in statements) {
         statement.exec(interp);
       }
+    } on RenPyControlFlowSignal {
+      // A `renpy.call`/`renpy.jump` requested control transfer mid-block. Let
+      // it escape intact so the runner performs the transfer; the remaining
+      // statements in this block are intentionally abandoned, matching RenPy.
+      rethrow;
     } on RenPyPythonError {
       rethrow;
     } on _ReturnSignal {
@@ -1894,17 +1985,80 @@ class _Interpreter {
         // No screen system yet; matches RenPy returning None for an absent one.
         return null;
       case 'music.queue':
+      case 'music.play':
       case 'music.set_volume':
+      case 'music.stop':
       case 'sound.play':
       case 'sound.set_volume':
       case 'sound.queue':
+      case 'sound.stop':
       case 'voice':
       case 'voice_sustain':
         api.audio(function, positional, keywords);
         return null;
+      case 'call':
+        {
+          final label = _renpyLabelArgument(function, positional, keywords);
+          // Pull positional args meant for the called label. RenPy passes any
+          // extra positionals/keywords through; we forward all but the label.
+          final args =
+              positional.length > 1 ? positional.sublist(1) : const <Object?>[];
+          api.call(label, args: args, kwargs: keywords);
+          return null;
+        }
+      case 'jump':
+        {
+          final label = _renpyLabelArgument(function, positional, keywords);
+          api.jump(label);
+          return null;
+        }
+      case 'show_screen':
+        {
+          final name = _renpyScreenNameArgument(function, positional, keywords);
+          final rest =
+              positional.length > 1 ? positional.sublist(1) : const <Object?>[];
+          api.showScreen(name, rest, keywords);
+          return null;
+        }
+      case 'hide_screen':
+        {
+          final name = _renpyScreenNameArgument(function, positional, keywords);
+          api.hideScreen(name);
+          return null;
+        }
       default:
         throw RenPyPythonError('unsupported renpy.$function');
     }
+  }
+
+  /// Coerces the label argument of `renpy.call`/`renpy.jump` to a non-empty
+  /// String. A missing/null/non-string label throws a [RenPyPythonError] so the
+  /// runner falls back to a graceful skip rather than transferring control to a
+  /// bogus target.
+  String _renpyLabelArgument(
+    String function,
+    List<Object?> positional,
+    Map<String, Object?> keywords,
+  ) {
+    final raw = positional.isNotEmpty ? positional.first : keywords['label'];
+    if (raw is String && raw.isNotEmpty) return raw;
+    throw RenPyPythonError('renpy.$function expects a string label');
+  }
+
+  /// Coerces the screen-name argument of `renpy.show_screen`/`renpy.hide_screen`
+  /// to a non-empty String, throwing a [RenPyPythonError] otherwise so the
+  /// runner falls back to a graceful skip.
+  String _renpyScreenNameArgument(
+    String function,
+    List<Object?> positional,
+    Map<String, Object?> keywords,
+  ) {
+    final raw =
+        positional.isNotEmpty
+            ? positional.first
+            : (keywords['_screen_name'] ?? keywords['name']);
+    if (raw is String && raw.isNotEmpty) return raw;
+    throw RenPyPythonError('renpy.$function expects a screen name');
   }
 
   int _asInt(Object? value) {

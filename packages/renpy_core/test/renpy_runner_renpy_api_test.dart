@@ -117,11 +117,36 @@ label start:
     );
   });
 
-  test('deferred screen functions still fall back to the skip diagnostic', () {
+  test('renpy.show_screen routes to the screen layer without a skip', () {
     final script =
         RenPyParser().parse('''
 label start:
     \$ renpy.show_screen("inventory")
+''', 'renpy_api.rpy').script;
+    final runner = RenPyRunner(script);
+    final diagnostics = <RenPyDiagnostic>[];
+
+    runner.onDiagnostic = diagnostics.add;
+
+    runner.jumpToLabel('start');
+    runner.run();
+
+    // show_screen is now a best-effort, non-blocking shim: it shows the screen
+    // and does NOT emit a skip diagnostic.
+    expect(
+      diagnostics.where((d) => d.code == RenPyDiagnosticCode.skippedPython),
+      isEmpty,
+    );
+    expect(runner.shownScreens.map((s) => s.name), contains('inventory'));
+  });
+
+  test('still-deferred screen functions fall back to the skip diagnostic', () {
+    // call_screen is interactive/blocking and intentionally left unsupported
+    // from Python, so it must still degrade to a graceful skip diagnostic.
+    final script =
+        RenPyParser().parse('''
+label start:
+    \$ renpy.call_screen("inventory")
 ''', 'renpy_api.rpy').script;
     final runner = RenPyRunner(script);
     final diagnostics = <RenPyDiagnostic>[];

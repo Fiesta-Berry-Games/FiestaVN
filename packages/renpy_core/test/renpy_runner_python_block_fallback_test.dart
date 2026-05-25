@@ -35,7 +35,7 @@ void main() {
 label start:
     python:
         picked = "alpha"
-        renpy.call("nowhere")
+        renpy.totally_unsupported_op()
     if picked == "alpha":
         "got alpha"
     else:
@@ -47,7 +47,7 @@ label start:
 
       final skips = _skipped(result.diagnostics);
       expect(skips, hasLength(1));
-      expect(skips.single.detail, contains('renpy.call'));
+      expect(skips.single.detail, contains('renpy.totally_unsupported_op'));
       expect(skips.single.detail, isNot(contains('picked')));
     });
 
@@ -85,7 +85,7 @@ label start:
     python:
         count += 1
         log.append("a")
-        renpy.call("nowhere")
+        renpy.totally_unsupported_op()
     "count is [count]"
 ''');
 
@@ -96,7 +96,7 @@ label start:
         expect(_skipped(result.diagnostics), hasLength(1));
         expect(
           _skipped(result.diagnostics).single.detail,
-          contains('renpy.call'),
+          contains('renpy.totally_unsupported_op'),
         );
       },
     );
@@ -110,7 +110,7 @@ label start:
     python:
         ok = "kept"
         if True:
-            renpy.call("nowhere")
+            renpy.totally_unsupported_op()
     if ok == "kept":
         "kept it"
     else:

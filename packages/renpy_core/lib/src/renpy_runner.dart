@@ -273,11 +273,39 @@ class RenPyRunner {
   String? _currentLabel;
   String? get currentLabel => _currentLabel;
 
+  /// The number of active `call` return frames on the execution stack.
+  ///
+  /// Each label `call` (script `call` statement, a Call screen action, or a
+  /// `renpy.call(...)` from Python) pushes one; a matching `return` pops it.
+  /// Exposed for observability/tests; label fall-through and loop frames are
+  /// not counted.
+  int get callStackDepth =>
+      _stack.where((c) => c.kind == _ExecutionContextKind.call).length;
+
   /// The current position in the script
   int _position = 0;
 
   /// The current block of statements being executed
   List<RenPyStatement> _currentBlock = [];
+
+  /// Set by [_RunnerRenPyApi] when a `renpy.call(...)`/`renpy.jump(...)` raises
+  /// a [RenPyControlFlowSignal] from inside Python. The Python-driving sites
+  /// (`_executePythonStatement`, the resilient/segment loop, the expression and
+  /// Function-action evaluators) read and clear it to perform the real label
+  /// transfer after abandoning the rest of the current Python block.
+  _PendingControlFlow? _pendingControlFlow;
+
+  /// Whether a `renpy.call(...)`/`renpy.jump(...)` raised from Python may
+  /// actually transfer control right now. It is only true while executing a
+  /// script `$`/`python:` statement or a screen Function action - the two
+  /// contexts that follow up by consuming [_pendingControlFlow]. Everywhere
+  /// else Python is evaluated (a screen `if`/`for`/`text` expression, a screen
+  /// action argument, a `define`/`default` right-hand side at load, init
+  /// python) there is no transfer point, so [_RunnerRenPyApi] raises an
+  /// ordinary [RenPyPythonError] instead and the existing graceful-fallback
+  /// catches handle it - never arming [_pendingControlFlow], so no stale intent
+  /// can leak into a later statement as a phantom call/jump.
+  bool _controlFlowArmed = false;
 
   /// Variables defined in the script
   final Map<String, dynamic> _variables = {};
@@ -1125,9 +1153,41 @@ class RenPyRunner {
         '${entry.key}=${_literalForArg(entry.value)}',
     ];
     final call = '$name(${args.join(', ')})';
+    final prevArmed = _controlFlowArmed;
+    _controlFlowArmed = true;
     try {
       _pythonEvaluator.evaluate(call, _pythonScope);
       _notifyScreenLayerChanged();
+    } on RenPyControlFlowSignal {
+      // A Function action invoked `renpy.call`/`renpy.jump`. Route it through
+      // the same control-flow machinery the Jump/Call screen actions use; a
+      // screen-driven transfer first dismisses any blocking call screen.
+      final pending = _pendingControlFlow;
+      _pendingControlFlow = null;
+      if (pending == null) return;
+      if (_findLabelContext(pending.label) == null) {
+        _emitDiagnostic(
+          RenPyDiagnostic(
+            code: RenPyDiagnosticCode.skippedScreen,
+            message:
+                'Skipped renpy.${pending.isJump ? 'jump' : 'call'} to unknown '
+                'label from a screen Function action.',
+            detail: pending.label,
+          ),
+        );
+        return;
+      }
+      if (pending.isJump) {
+        _dismissCallScreen();
+        jumpToLabel(pending.label);
+        if (_state == RenPyRunnerState.ready) {
+          _state = RenPyRunnerState.running;
+          _executeNext();
+        }
+      } else {
+        _dismissCallScreen();
+        _callLabelFromAction(pending.label);
+      }
     } on RenPyPythonError {
       _emitDiagnostic(
         RenPyDiagnostic(
@@ -1136,6 +1196,8 @@ class RenPyRunner {
           detail: action.raw,
         ),
       );
+    } finally {
+      _controlFlowArmed = prevArmed;
     }
   }
 
@@ -1153,6 +1215,12 @@ class RenPyRunner {
     // back to the previous literal/passthrough handling so nothing regresses.
     try {
       return _pythonEvaluator.evaluate(value, _pythonScope);
+    } on RenPyControlFlowSignal {
+      // `renpy.call`/`renpy.jump` has no defined control-transfer point when
+      // used as a value sub-expression (e.g. inside a condition or an argument).
+      // Discard the pending intent and fall back rather than entering an error
+      // state, upholding the graceful-fallback contract.
+      _pendingControlFlow = null;
     } on RenPyPythonError {
       // Fall through to the legacy handling below.
     }
@@ -1207,6 +1275,10 @@ class RenPyRunner {
       return RenPyPythonEvaluator.truthy(
         _pythonEvaluator.evaluate(condition, _pythonScope),
       );
+    } on RenPyControlFlowSignal {
+      // A `renpy.call`/`renpy.jump` in a condition has no transfer point here;
+      // discard it and fall back rather than aborting the run.
+      _pendingControlFlow = null;
     } on RenPyPythonError {
       // Fall through to the legacy condition evaluator.
     }
@@ -1919,111 +1991,187 @@ class RenPyRunner {
 
   /// Execute a Python statement.
   void _executePythonStatement(RenPyPythonStatement stmt) {
-    // A multi-line `python:` block is never a single assignment/audio/pause
-    // statement, so route it straight to the statement executor. The
-    // single-statement fast paths below use `dotAll` regexes that would
-    // otherwise misread the whole block as one giant assignment value.
-    if (stmt.code.contains('\n')) {
-      _executePythonBlockResilient(stmt.code);
+    // Arm Python-initiated control flow for the duration of this statement:
+    // this is a real transfer point (each path below consumes
+    // [_pendingControlFlow]). The `finally` restores the previous value on
+    // every exit path so the flag never leaks into the host-driven screen /
+    // define evaluations that follow, where there is no transfer point.
+    final prevArmed = _controlFlowArmed;
+    _controlFlowArmed = true;
+    try {
+      // A multi-line `python:` block is never a single assignment/audio/pause
+      // statement, so route it straight to the statement executor. The
+      // single-statement fast paths below use `dotAll` regexes that would
+      // otherwise misread the whole block as one giant assignment value.
+      if (stmt.code.contains('\n')) {
+        _executePythonBlockResilient(stmt.code);
+        if (_performPendingControlFlow()) return;
+        _position++;
+        _executeNext();
+        return;
+      }
+
+      final assignment = _pythonAssignment(stmt.code);
+      if (assignment != null) {
+        final value = _evaluateExpression(assignment.expression);
+        _setVariable(assignment.name, value);
+        _position++;
+        _executeNext();
+        return;
+      }
+
+      final augmentedAssignment = _pythonAugmentedAssignment(stmt.code);
+      if (augmentedAssignment != null) {
+        _applyAugmentedAssignment(augmentedAssignment);
+        _position++;
+        _executeNext();
+        return;
+      }
+
+      if (_isRenpyFullRestart(stmt.code)) {
+        _complete();
+        return;
+      }
+
+      final audio = _renpyAudioEvent(stmt.code);
+      if (_applyAudioChannelRegistration(stmt.code)) {
+        _position++;
+        _executeNext();
+        return;
+      }
+
+      if (audio != null) {
+        onAudio?.call(audio);
+        _position++;
+        _executeNext();
+        return;
+      }
+
+      final pause = _renpyPauseEvent(stmt.code);
+      if (pause != null) {
+        onPause?.call(pause);
+        _state = RenPyRunnerState.waitingForInput;
+        _position++;
+        return;
+      }
+
+      if (_tryExecuteRenpySay(stmt.code)) return;
+
+      if (_isRecognizedNoOpPythonCall(stmt.code)) {
+        _position++;
+        _executeNext();
+        return;
+      }
+
+      // A bare expression-statement (e.g. `items.append(3)`) is in scope: run it
+      // for its side effects. Only treat it as handled when the Python-subset
+      // evaluator accepts it; otherwise fall through to the diagnostic so genuine
+      // statements (control flow, `def`, multi-line blocks) are not swallowed.
+      if (_tryEvaluatePythonExpressionStatement(stmt.code)) {
+        if (_performPendingControlFlow()) return;
+        _position++;
+        _executeNext();
+        return;
+      }
+
+      // General Python statement execution: multi-line `python:` blocks plus any
+      // `$` statement the targeted fast paths above did not claim (control flow,
+      // `def`, subscript/attribute assignment, tuple unpacking, ...). On any
+      // unsupported construct or runtime failure this throws and we fall through
+      // to the skip diagnostic, so an unsupported block never aborts the script.
+      if (_tryExecutePythonBlock(stmt.code)) {
+        if (_performPendingControlFlow()) return;
+        _position++;
+        _executeNext();
+        return;
+      }
+
+      _emitDiagnostic(
+        RenPyDiagnostic(
+          code: RenPyDiagnosticCode.skippedPython,
+          message: 'Skipped unsupported Python statement.',
+          detail: stmt.code,
+        ),
+      );
+
       _position++;
       _executeNext();
-      return;
+    } finally {
+      _controlFlowArmed = prevArmed;
     }
+  }
 
-    final assignment = _pythonAssignment(stmt.code);
-    if (assignment != null) {
-      final value = _evaluateExpression(assignment.expression);
-      _setVariable(assignment.name, value);
+  /// Performs a control transfer requested from inside Python via
+  /// `renpy.call(...)`/`renpy.jump(...)`, if one is pending.
+  ///
+  /// Returns `true` when a transfer was performed (the caller MUST return
+  /// immediately so the normal `_position++`/`_executeNext()` tail does not run
+  /// a second time), `false` when nothing was pending.
+  ///
+  /// On a `call`, [_position] is advanced PAST the current Python statement
+  /// FIRST so the pushed return frame resumes at the statement that follows the
+  /// call - `_callLabelFromAction` reads [_position] when building that frame.
+  /// An unresolvable label degrades to a graceful skip diagnostic and normal
+  /// execution continues rather than crashing.
+  bool _performPendingControlFlow() {
+    final pending = _pendingControlFlow;
+    if (pending == null) return false;
+    _pendingControlFlow = null;
+
+    final exists = _findLabelContext(pending.label) != null;
+    if (!exists) {
+      _emitDiagnostic(
+        RenPyDiagnostic(
+          code: RenPyDiagnosticCode.skippedPython,
+          message:
+              'Skipped renpy.${pending.isJump ? 'jump' : 'call'} to unknown '
+              'label.',
+          detail: pending.label,
+        ),
+      );
+      // Resume after the current Python statement as if the call/jump no-opped.
       _position++;
       _executeNext();
-      return;
+      return true;
     }
 
-    final augmentedAssignment = _pythonAugmentedAssignment(stmt.code);
-    if (augmentedAssignment != null) {
-      _applyAugmentedAssignment(augmentedAssignment);
-      _position++;
-      _executeNext();
-      return;
+    if (pending.isJump) {
+      // A jump abandons the caller entirely: no return frame. jumpToLabel arms
+      // the target and leaves the runner ready, so pump it to actually run.
+      jumpToLabel(pending.label);
+      if (_state == RenPyRunnerState.ready) {
+        _state = RenPyRunnerState.running;
+        _executeNext();
+      }
+      return true;
     }
 
-    if (_isRenpyFullRestart(stmt.code)) {
-      _complete();
-      return;
-    }
-
-    final audio = _renpyAudioEvent(stmt.code);
-    if (_applyAudioChannelRegistration(stmt.code)) {
-      _position++;
-      _executeNext();
-      return;
-    }
-
-    if (audio != null) {
-      onAudio?.call(audio);
-      _position++;
-      _executeNext();
-      return;
-    }
-
-    final pause = _renpyPauseEvent(stmt.code);
-    if (pause != null) {
-      onPause?.call(pause);
-      _state = RenPyRunnerState.waitingForInput;
-      _position++;
-      return;
-    }
-
-    if (_tryExecuteRenpySay(stmt.code)) return;
-
-    if (_isRecognizedNoOpPythonCall(stmt.code)) {
-      _position++;
-      _executeNext();
-      return;
-    }
-
-    // A bare expression-statement (e.g. `items.append(3)`) is in scope: run it
-    // for its side effects. Only treat it as handled when the Python-subset
-    // evaluator accepts it; otherwise fall through to the diagnostic so genuine
-    // statements (control flow, `def`, multi-line blocks) are not swallowed.
-    if (_tryEvaluatePythonExpressionStatement(stmt.code)) {
-      _position++;
-      _executeNext();
-      return;
-    }
-
-    // General Python statement execution: multi-line `python:` blocks plus any
-    // `$` statement the targeted fast paths above did not claim (control flow,
-    // `def`, subscript/attribute assignment, tuple unpacking, ...). On any
-    // unsupported construct or runtime failure this throws and we fall through
-    // to the skip diagnostic, so an unsupported block never aborts the script.
-    if (_tryExecutePythonBlock(stmt.code)) {
-      _position++;
-      _executeNext();
-      return;
-    }
-
-    _emitDiagnostic(
-      RenPyDiagnostic(
-        code: RenPyDiagnosticCode.skippedPython,
-        message: 'Skipped unsupported Python statement.',
-        detail: stmt.code,
-      ),
-    );
-
+    // A call returns to the statement AFTER the current Python statement, so
+    // advance _position before _callLabelFromAction snapshots it for the frame.
     _position++;
-    _executeNext();
+    _callLabelFromAction(pending.label);
+    return true;
   }
 
   /// Runs [code] through the Python statement executor against the live store.
   /// Returns `true` when it executed cleanly, `false` when the executor threw a
   /// [RenPyPythonError] (so the caller falls back to the skip diagnostic).
+  ///
+  /// A [RenPyControlFlowSignal] (raised by `renpy.call`/`renpy.jump`) is NOT an
+  /// error: the host shim already recorded it on [_pendingControlFlow], so this
+  /// returns `true` (the segment is "handled" - abandon the rest of the block)
+  /// and the caller checks [_pendingControlFlow] to perform the transfer.
   bool _tryExecutePythonBlock(String code) {
     if (code.trim().isEmpty) return true;
     try {
       _pythonExecutor.execute(code, _pythonScope);
       // A block may have written `persistent.*`; persist those changes since
       // the scope writes the map directly without going through _setVariable.
+      _flushPersistent();
+      return true;
+    } on RenPyControlFlowSignal {
+      // Persist any side effects applied before the call/jump, then let the
+      // caller drive the transfer via [_pendingControlFlow].
       _flushPersistent();
       return true;
     } on RenPyPythonError {
@@ -2063,7 +2211,12 @@ class RenPyRunner {
     }
 
     for (final segment in segments) {
-      if (_tryExecutePythonBlock(segment)) continue;
+      final handled = _tryExecutePythonBlock(segment);
+      // A `renpy.call`/`renpy.jump` inside this segment requested a control
+      // transfer. Abandon the remaining segments (RenPy does not run the rest
+      // of the block after a call/jump); the caller performs the transfer.
+      if (_pendingControlFlow != null) return;
+      if (handled) continue;
       _emitDiagnostic(
         RenPyDiagnostic(
           code: RenPyDiagnosticCode.skippedPython,
@@ -2155,6 +2308,12 @@ class RenPyRunner {
     if (trimmed.contains('\n') || trimmed.contains(';')) return false;
     try {
       _pythonEvaluator.evaluate(trimmed, _pythonScope);
+      return true;
+    } on RenPyControlFlowSignal {
+      // `renpy.call`/`renpy.jump` from a bare `$ ...` expression statement. The
+      // intent is on [_pendingControlFlow]; report handled so the caller drives
+      // the transfer rather than emitting a skip diagnostic.
+      _flushPersistent();
       return true;
     } on RenPyPythonError {
       return false;
@@ -3589,6 +3748,8 @@ class RenPyRunner {
   void reset() {
     _stack.clear();
     _pendingDialogue = null;
+    _pendingControlFlow = null;
+    _controlFlowArmed = false;
     _position = 0;
     _currentBlock = script.statements;
     _currentLabel = null;
@@ -3754,6 +3915,10 @@ class _RunnerRenPyApi implements RenPyApi {
     Map<String, Object?> keywords,
   ) {
     if (function.endsWith('set_volume')) return;
+    if (function.endsWith('.stop')) {
+      // No dedicated stop event in this runner; treat as a non-aborting no-op.
+      return;
+    }
     if (function == 'voice') {
       _runner._emitRenpyVoice(positional);
       return;
@@ -3763,6 +3928,55 @@ class _RunnerRenPyApi implements RenPyApi {
       return;
     }
     _runner._emitRenpyApiAudio(function, positional, keywords);
+  }
+
+  @override
+  void call(
+    String label, {
+    List<Object?> args = const [],
+    Map<String, Object?> kwargs = const {},
+  }) {
+    // Outside a real transfer point (a `$`/`python:` statement or a Function
+    // action) there is nothing to consume the pending intent, so a screen
+    // expression / define RHS / init body calling `renpy.call` must NOT arm a
+    // transfer - fall back as an ordinary unsupported call instead.
+    if (!_runner._controlFlowArmed) {
+      throw RenPyPythonError('renpy.call is only supported from script Python');
+    }
+    // Record the requested transfer and raise the control-flow signal so it
+    // escapes the Python interpreter intact; the runner's Python-driving sites
+    // catch it and perform the real label call.
+    _runner._pendingControlFlow = _PendingControlFlow.call(
+      label,
+      args: args,
+      kwargs: kwargs,
+    );
+    throw RenPyControlFlowSignal.call(label, args: args, kwargs: kwargs);
+  }
+
+  @override
+  void jump(String label) {
+    if (!_runner._controlFlowArmed) {
+      throw RenPyPythonError('renpy.jump is only supported from script Python');
+    }
+    _runner._pendingControlFlow = _PendingControlFlow.jump(label);
+    throw RenPyControlFlowSignal.jump(label);
+  }
+
+  @override
+  void showScreen(
+    String name,
+    List<Object?> positional,
+    Map<String, Object?> keywords,
+  ) {
+    // Best-effort, NON-blocking: route to the existing screen-show path. Never
+    // starts a blocking modal (that is `call_screen`, deliberately unsupported).
+    _runner._showScreen(_runner._invocationText(name, positional, keywords));
+  }
+
+  @override
+  void hideScreen(String name) {
+    _runner._hideScreen(name);
   }
 }
 
@@ -3851,4 +4065,25 @@ class _VariableLookup {
 
   final bool found;
   final dynamic value;
+}
+
+/// A control transfer requested by `renpy.call(...)`/`renpy.jump(...)` from
+/// inside Python, captured so the runner can perform it after the raising
+/// Python block unwinds.
+class _PendingControlFlow {
+  _PendingControlFlow.call(
+    this.label, {
+    required this.args,
+    required this.kwargs,
+  }) : isJump = false;
+
+  _PendingControlFlow.jump(this.label)
+    : isJump = true,
+      args = const [],
+      kwargs = const {};
+
+  final bool isJump;
+  final String label;
+  final List<Object?> args;
+  final Map<String, Object?> kwargs;
 }
