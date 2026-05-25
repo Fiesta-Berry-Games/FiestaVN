@@ -307,6 +307,16 @@ class RenPyRunner {
   /// can leak into a later statement as a phantom call/jump.
   bool _controlFlowArmed = false;
 
+  /// Re-entrancy guard for the execution trampoline. Statement handlers continue
+  /// the script by calling [_executeNext] at their tail; rather than recursing
+  /// (which grows the Dart native stack one frame per statement and overflows on
+  /// a long run or a runaway script-level loop), the first [_executeNext] runs
+  /// an iterative drive loop and every nested tail call returns immediately so
+  /// the loop picks up the handler's already-updated position/block/state. A
+  /// runaway loop now trips the `_maxScriptLoopIterations` guard and degrades to
+  /// a diagnostic instead of crashing with a stack overflow.
+  bool _draining = false;
+
   /// Variables defined in the script
   final Map<String, dynamic> _variables = {};
 
@@ -1350,46 +1360,61 @@ class RenPyRunner {
     }
   }
 
-  /// Execute the next statement in the script.
+  /// Execute statements from the current position.
+  ///
+  /// Statement handlers advance the position/block/state and then call this at
+  /// their tail to continue. To avoid one native-stack frame per statement (the
+  /// old recursive drive overflowed on long runs and runaway loops), the
+  /// outermost call runs an iterative loop and every re-entrant tail call
+  /// returns immediately via [_draining] so the loop resumes with the handler's
+  /// updated state.
   void _executeNext() {
-    // 1  finished the current block?
-    if (_position >= _currentBlock.length) {
-      if (_stack.isNotEmpty) {
-        // Pop back to the parent context (e.g., we're done with a menu branch)
-        final ctx = _stack.removeLast();
-        _currentBlock = ctx.block;
-        _position = ctx.position;
-        // A loop body that ran to its end re-enters the loop statement to
-        // re-check the condition (while) or advance the iterator (for).
-        if (ctx.kind == _ExecutionContextKind.loop) {
-          return _reenterLoop(ctx.loop!);
-        }
-        return _executeNext(); // continue immediately
-      }
-
-      // The call stack is empty. In RenPy a label's block ending without a
-      // jump/return does not stop the script: execution falls through to the
-      // statement that textually follows the block's owner in source order,
-      // climbing the enclosing-block chain. Only when there is genuinely no
-      // following statement does the script complete.
-      final fallthrough = _fallThrough(_currentBlock);
-      if (fallthrough != null) {
-        _currentBlock = fallthrough.block;
-        _position = fallthrough.position;
-        return _executeNext();
-      }
-
-      _currentLabel = null;
-      _complete();
-      return;
-    }
-
-    final stmt = _currentBlock[_position];
+    if (_draining) return;
+    _draining = true;
     try {
-      _executeStatement(stmt);
-    } catch (e) {
-      _state = RenPyRunnerState.error;
-      _errorMessage = 'Error executing statement: $e';
+      while (_state == RenPyRunnerState.running) {
+        // 1  finished the current block?
+        if (_position >= _currentBlock.length) {
+          if (_stack.isNotEmpty) {
+            // Pop back to the parent context (e.g. done with a menu branch).
+            final ctx = _stack.removeLast();
+            _currentBlock = ctx.block;
+            _position = ctx.position;
+            // A loop body that ran to its end re-enters the loop statement to
+            // re-check the condition (while) or advance the iterator (for).
+            if (ctx.kind == _ExecutionContextKind.loop) {
+              _reenterLoop(ctx.loop!);
+            }
+            continue;
+          }
+
+          // The call stack is empty. In RenPy a label's block ending without a
+          // jump/return does not stop the script: execution falls through to
+          // the statement that textually follows the block's owner in source
+          // order, climbing the enclosing-block chain. Only when there is
+          // genuinely no following statement does the script complete.
+          final fallthrough = _fallThrough(_currentBlock);
+          if (fallthrough != null) {
+            _currentBlock = fallthrough.block;
+            _position = fallthrough.position;
+            continue;
+          }
+
+          _currentLabel = null;
+          _complete();
+          break;
+        }
+
+        final stmt = _currentBlock[_position];
+        try {
+          _executeStatement(stmt);
+        } catch (e) {
+          _state = RenPyRunnerState.error;
+          _errorMessage = 'Error executing statement: $e';
+        }
+      }
+    } finally {
+      _draining = false;
     }
   }
 
@@ -1510,6 +1535,9 @@ class RenPyRunner {
     final waitTag = _firstInlineWaitTag(event.text);
     if (waitTag != null) {
       _pendingDialogue = _PendingDialogue(event, waitTag.end);
+      // Mark waiting BEFORE emitting so a host that continues synchronously
+      // from onDialogue resumes through the inline wait instead of stranding.
+      _state = RenPyRunnerState.waitingForInput;
       _emitDialogueEvent(
         _dialogueEventWithText(
           event,
@@ -1517,21 +1545,21 @@ class RenPyRunner {
           autoContinueDuration: waitTag.duration,
         ),
       );
-      _state = RenPyRunnerState.waitingForInput;
       return;
     }
 
-    _emitDialogueEvent(event);
-
-    // A trailing {nw} suppresses only the terminal wait.
+    // A trailing {nw} suppresses only the terminal wait: emit and continue.
     if (_hasNoWaitTag(event.text)) {
+      _emitDialogueEvent(event);
       _revertTemporaryAttributes();
       _executeNext();
       return;
     }
 
-    // Wait for player input.
+    // Wait for player input. Set the state BEFORE emitting so a synchronous
+    // continueExecution() from inside onDialogue advances instead of stranding.
     _state = RenPyRunnerState.waitingForInput;
+    _emitDialogueEvent(event);
   }
 
   /// Emits a SHOW event applying [stmt]'s `@` temporary attributes to the
@@ -1572,9 +1600,12 @@ class RenPyRunner {
   void _executePauseStatement(RenPyPauseStatement stmt) {
     final duration =
         stmt.duration == null ? null : _renpyPauseDuration(stmt.duration!);
-    onPause?.call(RenPyPauseEvent(duration: duration));
-    _state = RenPyRunnerState.waitingForInput;
+    // Advance and mark waiting BEFORE the callback so a host that continues
+    // synchronously from onPause resumes at the next statement instead of
+    // stranding (setting the state after the callback would clobber it).
     _position++;
+    _state = RenPyRunnerState.waitingForInput;
+    onPause?.call(RenPyPauseEvent(duration: duration));
   }
 
   bool _hasNoWaitTag(String text) => RegExp(r'\{nw\}').hasMatch(text);
@@ -1726,10 +1757,15 @@ class RenPyRunner {
     }
 
     final choices = items.map((c) => c.text).toList();
-    onMenu!(choices, (index) => _executeMenuChoice(items[index]), stmt.caption);
-
-    // Wait for UI / test harness.
+    // Mark the menu as waiting BEFORE invoking the callback: a harness that
+    // answers synchronously (calling onChoice inside onMenu) runs through
+    // _executeMenuChoice, which sets the state back to running and enters the
+    // chosen branch - and the trampoline then drives that branch. If onMenu
+    // defers to real UI and returns without choosing, the state stays waiting
+    // and the drive loop exits until the host calls onChoice later. (Setting
+    // this AFTER the call would clobber a synchronous choice and strand it.)
     _state = RenPyRunnerState.waitingForInput;
+    onMenu!(choices, (index) => _executeMenuChoice(items[index]), stmt.caption);
   }
 
   /// Execute a menu choice.
@@ -1752,6 +1788,7 @@ class RenPyRunner {
       // Nothing inside -> behave like "pass".
       _currentBlock = _stack.removeLast().block;
       _position++; // Resume after menu statement.
+      _state = RenPyRunnerState.running; // We just answered - keep going.
       return _executeNext();
     }
 
@@ -2936,12 +2973,9 @@ class RenPyRunner {
         loop: loop,
       ),
     );
-    if (body.isEmpty) {
-      // Empty body: re-enter immediately rather than descending into nothing.
-      _stack.removeLast();
-      _reenterLoop(loop);
-      return;
-    }
+    // Descend into the body. An empty body is fine: the trampoline immediately
+    // hits end-of-block, pops this loop frame, and re-enters the loop - so the
+    // re-entry stays iterative rather than recursing through _reenterLoop.
     _currentBlock = body;
     _position = 0;
     _executeNext();
