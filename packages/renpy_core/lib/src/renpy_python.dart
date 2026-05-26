@@ -2759,11 +2759,20 @@ class _Interpreter {
     'type': (a, k) => _typeName(a[0]),
     // gettext translation marker: returns the string unchanged.
     '_': (a, k) => a.isEmpty ? '' : a[0],
+    // Ren'Py paragraph/translatable-string marker (e.g.
+    // `define gui.about = _p("""...""")`). Identity on its first argument so the
+    // string is stored unchanged; returns null gracefully if called with no
+    // args. Never throws.
+    '_p': (a, k) => a.isEmpty ? null : a[0],
     // Cosmetic Ren'Py GUI displayable-region helper. We don't render, so this
     // is a best-effort builtin that accepts any args and returns an inert,
     // opaque marker so `define gui.x = Borders(...)` evaluates and stores a
     // value instead of being skipped. Never throws.
     'Borders': (a, k) => _GuiPlaceholder('Borders', a, k),
+    // Cosmetic Ren'Py GUI displayable (e.g. `define bubble.frame = Frame(...)`).
+    // Same best-effort inert marker as Borders: accepts any args, returns an
+    // opaque value, never throws.
+    'Frame': (a, k) => _GuiPlaceholder('Frame', a, k),
   };
 
   /// A small set of builtin exception classes so `raise ValueError("...")` and
