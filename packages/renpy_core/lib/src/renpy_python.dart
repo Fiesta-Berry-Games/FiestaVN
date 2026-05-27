@@ -1472,8 +1472,10 @@ class _Interpreter {
   Object? getAttribute(Object? target, String name) {
     if (target is _PythonInstance) {
       if (target.attributes.containsKey(name)) return target.attributes[name];
-      final method = target.cls.findMethod(name);
-      if (method != null) return _BoundUserMethod(target, method);
+      final lookup = target.cls.findMethodWithOwner(name);
+      if (lookup != null) {
+        return _BoundUserMethod(target, lookup.function, lookup.owner);
+      }
       if (target.cls.hasClassAttribute(name)) {
         return target.cls.readClassAttribute(name);
       }
@@ -1488,6 +1490,9 @@ class _Interpreter {
         return target.readClassAttribute(name);
       }
       throw RenPyPythonError('${target.name} has no attribute `$name`');
+    }
+    if (target is _SuperProxy) {
+      return _superAttribute(target, name);
     }
     if (target is _StubModule) {
       if (target.attributes.containsKey(name)) return target.attributes[name];
@@ -1857,6 +1862,7 @@ class _Interpreter {
       final receiver = target.target.eval(this);
       if (receiver is _PythonInstance ||
           receiver is _PythonClass ||
+          receiver is _SuperProxy ||
           receiver is _StubModule) {
         // Resolve the member as a value (bound method, stub function, ...) and
         // dispatch through the unified callable path.
@@ -1892,6 +1898,13 @@ class _Interpreter {
     if (callee is _PythonClass) {
       return _instantiate(callee, positional, keywords);
     }
+    if (callee is _SuperFactory) {
+      return _makeSuperProxy(callee, positional);
+    }
+    if (callee is _NoOpCallable) {
+      // e.g. super().__init__(...) where the base defines no __init__.
+      return null;
+    }
     if (callee is _UnsupportedMember) callee.raise();
     if (callee is _DefaultDictType) {
       _DefaultDictType._factoryInterp = this;
@@ -1916,6 +1929,51 @@ class _Interpreter {
     throw RenPyPythonError('object is not callable');
   }
 
+  /// Builds the `super()` proxy from a [_SuperFactory]. Supports the no-arg
+  /// `super()` (using the factory's threaded defining class + receiver) and the
+  /// explicit `super(ClassName, self)` form. Resolution starts at the parent of
+  /// the relevant class; with no parent the proxy degrades to no-op/throwing
+  /// lookups. Single inheritance only.
+  _SuperProxy _makeSuperProxy(_SuperFactory factory, List<Object?> positional) {
+    if (positional.isEmpty) {
+      // No-arg form: parent of the class that declared the running method.
+      if (factory.self == null) {
+        throw RenPyPythonError('super(): no bound instance in scope');
+      }
+      return _SuperProxy(factory.definingClass?.base, factory.self!);
+    }
+    // Explicit super(ClassName, self): start at the parent of ClassName, bound
+    // to the given instance. Tolerated for fidelity; MRO is not modelled.
+    final cls = positional[0];
+    final self = positional.length > 1 ? positional[1] : factory.self;
+    if (cls is! _PythonClass) {
+      throw RenPyPythonError('super(): first argument must be a class');
+    }
+    if (self is! _PythonInstance) {
+      throw RenPyPythonError('super(): second argument must be an instance');
+    }
+    return _SuperProxy(cls.base, self);
+  }
+
+  /// Resolves attribute [name] on a `super()` proxy: looks the method up
+  /// starting at the proxy's start class (the parent of the defining class) and
+  /// binds it to the proxy's receiver. A missing method throws so callers fall
+  /// back gracefully; the common `super().__init__(...)` with no base
+  /// `__init__` is handled as a no-op at the call site.
+  Object? _superAttribute(_SuperProxy proxy, String name) {
+    final lookup = proxy.startClass?.findMethodWithOwner(name);
+    if (lookup != null) {
+      return _BoundUserMethod(proxy.self, lookup.function, lookup.owner);
+    }
+    // No base implementation: `super().__init__(...)` is a no-op (an inert
+    // bound method that ignores its arguments); any other missing attribute
+    // throws so the caller can fall back.
+    if (name == '__init__') {
+      return _NoOpCallable();
+    }
+    throw RenPyPythonError("'super' object has no attribute `$name`");
+  }
+
   /// Constructs an instance of [cls], running `__init__` (resolved up the base
   /// chain) with the receiver bound as the first parameter.
   _PythonInstance _instantiate(
@@ -1924,9 +1982,14 @@ class _Interpreter {
     Map<String, Object?> keywords,
   ) {
     final instance = _PythonInstance(cls);
-    final init = cls.findMethod('__init__');
+    final init = cls.findMethodWithOwner('__init__');
     if (init != null) {
-      init.invoke([instance, ...positional], keywords);
+      init.function.invoke(
+        [instance, ...positional],
+        keywords,
+        definingClass: init.owner,
+        selfReceiver: instance,
+      );
     } else if (cls.isExceptionLike) {
       // Exception stubs keep their message as `message` for `except ... as e`.
       instance.attributes['message'] =
@@ -2773,6 +2836,11 @@ class _Interpreter {
     // Same best-effort inert marker as Borders: accepts any args, returns an
     // opaque value, never throws.
     'Frame': (a, k) => _GuiPlaceholder('Frame', a, k),
+    // Cosmetic Ren'Py transform displayable (e.g. nested in a
+    // `define bubble.properties` dict as `Transform(...)`). Same inert marker
+    // as Borders/Frame: accepts any args/kwargs, returns an opaque value, never
+    // throws, so the enclosing define evaluates instead of being skipped.
+    'Transform': (a, k) => _GuiPlaceholder('Transform', a, k),
   };
 
   /// A small set of builtin exception classes so `raise ValueError("...")` and
@@ -2946,6 +3014,15 @@ class _PythonClass {
     return base?.findMethod(name);
   }
 
+  /// Resolves [name] to a method anywhere on the class chain, reporting both
+  /// the function and the class that actually declares it (so `super()` can be
+  /// bound to the parent of the declaring class). Returns `null` if not found.
+  _MethodLookup? findMethodWithOwner(String name) {
+    final local = methods[name];
+    if (local != null) return _MethodLookup(this, local);
+    return base?.findMethodWithOwner(name);
+  }
+
   /// Whether [name] names a class-level attribute on this class or a base.
   bool hasClassAttribute(String name) {
     if (attributes.containsKey(name)) return true;
@@ -2974,16 +3051,66 @@ class _PythonInstance {
   final Map<String, Object?> attributes = {};
 }
 
+/// The result of resolving a method up a class chain: the [function] and the
+/// [owner] class that actually declares it, so `super()` inside that method can
+/// be bound to the parent of [owner].
+class _MethodLookup {
+  _MethodLookup(this.owner, this.function);
+
+  final _PythonClass owner;
+  final _UserFunction function;
+}
+
 /// A method bound to a receiver instance, so the receiver is passed as the
 /// first parameter (`self`) when the method is finally invoked.
+///
+/// [definingClass] records the class that declared [function] so the method
+/// body can build a `super()` proxy bound to that class's parent.
 class _BoundUserMethod {
-  _BoundUserMethod(this.receiver, this.function);
+  _BoundUserMethod(this.receiver, this.function, [this.definingClass]);
 
   final _PythonInstance receiver;
   final _UserFunction function;
+  final _PythonClass? definingClass;
 
   Object? invoke(List<Object?> positional, Map<String, Object?> keywords) =>
-      function.invoke([receiver, ...positional], keywords);
+      function.invoke(
+        [receiver, ...positional],
+        keywords,
+        definingClass: definingClass,
+        selfReceiver: receiver,
+      );
+}
+
+/// The value bound to the name `super` inside a method body. Calling it (the
+/// no-arg `super()` or the explicit `super(Class, self)` form) yields a
+/// [_SuperProxy] that dispatches attribute/method access starting at the parent
+/// of the class that declared the running method (single inheritance only).
+class _SuperFactory {
+  _SuperFactory(this.definingClass, this.self);
+
+  /// The class whose method is currently executing; `super()` resolves to its
+  /// [base]. May be null if the method's defining class could not be threaded.
+  final _PythonClass? definingClass;
+  final _PythonInstance? self;
+}
+
+/// A proxy over an instance whose attribute/method lookups begin at a base
+/// class, implementing Python 3's `super()` for single inheritance.
+class _SuperProxy {
+  _SuperProxy(this.startClass, this.self);
+
+  /// The class at which method resolution begins (the parent of the defining
+  /// class). May be null when there is no base class.
+  final _PythonClass? startClass;
+  final _PythonInstance self;
+}
+
+/// A callable that ignores its arguments and returns null. Used so a
+/// `super().__init__(...)` call against a base class with no `__init__`
+/// degrades to a no-op rather than throwing.
+class _NoOpCallable {
+  const _NoOpCallable();
 }
 
 // ---------------------------------------------------------------------------
@@ -3375,9 +3502,21 @@ class _UserFunction {
   final List<_Statement> body;
   final RenPyPythonScope closure;
 
-  Object? invoke(List<Object?> positional, Map<String, Object?> keywords) {
+  Object? invoke(
+    List<Object?> positional,
+    Map<String, Object?> keywords, {
+    _PythonClass? definingClass,
+    _PythonInstance? selfReceiver,
+  }) {
     final locals = _LocalsScope(closure);
     _bindArguments(locals, positional, keywords);
+    // Inside a method, bind `super` to a factory that knows the class whose
+    // method is running and the active receiver, so `super().__init__(...)`
+    // can resolve against the parent class. Bound as a local so an outer
+    // `super` (there is none in practice) cannot shadow store reads.
+    if (definingClass != null && selfReceiver != null) {
+      locals.bindLocal('super', _SuperFactory(definingClass, selfReceiver));
+    }
     final interp = _Interpreter(locals);
     try {
       for (final statement in body) {
