@@ -94,6 +94,23 @@ class _PendingDialogue {
   final int searchStart;
 }
 
+/// Bookkeeping for an in-flight `renpy.display_menu(...)` interaction.
+///
+/// `display_menu` is a blocking call that returns the chosen value into the
+/// surrounding expression, but the runner's Python evaluator is synchronous and
+/// cannot block. So the call is intercepted at the statement level: the menu is
+/// presented through the normal `onMenu` pipeline and this record carries the
+/// assignment [target] (the store variable to receive the result, or null when
+/// the result is discarded) alongside the parallel [values] list so the
+/// `onChoice` closure can store `values[index]` whenever the host answers -
+/// synchronously inside `onMenu` or deferred via real UI.
+class _PendingMenuResult {
+  const _PendingMenuResult(this.target, this.values);
+
+  final String? target;
+  final List<dynamic> values;
+}
+
 /// A collected `init python:` block awaiting execution at load. [priority] is
 /// the init priority (lower runs first), [sourceIndex] breaks priority ties in
 /// source order, and [lines] are the block's top-level Python source lines.
@@ -352,6 +369,10 @@ class RenPyRunner {
 
   RenPyDialogueEvent? _lastDialogueEvent;
   _PendingDialogue? _pendingDialogue;
+
+  /// In-flight `renpy.display_menu(...)` interaction, if any. See
+  /// [_PendingMenuResult] and [_tryExecuteRenpyDisplayMenu].
+  _PendingMenuResult? _pendingMenuResult;
 
   /// A pending sprite revert from an `@`-say temporary-attribute swap: the image
   /// name to re-show once the swapped line is dismissed. Null when no swap is in
@@ -2048,6 +2069,14 @@ class RenPyRunner {
         return;
       }
 
+      // `renpy.display_menu(...)` is a blocking call returning the chosen value
+      // into the surrounding expression. It must be claimed BEFORE the generic
+      // assignment fast path below, which would otherwise eagerly evaluate the
+      // (synchronous, non-blocking) call and store a bogus result. The handler
+      // sets up state (advancing _position, arming _pendingMenuResult, invoking
+      // onMenu) and returns; the trampoline / onChoice closure resumes.
+      if (_tryExecuteRenpyDisplayMenu(stmt.code)) return;
+
       final assignment = _pythonAssignment(stmt.code);
       if (assignment != null) {
         final value = _evaluateExpression(assignment.expression);
@@ -2685,6 +2714,125 @@ class RenPyRunner {
     return _evaluateExpression(expression) == true;
   }
 
+  /// Handles `renpy.display_menu(items)` at the statement level - the LTC quiz
+  /// answer interaction (`$ result = renpy.display_menu(quiz_question.choices)`).
+  ///
+  /// `display_menu` is a blocking call returning the chosen value, but our Python
+  /// evaluator is synchronous and cannot block mid-expression, so the call is
+  /// intercepted here and routed through the runner's normal [onMenu] pipeline,
+  /// exactly like [_tryExecuteRenpySay]. Both the assignment form
+  /// (`target = renpy.display_menu(...)`) and the bare, result-discarding form
+  /// are recognised. The first positional argument is evaluated to a list of
+  /// items; each item is either a `(caption, value)` 2-tuple (a 2-element List in
+  /// our evaluator) or a plain string caption (value == caption). Items whose
+  /// caption is falsy/None are skipped per Ren'Py.
+  ///
+  /// Returns true when the call was claimed (handled or gracefully skipped). On
+  /// an unusable argument a [RenPyDiagnosticCode.skippedPython] diagnostic is
+  /// emitted and execution advances rather than crashing.
+  bool _tryExecuteRenpyDisplayMenu(String code) {
+    final match = RegExp(
+      r'^(?:([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)\s*=\s*)?'
+      r'renpy\.display_menu\s*\((.*)\)$',
+      dotAll: true,
+    ).firstMatch(code.trim());
+    if (match == null) return false;
+
+    final target = match.group(1); // null for the bare form.
+    final args = _pythonCallArguments(match.group(2)!);
+    final itemsExpr =
+        args.positional.isNotEmpty
+            ? args.positional.first
+            : args.keywords['items'];
+    if (itemsExpr == null) {
+      _skipDisplayMenu(code);
+      return true;
+    }
+
+    // `_evaluateExpression` never throws: it degrades to a literal on failure,
+    // so an unusable argument simply yields a non-list we skip below.
+    final evaluated = _evaluateExpression(itemsExpr);
+    if (evaluated is! List || evaluated.isEmpty) {
+      _skipDisplayMenu(code);
+      return true;
+    }
+
+    final captions = <String>[];
+    final values = <dynamic>[];
+    for (final item in evaluated) {
+      dynamic caption;
+      dynamic value;
+      if (item is List && item.length == 2) {
+        caption = item[0];
+        value = item[1];
+      } else {
+        // A plain caption: the value is the caption itself.
+        caption = item;
+        value = item;
+      }
+      // Ren'Py skips items whose caption is falsy/None (used for separators).
+      if (caption == null || !RenPyPythonEvaluator.truthy(caption)) continue;
+      captions.add(caption.toString());
+      values.add(value);
+    }
+
+    if (captions.isEmpty) {
+      _skipDisplayMenu(code);
+      return true;
+    }
+
+    // Advance PAST this statement so a synchronous choice resumes at the next
+    // statement and a deferred choice does the same when the host answers.
+    _position++;
+    _pendingMenuResult = _PendingMenuResult(target, values);
+
+    // No callback?  Choose the first item (matching _executeMenuStatement).
+    if (onMenu == null) {
+      _resolveDisplayMenuChoice(0);
+      return true;
+    }
+
+    // Mark waiting BEFORE invoking onMenu so a harness that answers
+    // synchronously (calling onChoice inside onMenu) is driven by the
+    // trampoline, while a deferred UI leaves the state waiting until the host
+    // calls onChoice later. (Mirrors _executeMenuStatement's ordering exactly.)
+    _state = RenPyRunnerState.waitingForInput;
+    onMenu!(captions, _resolveDisplayMenuChoice, null);
+    return true;
+  }
+
+  /// Stores the chosen `display_menu` value into the pending target (if any),
+  /// clears the pending record, and resumes execution. Used as the `onChoice`
+  /// closure for [_tryExecuteRenpyDisplayMenu] for both synchronous and deferred
+  /// answers; [_position] was already advanced past the statement.
+  void _resolveDisplayMenuChoice(int index) {
+    final pending = _pendingMenuResult;
+    _pendingMenuResult = null;
+    if (pending != null && pending.target != null) {
+      final value =
+          (index >= 0 && index < pending.values.length)
+              ? pending.values[index]
+              : null;
+      _setVariable(pending.target!, value);
+    }
+    _state = RenPyRunnerState.running;
+    _executeNext();
+  }
+
+  /// Emits a graceful skip diagnostic for an unusable `display_menu` argument
+  /// and advances past the statement so the runner keeps going.
+  void _skipDisplayMenu(String code) {
+    _emitDiagnostic(
+      RenPyDiagnostic(
+        code: RenPyDiagnosticCode.skippedPython,
+        message: 'Skipped renpy.display_menu with no usable choices.',
+        detail: code,
+      ),
+    );
+    _position++;
+    _executeNext();
+  }
+
   /// Handles a bare `renpy.say(who, what, interact=...)` statement, the
   /// programmatic form of a say line. The Python `renpy.*` dispatch does not
   /// model `say` (it needs the dialogue pipeline), so it is intercepted here
@@ -2856,6 +3004,17 @@ class RenPyRunner {
 
   /// Execute a define statement.
   void _executeDefineStatement(RenPyDefineStatement stmt) {
+    // The parser turns an inline `$ target = expr` assignment into a
+    // RenPyDefineStatement, so a `$ result = renpy.display_menu(...)` arrives
+    // here rather than at _executePythonStatement. display_menu is a blocking
+    // call that returns the chosen value, so claim it BEFORE the generic
+    // _applyDefinition (which would eagerly evaluate the non-blocking call and
+    // store a bogus result). The handler advances state and returns; the
+    // trampoline / onChoice closure resumes.
+    if (_tryExecuteRenpyDisplayMenu('${stmt.name} = ${stmt.expression}')) {
+      return;
+    }
+
     // Most define statements are handled during initialization but we still need to handle runtime definitions.
     _applyDefinition(stmt.name, stmt.expression);
 
@@ -3782,6 +3941,7 @@ class RenPyRunner {
   void reset() {
     _stack.clear();
     _pendingDialogue = null;
+    _pendingMenuResult = null;
     _pendingControlFlow = null;
     _controlFlowArmed = false;
     _position = 0;
