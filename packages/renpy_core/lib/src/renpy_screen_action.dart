@@ -164,6 +164,17 @@ class RenPyScreenAction {
           raw: trimmed,
         );
       }
+      // A bare name that isn't a recognized action keyword may be a screen
+      // parameter bound to an action that was passed into the screen, e.g.
+      // `screen confirm(yes_action): textbutton "Yes" action yes_action`
+      // invoked as `call screen confirm(yes_action=Return("ok"))`. The runner
+      // binds such an argument as the RAW action-expression string (the Python
+      // evaluator has no `Return`/`Jump`/`ShowMenu` constructors, so it falls
+      // through to a literal passthrough). Re-parse that bound string through
+      // this same parser so the button executes the passed action instead of a
+      // no-op. Anything else stays a nullAction.
+      final bound = _resolveBoundAction(trimmed, evaluator, scope);
+      if (bound != null) return bound;
       return RenPyScreenAction(
         kind: RenPyScreenActionKind.nullAction,
         raw: trimmed,
@@ -324,6 +335,55 @@ class RenPyScreenAction {
   /// Convenience overload using the shared evaluator instance.
   static RenPyScreenAction parseWith(String source, RenPyPythonScope scope) =>
       parse(source, _defaultEvaluator, scope);
+
+  /// A simple Python identifier (the only shape that can name a screen
+  /// parameter we should try to resolve as a passed-in action).
+  static final RegExp _identifier = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
+
+  /// Resolves a bare [name] against [scope] to see if it is a screen parameter
+  /// bound to a passed-in action expression, and if so re-parses that
+  /// expression into a real action.
+  ///
+  /// The runner binds an action passed as a `call screen`/`use` argument as its
+  /// raw source string (e.g. `Return("ok")`, `[ShowMenu('save'), Return()]`),
+  /// because the evaluator has no action constructors. Re-parsing that string
+  /// here keeps the resolution entirely screen-side. Returns null when the name
+  /// is not a simple identifier, is not bound, is not bound to a string, would
+  /// recurse onto itself, or does not parse to a recognized action - leaving
+  /// the caller to fall back to a nullAction. Never throws.
+  static RenPyScreenAction? _resolveBoundAction(
+    String name,
+    RenPyPythonEvaluator evaluator,
+    RenPyPythonScope scope,
+  ) {
+    if (!_identifier.hasMatch(name)) return null;
+    Object? bound;
+    try {
+      if (!scope.has(name)) return null;
+      bound = scope.read(name);
+    } on Object {
+      return null;
+    }
+    if (bound is! String) return null;
+    final boundExpr = bound.trim();
+    // A real action expression is a call or list (e.g. `Return("ok")`,
+    // `[ShowMenu('save'), Return()]`), never a bare identifier. Rejecting a
+    // bare-identifier binding both guards the self-referential case
+    // (`name` -> `name`) and stops a chain of name-to-name bindings
+    // (`a` -> `b` -> `a`) from recursing through `parse` without a bound.
+    if (boundExpr.isEmpty || _identifier.hasMatch(boundExpr)) return null;
+    RenPyScreenAction parsed;
+    try {
+      parsed = parse(boundExpr, evaluator, scope);
+    } on Object {
+      return null;
+    }
+    // Only substitute when the bound string actually named an action; a bound
+    // string that is just data (and parses to nullAction) should leave the
+    // original bare-name nullAction in place.
+    if (parsed.kind == RenPyScreenActionKind.nullAction) return null;
+    return parsed;
+  }
 
   static Map<String, Object?> _keywordArgs(
     List<String> args,
