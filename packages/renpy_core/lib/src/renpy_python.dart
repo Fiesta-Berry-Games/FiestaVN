@@ -4013,6 +4013,18 @@ class _StatementParser {
   List<_Statement> _parseLine() {
     final line = _lines[_index];
     final text = line.text;
+
+    // A decorator line (`@name`, `@dotted.name`, `@name(args)`) sits on its own
+    // line immediately above the `def`/`class` it decorates. Real games use
+    // decorators such as `@gui.variant` whose effect is irrelevant to headless
+    // logic, so any stack of decorators is consumed and DISCARDED and the
+    // following function/class is defined undecorated. This avoids the
+    // decorator falling through to the simple-statement path (where `@name`
+    // is not valid syntax and would abort the whole block).
+    if (text.trimLeft().startsWith('@')) {
+      return _parseDecorated(line.indent);
+    }
+
     final keyword = _leadingKeyword(text);
 
     switch (keyword) {
@@ -4037,6 +4049,33 @@ class _StatementParser {
       result.add(_parseSimpleStatement(piece));
     }
     return result;
+  }
+
+  /// Consumes one or more stacked decorator lines (already known to start with
+  /// `@`) at [indent] and parses the `def`/`class` they decorate, returning it
+  /// undecorated. The decorators themselves are discarded - their call/registry
+  /// semantics are irrelevant to headless logic. A decorator not followed by a
+  /// `def`/`class` (or by a deeper-indented line) is malformed; throwing here is
+  /// caught by the normal graceful fallback rather than corrupting the block.
+  List<_Statement> _parseDecorated(int indent) {
+    while (_index < _lines.length &&
+        _lines[_index].indent == indent &&
+        _lines[_index].text.trimLeft().startsWith('@')) {
+      // Discard the decorator line.
+      _index += 1;
+    }
+    if (_index >= _lines.length || _lines[_index].indent != indent) {
+      throw RenPyPythonError('decorator is not followed by a definition');
+    }
+    final keyword = _leadingKeyword(_lines[_index].text);
+    switch (keyword) {
+      case 'def':
+        return [_parseDef(indent)];
+      case 'class':
+        return [_parseClass(indent)];
+      default:
+        throw RenPyPythonError('decorator must precede a `def` or `class`');
+    }
   }
 
   _Statement _parseIf(int indent) {
