@@ -282,6 +282,14 @@ class RenPyRunner {
 
   static const int _maxScriptLoopIterations = 100000;
 
+  /// Sentinel init priority for `python early:` blocks. Ren'Py runs the
+  /// `python early` phase BEFORE every `init` block (and thus before
+  /// `define`/`default`). Realistic init priorities are small ints (commonly
+  /// -999..999), so a value well below that range makes the stable sort place
+  /// early blocks first; multiple early blocks keep source order via the
+  /// sourceIndex tie-break.
+  static const int _earlyInitPriority = -1000000;
+
   /// The current state of the runner
   RenPyRunnerState _state = RenPyRunnerState.ready;
   RenPyRunnerState get state => _state;
@@ -649,12 +657,29 @@ class RenPyRunner {
         } else if (statement is RenPyDefaultStatement) {
           defaults.add(statement);
         } else if (statement is RenPyPythonStatement) {
-          // A standalone top-level python statement (not inside an `init`
-          // block) keeps its prior load behavior: only audio-channel
-          // registration is applied here. Its `init python:` counterpart is
-          // gathered from the enclosing RenPyInitStatement below and fully
-          // executed.
-          _applyAudioChannelRegistration(statement.code);
+          if (statement.isInit) {
+            // A `python early:` block (the parser flags it with isInit) is its
+            // own pre-init phase: Ren'Py runs it BEFORE every `init python:`
+            // block and before `define`/`default`. Route it through the same
+            // init-python list as a block at the earliest sentinel priority so
+            // the stable sort runs it first; multiple early blocks keep source
+            // order via sourceIndex. Going through _runInitPythonBlock also
+            // preserves channel registration (it peels top-level
+            // renpy.music.register_channel calls), so no separate audio call is
+            // needed here.
+            initPythonBlocks.add(
+              _InitPythonBlock(_earlyInitPriority, sourceIndex++, [
+                statement.code,
+              ]),
+            );
+          } else {
+            // A standalone top-level python statement (not inside an `init`
+            // block, not `python early`) keeps its prior load behavior: only
+            // audio-channel registration is applied here. Its `init python:`
+            // counterpart is gathered from the enclosing RenPyInitStatement
+            // below and fully executed.
+            _applyAudioChannelRegistration(statement.code);
+          }
         } else if (statement is RenPyTransformStatement) {
           _applyTransformStatement(statement);
         } else if (statement is RenPyScreenStatement) {
@@ -2311,6 +2336,20 @@ class RenPyRunner {
         stripped.startsWith('except') ||
         stripped.startsWith('finally');
 
+    // True when the buffer's last meaningful line is a `@decorator`, so the next
+    // top-level line (another decorator or the decorated `def`/`class`) belongs
+    // to the same statement and must not be split off into its own segment
+    // (which would then fail to parse as a lone decorator and emit a spurious
+    // skip diagnostic).
+    bool pendingDecorator() {
+      for (var i = current.length - 1; i >= 0; i--) {
+        final t = current[i].trim();
+        if (t.isEmpty || t.startsWith('#')) continue;
+        return t.startsWith('@');
+      }
+      return false;
+    }
+
     void flush() {
       if (current.isEmpty) return;
       final joined = current.join('\n');
@@ -2326,9 +2365,11 @@ class RenPyRunner {
         continue;
       }
       final stripped = line.trimLeft();
-      // A bare continuation keyword (`else:`/`elif`/`except`/`finally`) belongs
-      // to the compound statement already in progress, so keep it attached.
-      if (current.isNotEmpty && isContinuation(stripped)) {
+      // A bare continuation keyword (`else:`/`elif`/`except`/`finally`), or the
+      // target of a pending `@decorator`, belongs to the statement already in
+      // progress, so keep it attached.
+      if (current.isNotEmpty &&
+          (isContinuation(stripped) || pendingDecorator())) {
         current.add(line);
         continue;
       }
