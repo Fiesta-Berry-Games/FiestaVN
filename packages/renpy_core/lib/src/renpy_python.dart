@@ -2051,6 +2051,13 @@ class _Interpreter {
       case 'get_screen':
         // No screen system yet; matches RenPy returning None for an absent one.
         return null;
+      case 'register_statement':
+        // Custom statement (creator-defined statement) registration has no
+        // analogue in this runner; treat as a no-op rather than a skip.
+        return null;
+      case 'image':
+        // Dynamic image registration is not modelled here; treat as a no-op.
+        return null;
       case 'music.queue':
       case 'music.play':
       case 'music.set_volume':
@@ -2166,7 +2173,7 @@ class _Interpreter {
       );
     }
     if (target is _SubscriptNode) {
-      final receiver = target.target.eval(this);
+      final receiver = _subscriptReceiverForAssign(target.target);
       final index = target.index.eval(this);
       if (index is _Slice) {
         throw RenPyPythonError('slice assignment is not supported');
@@ -2199,6 +2206,29 @@ class _Interpreter {
       return;
     }
     throw RenPyPythonError('invalid assignment target');
+  }
+
+  /// Resolves the receiver object of a subscript-assignment target
+  /// (`base[index] = value`).
+  ///
+  /// For a namespaced base such as `config.self_closing_custom_text_tags` or
+  /// `gui.foo`, Ren'Py ships these maps pre-existing, so creator init code does
+  /// `config.x["k"] = v` without first declaring `config.x`. In that case our
+  /// scope has no entry, evaluating the base name would raise a NameError, and
+  /// the whole assignment would skip. To match Ren'Py we auto-vivify a fresh map
+  /// under the scoped name and return it. A base that already holds a value is
+  /// returned unchanged so existing maps/lists keep working.
+  Object? _subscriptReceiverForAssign(_Node base) {
+    if (base is _AttributeNode) {
+      final full = base.fullName;
+      if (full != null && _isScopedName(full)) {
+        if (scope.has(full)) return scope.read(full);
+        final fresh = <Object?, Object?>{};
+        scope.write(full, fresh);
+        return fresh;
+      }
+    }
+    return base.eval(this);
   }
 
   /// Reads the current value of an assignment target, for augmented assignment.
@@ -3789,6 +3819,13 @@ class _ClassStatement implements _Statement {
         }
       } else if (statement is _PassStatement) {
         // Nothing to do.
+      } else if (statement is _ExpressionStatement) {
+        // A bare expression statement at class level (most commonly a
+        // triple-quoted docstring as the first statement) is evaluated by
+        // Python for side effects but binds no class attribute. Our class
+        // model only tracks methods + attribute assignments, so ignoring it is
+        // correct -- and crucially it must NOT abort the whole class (e.g.
+        // LearnToCodeRPG's `QuizQuestion` opens with a docstring).
       } else {
         throw RenPyPythonError('unsupported statement in class body');
       }
