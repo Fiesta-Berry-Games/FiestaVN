@@ -122,6 +122,18 @@ class _InitPythonBlock {
   final List<String> lines;
 }
 
+/// Result of attempting to evaluate a `define`/`default` right-hand side:
+/// whether it [resolved], the [value] (the evaluated result on success, or the
+/// literal fallback on failure), and the [error] when it failed.
+class _DefinitionOutcome {
+  const _DefinitionOutcome.resolved(this.value) : resolved = true, error = null;
+  const _DefinitionOutcome.failed(this.value, this.error) : resolved = false;
+
+  final bool resolved;
+  final Object? value;
+  final Object? error;
+}
+
 class _InlineWaitTag {
   const _InlineWaitTag({required this.end, this.duration});
 
@@ -719,12 +731,86 @@ class RenPyRunner {
       _runInitPythonBlock(block.lines);
     }
 
-    for (final define in defines) {
-      _applyDefinition(define.name, define.expression);
-    }
+    _applyDefinesWithFixpoint(defines);
 
     for (final aDefault in defaults) {
       _applyDefault(aDefault.name, aDefault.expression);
+    }
+  }
+
+  /// Applies all `define` statements, tolerating forward references between
+  /// them. A `define`'s right-hand side may reference a name bound by a LATER
+  /// `define` (e.g. `define config.derived = gui.base` appearing before
+  /// `define gui.base = 5`); evaluating in plain source order would fail that
+  /// expression and store a literal fallback (with a `skippedDefinition`
+  /// diagnostic). Instead we run a bounded fixpoint:
+  ///
+  ///   * Pass over the still-unresolved defines; attempt each WITHOUT emitting
+  ///     the skip diagnostic. A define that resolves is removed from the
+  ///     pending set; one that fails on an unresolved name stays for a later
+  ///     pass (a subsequent define may bind the missing name).
+  ///   * Repeat while a pass makes progress (at least one newly resolves).
+  ///     Termination is bounded by the count of defines - each productive pass
+  ///     resolves at least one, so the fixpoint converges in at most N passes
+  ///     and a pass with no progress stops the loop, so there is no infinite
+  ///     loop even if some defines never resolve.
+  ///   * Defines still unresolved after the fixpoint are applied a final time
+  ///     WITH diagnostics, emitting exactly one `skippedDefinition` each and
+  ///     storing the literal fallback (the prior graceful behavior).
+  ///
+  /// Character and transition defines never forward-reference an evaluated
+  /// store name (they are handled by their own special paths in
+  /// [_applyDefinition]), so [_applyDefinition] reports them as always
+  /// resolved and they are applied once on the first pass, identically to the
+  /// pre-fixpoint behavior. A define with no forward reference likewise
+  /// resolves on the first pass and is never retried, so the common case is
+  /// unchanged. Each attempt is a single, side-effect-free expression
+  /// evaluation that only writes the target when evaluation SUCCEEDS, so a
+  /// failed attempt never partially applies and re-attempting is safe.
+  void _applyDefinesWithFixpoint(List<RenPyDefineStatement> defines) {
+    // Ren'Py semantics: the textually-LAST `define` of a name wins. The forward
+    // -reference fixpoint below can resolve a deferred EARLIER define of a
+    // re-defined name on a later pass and clobber the later one (or emit a
+    // spurious skip if the earlier one is itself unresolvable), so first reduce
+    // to the last define per name. An earlier define of the same name is dead
+    // (its value would be overwritten), so dropping it is behavior-preserving.
+    final lastByName = <String, RenPyDefineStatement>{};
+    for (final define in defines) {
+      lastByName[define.name] = define;
+    }
+    final effective = <RenPyDefineStatement>[
+      for (final define in defines)
+        if (identical(lastByName[define.name], define)) define,
+    ];
+
+    var pending = <RenPyDefineStatement>[
+      for (final define in effective)
+        if (!_applyDefinition(define.name, define.expression, diagnose: false))
+          define,
+    ];
+
+    // Bounded by the number of unresolved defines: each productive pass
+    // resolves at least one, so at most `pending.length` further passes run.
+    while (pending.isNotEmpty) {
+      final next = <RenPyDefineStatement>[
+        for (final define in pending)
+          if (!_applyDefinition(
+            define.name,
+            define.expression,
+            diagnose: false,
+          ))
+            define,
+      ];
+      if (next.length == pending.length) {
+        // No progress this pass: the remaining defines are genuinely
+        // unresolvable (forward references would have resolved by now). Apply
+        // them once more WITH diagnostics so each emits its skip exactly once.
+        for (final define in next) {
+          _applyDefinition(define.name, define.expression, diagnose: true);
+        }
+        return;
+      }
+      pending = next;
     }
   }
 
@@ -787,45 +873,78 @@ class RenPyRunner {
     _characters[name] = params;
   }
 
-  void _applyDefinition(String name, String expression) {
+  /// Applies a single `define name = expression`.
+  ///
+  /// Returns `true` when the binding is considered RESOLVED and `false` only
+  /// when a plain-evaluation define failed because its expression could not be
+  /// evaluated (e.g. a forward reference to a name a later define will bind) -
+  /// the caller's fixpoint retries those. Character and transition defines are
+  /// handled by their own paths and never forward-reference an evaluated store
+  /// name, so they always report resolved.
+  ///
+  /// When [diagnose] is false a failed plain evaluation neither emits a
+  /// `skippedDefinition` diagnostic nor writes anything (so a retry is safe and
+  /// the variable is left untouched until it resolves); when [diagnose] is true
+  /// (the final attempt) the failure emits the diagnostic and stores the
+  /// literal fallback as before.
+  bool _applyDefinition(
+    String name,
+    String expression, {
+    bool diagnose = true,
+  }) {
     if (expression.contains('Character(') ||
         expression.contains('Character (')) {
       _parseCharacter(name, expression);
-    } else {
-      final previousResolver = _transitionResolver;
-      _transitionResolver = _transitionResolver.withDefinition(
+      return true;
+    }
+    final previousResolver = _transitionResolver;
+    _transitionResolver = _transitionResolver.withDefinition(name, expression);
+    // A recognized transition was registered with the resolver (the resolver
+    // instance changed), or the expression names/aliases a known transition
+    // (e.g. `define myfade = fade`); the stored value is only a passthrough
+    // fallback, so a non-evaluable transition expression must NOT diagnose and
+    // counts as resolved (it does not forward-reference an evaluated name).
+    final isTransition =
+        !identical(previousResolver, _transitionResolver) ||
+        _transitionResolver.resolve(expression) != null;
+    if (isTransition) {
+      final value = _evaluateDefinitionExpression(
         name,
         expression,
+        diagnose: false,
       );
-      // A recognized transition was registered with the resolver (the resolver
-      // instance changed), or the expression names/aliases a known transition
-      // (e.g. `define myfade = fade`); the stored value is only a passthrough
-      // fallback, so a non-evaluable transition expression must NOT diagnose.
-      final isTransition =
-          !identical(previousResolver, _transitionResolver) ||
-          _transitionResolver.resolve(expression) != null;
-      // Namespaced targets (`config.X`, `gui.X`, `persistent.X`, ...) are
-      // written into the matching scope rather than as a flat store key, so
-      // `config.X` / `gui.X` reads resolve from defines. Bare names keep their
-      // existing `_variables` storage so transitions and characters are
-      // unchanged.
       if (_isNamespacedName(name)) {
-        _pythonScope.write(
-          name,
-          _evaluateDefinitionExpression(
-            name,
-            expression,
-            diagnose: !isTransition,
-          ),
-        );
+        _pythonScope.write(name, value);
       } else {
-        _variables[name] = _evaluateDefinitionExpression(
-          name,
-          expression,
-          diagnose: !isTransition,
-        );
+        _variables[name] = value;
       }
+      return true;
     }
+
+    // Plain-evaluation path: attempt the expression. On failure, only write /
+    // diagnose when this is the final (diagnose) attempt; otherwise leave the
+    // target untouched and report unresolved so the fixpoint retries it.
+    final outcome = _tryEvaluateDefinitionExpression(name, expression);
+    if (!outcome.resolved) {
+      if (!diagnose) return false;
+      _emitDiagnostic(
+        RenPyDiagnostic(
+          code: RenPyDiagnosticCode.skippedDefinition,
+          message: 'Failed to evaluate $name; stored literal fallback.',
+          detail: '$name = $expression (${outcome.error})',
+        ),
+      );
+    }
+    // Namespaced targets (`config.X`, `gui.X`, `persistent.X`, ...) are written
+    // into the matching scope rather than as a flat store key, so `config.X` /
+    // `gui.X` reads resolve from defines. Bare names keep their existing
+    // `_variables` storage so transitions and characters are unchanged.
+    if (_isNamespacedName(name)) {
+      _pythonScope.write(name, outcome.value);
+    } else {
+      _variables[name] = outcome.value;
+    }
+    return true;
   }
 
   /// Applies a `default name = expression`, routing namespaced targets into the
@@ -862,24 +981,50 @@ class RenPyRunner {
     String expression, {
     bool diagnose = true,
   }) {
-    final value = expression.trim();
-
-    // The imagemap shim is a supported result, not a fallback: keep it silent.
-    final imagemapResult = _renpyImagemapResult(value);
-    if (imagemapResult != null) return imagemapResult;
-
-    try {
-      return _pythonEvaluator.evaluate(value, _pythonScope);
-    } on RenPyPythonError catch (error) {
-      if (!diagnose) return _evaluateExpressionFallback(value);
+    final outcome = _tryEvaluateDefinitionExpression(name, expression);
+    if (outcome.resolved) return outcome.value;
+    if (diagnose) {
       _emitDiagnostic(
         RenPyDiagnostic(
           code: RenPyDiagnosticCode.skippedDefinition,
           message: 'Failed to evaluate $name; stored literal fallback.',
-          detail: '$name = $expression ($error)',
+          detail: '$name = $expression (${outcome.error})',
         ),
       );
-      return _evaluateExpressionFallback(value);
+    }
+    return outcome.value;
+  }
+
+  /// Evaluates a `define`/`default` right-hand side and reports whether it
+  /// RESOLVED, separating the failure signal from diagnostic emission so the
+  /// define fixpoint can retry a failed expression (e.g. a forward reference)
+  /// without prematurely emitting a `skippedDefinition`. On success the result
+  /// is the evaluated value; on failure the result carries the literal
+  /// fallback (so the caller can store it on the final attempt) and the error.
+  /// This is a pure evaluation: it never writes the store or emits a
+  /// diagnostic, so re-invoking it after an earlier failure is side-effect
+  /// free.
+  _DefinitionOutcome _tryEvaluateDefinitionExpression(
+    String name,
+    String expression,
+  ) {
+    final value = expression.trim();
+
+    // The imagemap shim is a supported result, not a fallback: keep it silent.
+    final imagemapResult = _renpyImagemapResult(value);
+    if (imagemapResult != null) {
+      return _DefinitionOutcome.resolved(imagemapResult);
+    }
+
+    try {
+      return _DefinitionOutcome.resolved(
+        _pythonEvaluator.evaluate(value, _pythonScope),
+      );
+    } on RenPyPythonError catch (error) {
+      return _DefinitionOutcome.failed(
+        _evaluateExpressionFallback(value),
+        error,
+      );
     }
   }
 
