@@ -2609,7 +2609,21 @@ class _Interpreter {
       case 'count':
         return list.where((e) => _equals(e, args[0])).length;
       case 'insert':
-        list.insert(args[0] as int, args[1]);
+        // Python's `list.insert(i, x)` never raises for an out-of-range index;
+        // it clamps instead of throwing a RangeError like Dart's List.insert.
+        // - i >= len   -> append at end
+        // - i < 0      -> effective index is max(0, len + i)
+        // - otherwise  -> insert at i
+        final rawIndex = _asInt(args[0]);
+        final int insertAt;
+        if (rawIndex < 0) {
+          insertAt = math.max(0, list.length + rawIndex);
+        } else if (rawIndex > list.length) {
+          insertAt = list.length;
+        } else {
+          insertAt = rawIndex;
+        }
+        list.insert(insertAt, args[1]);
         return null;
       case 'extend':
         list.addAll(_asIterable(args[0]));
