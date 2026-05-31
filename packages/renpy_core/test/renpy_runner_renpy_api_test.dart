@@ -140,9 +140,13 @@ label start:
     expect(runner.shownScreens.map((s) => s.name), contains('inventory'));
   });
 
-  test('still-deferred screen functions fall back to the skip diagnostic', () {
-    // call_screen is interactive/blocking and intentionally left unsupported
-    // from Python, so it must still degrade to a graceful skip diagnostic.
+  test('renpy.call_screen from Python degrades to a benign no-op', () {
+    // call_screen is interactive/blocking and cannot block from an expression
+    // context. It degrades to a best-effort no-op returning null
+    // instead of throwing, so a method body that calls it (e.g. Calendar.next()
+    // doing a date mutation then renpy.call_screen('the next day...')) completes
+    // its modelable work instead of aborting the whole `$ obj.method()`
+    // statement. A bare top-level call therefore emits no skip diagnostic.
     final script =
         RenPyParser().parse('''
 label start:
@@ -158,7 +162,7 @@ label start:
 
     expect(
       diagnostics.where((d) => d.code == RenPyDiagnosticCode.skippedPython),
-      isNotEmpty,
+      isEmpty,
     );
   });
 }

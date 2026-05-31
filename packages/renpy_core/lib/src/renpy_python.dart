@@ -703,9 +703,31 @@ class _ListNode implements _Node {
   _ListNode(this.elements);
   final List<_Node> elements;
   @override
-  Object? eval(_Interpreter interp) => [
-    for (final element in elements) element.eval(interp),
-  ];
+  Object? eval(_Interpreter interp) {
+    // Best-effort per-element evaluation: real games occasionally have one bad
+    // element in an otherwise-good literal (e.g. a list of objects where one
+    // constructor argument is unsupported). Dropping the offending element and
+    // keeping the rest matches the graceful-degradation contract far better
+    // than voiding the WHOLE literal. Only RenPyPythonError is caught here -
+    // RenPyControlFlowSignal (renpy.call/jump) MUST propagate intact.
+    //
+    // If EVERY element fails, the literal is wholly unevaluable: re-throw so
+    // upstream callers that rely on the throw to fall back (e.g. screen-arg
+    // resolution keeping the raw `[Action(...)]` string) keep working. A truly
+    // empty literal `[]` has no failures and returns normally.
+    final result = <Object?>[];
+    RenPyPythonError? lastError;
+    for (final element in elements) {
+      try {
+        result.add(element.eval(interp));
+      } on RenPyPythonError catch (e) {
+        // Skip the unevaluable element; keep going.
+        lastError = e;
+      }
+    }
+    if (result.isEmpty && lastError != null) throw lastError;
+    return result;
+  }
 }
 
 class _TupleNode implements _Node {
@@ -721,19 +743,51 @@ class _SetNode implements _Node {
   _SetNode(this.elements);
   final List<_Node> elements;
   @override
-  Object? eval(_Interpreter interp) => {
-    for (final element in elements) element.eval(interp),
-  };
+  Object? eval(_Interpreter interp) {
+    // Best-effort per-element evaluation (see _ListNode.eval). A bad element is
+    // dropped instead of voiding the whole set literal. Only RenPyPythonError
+    // is caught; control-flow signals propagate. If EVERY element fails the
+    // literal is wholly unevaluable, so re-throw to preserve upstream fallback.
+    final result = <Object?>{};
+    RenPyPythonError? lastError;
+    for (final element in elements) {
+      try {
+        result.add(element.eval(interp));
+      } on RenPyPythonError catch (e) {
+        // Skip the unevaluable element; keep going.
+        lastError = e;
+      }
+    }
+    if (result.isEmpty && lastError != null) throw lastError;
+    return result;
+  }
 }
 
 class _DictNode implements _Node {
   _DictNode(this.entries);
   final List<MapEntry<_Node, _Node>> entries;
   @override
-  Object? eval(_Interpreter interp) => {
-    for (final entry in entries)
-      entry.key.eval(interp): entry.value.eval(interp),
-  };
+  Object? eval(_Interpreter interp) {
+    // Best-effort per-entry evaluation (see _ListNode.eval). If EITHER the key
+    // or the value of an entry fails, that entry is dropped and the remaining
+    // entries are kept. Only RenPyPythonError is caught; control-flow signals
+    // (renpy.call/jump) propagate intact. If EVERY entry fails the literal is
+    // wholly unevaluable, so re-throw to preserve upstream fallback.
+    final result = <Object?, Object?>{};
+    RenPyPythonError? lastError;
+    for (final entry in entries) {
+      try {
+        final key = entry.key.eval(interp);
+        final value = entry.value.eval(interp);
+        result[key] = value;
+      } on RenPyPythonError catch (e) {
+        // Skip the unevaluable entry; keep going.
+        lastError = e;
+      }
+    }
+    if (result.isEmpty && lastError != null) throw lastError;
+    return result;
+  }
 }
 
 class _UnaryNode implements _Node {
@@ -1592,6 +1646,16 @@ class _Interpreter {
         throw RenPyPythonError('unsupported operands for &');
       case '^':
         if (a is int && b is int) return a ^ b;
+        // Set symmetric difference: elements in exactly one of a or b. Returns
+        // a new set; operands are unchanged (matches CPython `set ^ set`).
+        if (a is Set && b is Set) {
+          return <Object?>{
+            for (final e in a)
+              if (!b.contains(e)) e,
+            for (final e in b)
+              if (!a.contains(e)) e,
+          };
+        }
         throw RenPyPythonError('unsupported operands for ^');
       case '<<':
         if (a is int && b is int) return a << b;
@@ -1629,6 +1693,14 @@ class _Interpreter {
       return _TimeDelta(a.ordinal - b.ordinal);
     }
     if (a is _TimeDelta && b is _TimeDelta) return _TimeDelta(a.days - b.days);
+    // Set difference: elements of a not in b. Returns a NEW set; operands are
+    // unchanged (matches CPython `set - set`).
+    if (a is Set && b is Set) {
+      return <Object?>{
+        for (final e in a)
+          if (!b.contains(e)) e,
+      };
+    }
     throw RenPyPythonError('unsupported numeric operands');
   }
 
@@ -2094,6 +2166,23 @@ class _Interpreter {
           api.showScreen(name, rest, keywords);
           return null;
         }
+      case 'call_screen':
+        // call_screen is interactive/blocking and cannot block from an
+        // expression context. The screens it drives from inside Python method
+        // bodies here ("the next day...", "achievement share") are non-essential
+        // to flow. Returning null is a DELIBERATE best-effort degradation: it
+        // lets the enclosing method (e.g. Calendar.next, add_achievement)
+        // complete so its modelable state mutations survive - NOT the old
+        // "deliberately throw so the runner falls back" behavior, which would
+        // abort and discard those mutations.
+        return null;
+      case 'sound.is_playing':
+      case 'music.is_playing':
+        // No audio playback is modelled, so report "nothing is playing". This
+        // is read in guards like `if not renpy.sound.is_playing(): play(...)`;
+        // returning false lets the enclosing method proceed instead of
+        // aborting the whole statement.
+        return false;
       case 'hide_screen':
         {
           final name = _renpyScreenNameArgument(function, positional, keywords);
