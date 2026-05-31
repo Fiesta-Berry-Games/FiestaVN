@@ -124,4 +124,96 @@ class QuizQuestion:
       expect(evaluator.evaluate('d["key"]', scope), 6);
     });
   });
+
+  group('FIX - inline comments in bracket continuations', () {
+    test('comment after arg in multi-line call does not crash', () {
+      final scope = mk(<String, Object?>{});
+      executor.execute('''
+x = dict(
+    a=1, # first
+    b=2  # second
+    )
+''', scope);
+      expect(evaluator.evaluate('x["a"]', scope), 1);
+      expect(evaluator.evaluate('x["b"]', scope), 2);
+    });
+  });
+
+  group('FIX - *args and **kwargs in function calls', () {
+    test('**kwargs spreads a dict into keyword arguments', () {
+      final scope = mk(<String, Object?>{});
+      executor.execute('''
+def greet(name, greeting="hello"):
+    return greeting + " " + name
+kw = {"greeting": "hi"}
+result = greet("world", **kw)
+''', scope);
+      expect(scope.read('result'), 'hi world');
+    });
+
+    test('*args spreads a list into positional arguments', () {
+      final scope = mk(<String, Object?>{});
+      executor.execute('''
+def add(a, b):
+    return a + b
+args = [3, 4]
+result = add(*args)
+''', scope);
+      expect(scope.read('result'), 7);
+    });
+
+    test('**kwargs with other keyword args', () {
+      final scope = mk(<String, Object?>{});
+      executor.execute('''
+def fn(a, b, c):
+    return [a, b, c]
+extra = {"c": 3}
+result = fn(1, b=2, **extra)
+''', scope);
+      final result = scope.read('result') as List;
+      expect(result, [1, 2, 3]);
+    });
+  });
+
+  group('FIX - persistent.x defaults to null when unset', () {
+    test('unset persistent attribute returns null', () {
+      final scope = mk(<String, Object?>{});
+      final result = evaluator.evaluate('persistent.unset_field', scope);
+      expect(result, isNull);
+    });
+
+    test('persistent.x is None check works for init guard', () {
+      final scope = mk(<String, Object?>{});
+      executor.execute('''
+if persistent.achievements is None:
+    persistent.achievements = set()
+''', scope);
+      final ach = scope.read('persistent.achievements');
+      expect(ach, isA<Set>());
+    });
+
+    test('persistent.achievements.add works after init', () {
+      final scope = mk(<String, Object?>{});
+      executor.execute('''
+if persistent.achievements is None:
+    persistent.achievements = set()
+persistent.achievements.add("test")
+''', scope);
+      final ach = scope.read('persistent.achievements') as Set;
+      expect(ach, contains('test'));
+    });
+  });
+
+  group('FIX - parseModule error recovery', () {
+    test('a bad statement does not prevent later defs from parsing', () {
+      final scope = mk(<String, Object?>{});
+      executor.execute('''
+x = 1
+config.font_replacement_map["a", True] = ("b", False)
+y = 2
+''', scope);
+      expect(scope.read('x'), 1);
+      expect(scope.read('y'), 2);
+    });
+  });
 }

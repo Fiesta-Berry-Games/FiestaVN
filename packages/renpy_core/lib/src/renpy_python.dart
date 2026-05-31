@@ -883,10 +883,18 @@ class _SliceNode implements _Node {
 }
 
 class _CallNode implements _Node {
-  _CallNode(this.target, this.positional, this.keywords);
+  _CallNode(
+    this.target,
+    this.positional,
+    this.keywords, {
+    this.starArgs,
+    this.doubleStarKwargs,
+  });
   final _Node target;
   final List<_Node> positional;
   final Map<String, _Node> keywords;
+  final List<_Node>? starArgs;
+  final List<_Node>? doubleStarKwargs;
   @override
   Object? eval(_Interpreter interp) => interp.call(this);
 }
@@ -1225,9 +1233,16 @@ class _Parser {
     _expectOp('(');
     final positional = <_Node>[];
     final keywords = <String, _Node>{};
+    List<_Node>? starArgs;
+    List<_Node>? doubleStarKwargs;
     while (!_isOp(')')) {
-      // Keyword argument: name=value.
-      if (_current.type == _TokenType.name &&
+      if (_isOp('**')) {
+        _advance();
+        (doubleStarKwargs ??= []).add(parseExpression());
+      } else if (_isOp('*')) {
+        _advance();
+        (starArgs ??= []).add(parseExpression());
+      } else if (_current.type == _TokenType.name &&
           _tokens[_index + 1].type == _TokenType.op &&
           _tokens[_index + 1].value == '=') {
         final name = _advance().value;
@@ -1243,7 +1258,13 @@ class _Parser {
       }
     }
     _expectOp(')');
-    return _CallNode(target, positional, keywords);
+    return _CallNode(
+      target,
+      positional,
+      keywords,
+      starArgs: starArgs,
+      doubleStarKwargs: doubleStarKwargs,
+    );
   }
 
   _Node _parseSubscript(_Node target) {
@@ -1515,6 +1536,7 @@ class _Interpreter {
     final full = node.fullName;
     if (full != null && _isScopedName(full)) {
       if (scope.has(full)) return scope.read(full);
+      if (full.startsWith('persistent.')) return null;
     }
     final target = node.target.eval(this);
     return getAttribute(target, node.attribute);
@@ -1893,10 +1915,26 @@ class _Interpreter {
 
   Object? call(_CallNode node) {
     final positional = [for (final arg in node.positional) arg.eval(this)];
+    if (node.starArgs != null) {
+      for (final starArg in node.starArgs!) {
+        final val = starArg.eval(this);
+        if (val is Iterable) positional.addAll(val.cast<Object?>());
+      }
+    }
     final keywords = {
       for (final entry in node.keywords.entries)
         entry.key: entry.value.eval(this),
     };
+    if (node.doubleStarKwargs != null) {
+      for (final dsk in node.doubleStarKwargs!) {
+        final val = dsk.eval(this);
+        if (val is Map) {
+          for (final e in val.entries) {
+            keywords[e.key.toString()] = e.value;
+          }
+        }
+      }
+    }
 
     final target = node.target;
     if (target is _AttributeNode) {
@@ -4119,7 +4157,29 @@ class _StatementParser {
 
   List<_Statement> parseModule() {
     if (_lines.isEmpty) return const [];
-    return _parseBlockAt(_lines.first.indent);
+    final blockIndent = _lines.first.indent;
+    final statements = <_Statement>[];
+    RenPyPythonError? firstError;
+    while (_index < _lines.length) {
+      final line = _lines[_index];
+      if (line.indent < blockIndent) break;
+      if (line.indent != blockIndent) {
+        _index += 1;
+        continue;
+      }
+      final saved = _index;
+      try {
+        statements.addAll(_parseLine());
+      } on RenPyPythonError catch (e) {
+        firstError ??= e;
+        if (_index == saved) _index += 1;
+        while (_index < _lines.length && _lines[_index].indent > blockIndent) {
+          _index += 1;
+        }
+      }
+    }
+    if (statements.isEmpty && firstError != null) throw firstError;
+    return statements;
   }
 
   /// Parses consecutive lines at exactly [blockIndent] into statements,
@@ -4768,7 +4828,7 @@ class _StatementParser {
         if (content.endsWith('\\')) {
           content = content.substring(0, content.length - 1);
         }
-        content = '$content\n${physical[i]}';
+        content = '$content\n${_stripTrailingComment(physical[i])}';
         i += 1;
       }
 
