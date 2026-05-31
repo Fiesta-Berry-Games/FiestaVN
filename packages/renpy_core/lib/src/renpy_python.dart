@@ -4604,18 +4604,50 @@ class _StatementParser {
   // -- assignment splitting -------------------------------------------------
 
   _AugmentedMatch? _matchAugmented(String text) {
-    final match = RegExp(
-      r'^(.+?)\s*(\/\/|\*\*|[+\-*/%])=\s*(.+)$',
-      dotAll: true,
-    ).firstMatch(text);
-    if (match == null) return null;
-    // Guard against matching `==`, `<=`, `!=` etc. - those are handled as
-    // expressions, never as augmented assignment.
-    return _AugmentedMatch(
-      match.group(1)!.trim(),
-      match.group(2)!,
-      match.group(3)!.trim(),
-    );
+    var depth = 0;
+    String? quote;
+    for (var i = 0; i < text.length; i += 1) {
+      final ch = text[i];
+      if (quote != null) {
+        if (ch == '\\') {
+          i += 1;
+          continue;
+        }
+        if (ch == quote) quote = null;
+        continue;
+      }
+      if (ch == '"' || ch == "'") {
+        quote = ch;
+      } else if (ch == '(' || ch == '[' || ch == '{') {
+        depth += 1;
+      } else if (ch == ')' || ch == ']' || ch == '}') {
+        depth -= 1;
+      } else if (depth == 0 && ch == '=' && i > 0) {
+        final prev = text[i - 1];
+        if (prev == '=' || prev == '!' || prev == '<' || prev == '>') continue;
+        final next = i + 1 < text.length ? text[i + 1] : '';
+        if (next == '=') {
+          i += 1;
+          continue;
+        }
+        String op;
+        if (prev == '+' || prev == '-' || prev == '%') {
+          op = prev;
+        } else if (prev == '*') {
+          op = (i >= 2 && text[i - 2] == '*') ? '**' : '*';
+        } else if (prev == '/') {
+          op = (i >= 2 && text[i - 2] == '/') ? '//' : '/';
+        } else {
+          continue;
+        }
+        final targetEnd = i - op.length;
+        final target = text.substring(0, targetEnd).trim();
+        final expression = text.substring(i + 1).trim();
+        if (target.isEmpty || expression.isEmpty) return null;
+        return _AugmentedMatch(target, op, expression);
+      }
+    }
+    return null;
   }
 
   /// Splits `a = b = expr` into its target chain and the final value. Returns
