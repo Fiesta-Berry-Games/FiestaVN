@@ -87,6 +87,31 @@ class _BlockOwner {
   final int ownerIndex;
 }
 
+/// An opaque, read-only marker bound into the store for each defined Character
+/// so its bare name resolves to a value (rather than throwing "not defined")
+/// when referenced from another `define`/`$`. The actual speaker rendering is
+/// driven by the `_characters` map, not this marker; it exists only so a
+/// cross-`define` reference like `define npc = annika` can evaluate `annika`.
+class _CharacterRef {
+  const _CharacterRef(this.name);
+
+  /// The store name the Character was defined under.
+  final String name;
+
+  /// JSON form for snapshot serialization (the marker is otherwise opaque).
+  Map<String, Object?> toJson() => {'__character_ref__': name};
+
+  @override
+  bool operator ==(Object other) =>
+      other is _CharacterRef && other.name == name;
+
+  @override
+  int get hashCode => name.hashCode;
+
+  @override
+  String toString() => name;
+}
+
 class _PendingDialogue {
   const _PendingDialogue(this.event, this.searchStart);
 
@@ -654,6 +679,14 @@ class RenPyRunner {
   /// Each init-python body is wrapped so a failure emits a skip diagnostic and
   /// load continues; an unsupported block never aborts construction.
   void _processDefines() {
+    // Seed Ren'Py's `_return` pseudo-variable to its default (`None` -> null) so
+    // a `define`/`$`/expression that reads it BEFORE any call returns (e.g.
+    // `selected_song = _return`) resolves to null instead of emitting a
+    // `skippedDefinition`. A real call later overwrites it via
+    // `_setVariable('_return', value)`. Use putIfAbsent so a re-entrant init
+    // does not clobber a value already returned by a call.
+    _variables.putIfAbsent('_return', () => null);
+
     final defines = <RenPyDefineStatement>[];
     final defaults = <RenPyDefaultStatement>[];
     // Init-python blocks paired with their priority and a monotonically
@@ -871,7 +904,34 @@ class RenPyRunner {
     }
 
     _characters[name] = params;
+
+    // Also bind `name` as a readable value in the store so a later
+    // `define npc = annika` (whose RHS is a bare Character name) can evaluate
+    // `annika` to an opaque marker instead of throwing "name is not defined".
+    // The say path resolves speakers via `_characters` (not `_variables`), so
+    // this binding only enables cross-`define` reference resolution; it does not
+    // change how an existing character renders.
+    _variables[name] = _CharacterRef(name);
   }
+
+  /// When [expression] (trimmed) is a bare identifier naming a known character,
+  /// alias [name]'s character entry to it so a `define`/`$` of the form
+  /// `npc = annika` makes `npc` render with annika's display name/color. The
+  /// alias shares annika's params map (a reference is fine; character params are
+  /// not mutated after registration). Narrow by design: only a bare identifier
+  /// that is an existing `_characters` key triggers the alias.
+  void _maybeAliasCharacter(String name, String expression) {
+    final trimmed = expression.trim();
+    if (!_isBareIdentifier(trimmed)) return;
+    final source = _characters[trimmed];
+    if (source == null) return;
+    _characters[name] = source;
+  }
+
+  /// True when [text] is a single bare Python identifier (no dots, calls, or
+  /// operators), e.g. `annika` but not `annika()` or `a.b`.
+  static bool _isBareIdentifier(String text) =>
+      RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(text);
 
   /// Applies a single `define name = expression`.
   ///
@@ -895,6 +955,17 @@ class RenPyRunner {
     if (expression.contains('Character(') ||
         expression.contains('Character (')) {
       _parseCharacter(name, expression);
+      return true;
+    }
+    // `define npc = annika` where `annika` is itself a defined Character: alias
+    // the character entry so `npc` renders with annika's name/color, and bind a
+    // store marker so reads of `npc` also resolve. Handled before the transition
+    // / plain-evaluation paths so a bare character name never mis-evaluates.
+    final trimmedExpression = expression.trim();
+    if (_characters.containsKey(trimmedExpression) &&
+        _isBareIdentifier(trimmedExpression)) {
+      _maybeAliasCharacter(name, expression);
+      _variables[name] = _CharacterRef(name);
       return true;
     }
     final previousResolver = _transitionResolver;
@@ -959,6 +1030,17 @@ class RenPyRunner {
           _evaluateDefinitionExpression(name, expression),
         );
       }
+      return;
+    }
+    // `default npc = annika` where `annika` is a defined Character: mirror the
+    // `define`/`$` alias paths so `npc` renders with annika's name/color, but
+    // respect `default` semantics - only set/alias when the name is absent.
+    final trimmed = expression.trim();
+    if (!_variables.containsKey(name) &&
+        _isBareIdentifier(trimmed) &&
+        _characters.containsKey(trimmed)) {
+      _maybeAliasCharacter(name, expression);
+      _variables[name] = _CharacterRef(name);
       return;
     }
     _variables.putIfAbsent(
@@ -2708,6 +2790,13 @@ class RenPyRunner {
       return;
     }
 
+    // A runtime `$ npc = annika` evaluates `annika` to its Character marker;
+    // alias the character entry so `npc` renders with annika's name/color, the
+    // same as the load-time `define npc = annika` path.
+    if (value is _CharacterRef && _characters.containsKey(value.name)) {
+      _characters[name] = _characters[value.name]!;
+    }
+
     _variables[name] = value;
   }
 
@@ -3814,7 +3903,11 @@ class RenPyRunner {
     _errorMessage = snapshot.errorMessage;
     _variables
       ..clear()
-      ..addAll(snapshot.variables);
+      ..addAll(
+        snapshot.variables.map(
+          (key, value) => MapEntry(key, _reviveSnapshotValue(value)),
+        ),
+      );
     _persistent
       ..clear()
       ..addAll(snapshot.persistent);
@@ -3834,6 +3927,21 @@ class RenPyRunner {
               snapshot.pendingDialogue!.searchStart,
             );
     _flushPersistent();
+  }
+
+  /// Restores private store-marker types that a JSON round-trip degrades into
+  /// plain Maps. A `_CharacterRef` serializes (via [toJson]) to
+  /// `{'__character_ref__': <name>}`; after `jsonDecode`/`fromJson` it is a bare
+  /// `Map`, which would make a post-load `$ x = npc` or `[npc]` interpolation
+  /// observe a different value type than pre-load. Reviving it here keeps the
+  /// marker type private to this file while making the round-trip type-stable.
+  static dynamic _reviveSnapshotValue(dynamic value) {
+    if (value is Map &&
+        value.length == 1 &&
+        value['__character_ref__'] is String) {
+      return _CharacterRef(value['__character_ref__'] as String);
+    }
+    return value;
   }
 
   /// Jump to a specific label.
