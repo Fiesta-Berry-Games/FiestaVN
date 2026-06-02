@@ -522,7 +522,13 @@ class _Lexer {
         return _Token(_TokenType.string, isRaw ? raw : _unescape(raw));
       }
       final ch = _source[_pos];
-      if (!isRaw && ch == r'\' && _pos + 1 < _source.length) {
+      if (ch == r'\' && _pos + 1 < _source.length) {
+        // In both cooked and raw strings a backslash prevents the next char
+        // from terminating the string (CPython: `r"\""` is valid and keeps the
+        // backslash). For a raw string we retain the backslash AND the escaped
+        // char verbatim; for a cooked string we likewise defer the escape to
+        // `_unescape`. The only behavioural difference between raw and cooked is
+        // in `_unescape` below, not in how we scan past the backslash here.
         buffer.write(ch);
         buffer.write(_source[_pos + 1]);
         _pos += 2;
@@ -1528,6 +1534,7 @@ class _Interpreter {
     if (builtin != null) return _BuiltinFunction(name, builtin);
     final exceptionType = _builtinExceptions[name];
     if (exceptionType != null) return exceptionType;
+    if (_builtinConstants.containsKey(name)) return _builtinConstants[name];
     throw RenPyPythonNameError(name);
   }
 
@@ -3034,6 +3041,39 @@ class _Interpreter {
       name: _PythonClass(name, null, {}, {}, isException: true),
   };
 
+  /// Ren'Py built-in evaluable constants (transitions and named positions /
+  /// transforms) that real games reference bare, e.g.
+  /// `example_transition = dissolve` or `renpy.show(img, at_list=[truecenter])`.
+  ///
+  /// We do not render, so each name resolves to a single shared inert opaque
+  /// marker (a [_GuiPlaceholder]) whose only job is to *exist* so any expression
+  /// that merely references it evaluates instead of throwing
+  /// `RenPyPythonNameError` and skipping the statement. The placeholder never
+  /// throws on its own and carries no semantics beyond its name.
+  static final Map<String, Object?> _builtinConstants = {
+    for (final name in const [
+      // Built-in transitions.
+      'dissolve',
+      'fade',
+      'pixellate',
+      // Built-in positions / transforms.
+      'center',
+      'truecenter',
+      'left',
+      'right',
+      'top',
+      'bottom',
+      'topleft',
+      'topright',
+      'bottomleft',
+      'bottomright',
+      'offscreenleft',
+      'offscreenright',
+      'reset',
+    ])
+      name: _GuiPlaceholder(name, const [], const {}),
+  };
+
   Object? _minMax(List<Object?> args, {required bool isMin}) {
     final items = args.length == 1 ? _asIterable(args[0]).toList() : args;
     if (items.isEmpty) throw RenPyPythonError('min()/max() of empty sequence');
@@ -3338,6 +3378,32 @@ class _StubModule {
       'datetime': const _DateType(),
       'timedelta': const _TimeDeltaType(),
     },
+  );
+
+  /// The `re` module subset. We never run real regexes, so every function
+  /// returns an inert opaque [_GuiPlaceholder] (e.g. `re.compile(pat)` yields a
+  /// stand-in "compiled regex" value). Nothing throws; the placeholder simply
+  /// keeps `regex = re.compile(regex)` evaluating instead of skipping.
+  static _StubModule reModule() => _StubModule(
+    're',
+    functions: {
+      'compile': (a, k) => _GuiPlaceholder('re.compile', a, k),
+      'match': (a, k) => _GuiPlaceholder('re.match', a, k),
+      'search': (a, k) => _GuiPlaceholder('re.search', a, k),
+      'sub': (a, k) => _GuiPlaceholder('re.sub', a, k),
+      'findall': (a, k) => _GuiPlaceholder('re.findall', a, k),
+      'escape': (a, k) => _GuiPlaceholder('re.escape', a, k),
+    },
+  );
+
+  /// The `os` module subset. `os.environ` is modelled as an empty Dart map so
+  /// membership tests such as `"RENPY_LESS_EXAMPLES" not in os.environ`
+  /// evaluate (to `true`) via the interpreter's `in` operator. `os.getenv`
+  /// returns null (or its supplied default) so `os.getenv("X", "y")` works too.
+  static _StubModule osModule() => _StubModule(
+    'os',
+    attributes: {'environ': <String, Object?>{}},
+    functions: {'getenv': (a, k) => a.length >= 2 ? a[1] : null},
   );
 }
 
@@ -3998,6 +4064,8 @@ class _ImportStatement implements _Statement {
     if (module == 'math') return _StubModule.mathModule();
     if (module == 'collections') return _StubModule.collectionsModule();
     if (module == 'datetime') return _StubModule.datetimeModule();
+    if (module == 're') return _StubModule.reModule();
+    if (module == 'os') return _StubModule.osModule();
     final concrete = _memberOf(module, 'math', _StubModule.mathModule());
     if (concrete != _absent) return concrete;
     final collected = _memberOf(
@@ -4008,6 +4076,10 @@ class _ImportStatement implements _Statement {
     if (collected != _absent) return collected;
     final dated = _memberOf(module, 'datetime', _StubModule.datetimeModule());
     if (dated != _absent) return dated;
+    final reMember = _memberOf(module, 're', _StubModule.reModule());
+    if (reMember != _absent) return reMember;
+    final osMember = _memberOf(module, 'os', _StubModule.osModule());
+    if (osMember != _absent) return osMember;
     return _StubModule(module);
   }
 
