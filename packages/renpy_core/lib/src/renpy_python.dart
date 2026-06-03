@@ -4895,12 +4895,22 @@ class _StatementParser {
       i += 1;
 
       // Join continuations while brackets are open, a backslash trails, or a
-      // triple-quoted string is unterminated.
+      // triple-quoted string is unterminated. Strip an inline trailing comment
+      // from each joined-in line ONLY when no string is currently open: inside
+      // a bracket continuation a `# comment` after an argument must be removed
+      // (or the joined logical line fails to parse), but inside an open
+      // triple-quoted docstring a `#` is text and the closing `"""` may sit
+      // right after one -- stripping there would delete the delimiter and leave
+      // the string permanently unterminated.
       while (_needsContinuation(content) && i < physical.length) {
         if (content.endsWith('\\')) {
           content = content.substring(0, content.length - 1);
         }
-        content = '$content\n${_stripTrailingComment(physical[i])}';
+        final next =
+            _inOpenString(content)
+                ? physical[i]
+                : _stripTrailingComment(physical[i]);
+        content = '$content\n$next';
         i += 1;
       }
 
@@ -4956,17 +4966,69 @@ class _StatementParser {
     return depth > 0 || tripleOpen;
   }
 
-  static String _stripTrailingComment(String content) {
-    var depth = 0;
+  /// Whether [content] ends with a string literal still open -- either a
+  /// single-line quote with no closing delimiter yet or an unterminated
+  /// triple-quoted string. Used to decide whether stripping a trailing `#`
+  /// comment from the next continuation line is safe (it is not while a string
+  /// is open, where a `#` is literal text).
+  static bool _inOpenString(String content) {
     String? quote;
+    var tripleOpen = false;
     for (var i = 0; i < content.length; i += 1) {
       final ch = content[i];
+      if (tripleOpen) {
+        if (content.startsWith(quote! * 3, i)) {
+          tripleOpen = false;
+          quote = null;
+          i += 2;
+        }
+        continue;
+      }
       if (quote != null) {
         if (ch == quote) quote = null;
         continue;
       }
       if (ch == '"' || ch == "'") {
-        quote = ch;
+        if (content.startsWith(ch * 3, i)) {
+          tripleOpen = true;
+          quote = ch;
+          i += 2;
+        } else {
+          quote = ch;
+        }
+      }
+    }
+    return quote != null || tripleOpen;
+  }
+
+  static String _stripTrailingComment(String content) {
+    var depth = 0;
+    String? quote;
+    var tripleOpen = false;
+    for (var i = 0; i < content.length; i += 1) {
+      final ch = content[i];
+      // Inside a triple-quoted span a `#` is docstring text, not a comment;
+      // only its matching triple delimiter closes it.
+      if (tripleOpen) {
+        if (content.startsWith(quote! * 3, i)) {
+          tripleOpen = false;
+          quote = null;
+          i += 2;
+        }
+        continue;
+      }
+      if (quote != null) {
+        if (ch == quote) quote = null;
+        continue;
+      }
+      if (ch == '"' || ch == "'") {
+        if (content.startsWith(ch * 3, i)) {
+          tripleOpen = true;
+          quote = ch;
+          i += 2;
+        } else {
+          quote = ch;
+        }
       } else if (ch == '(' || ch == '[' || ch == '{') {
         depth += 1;
       } else if (ch == ')' || ch == ']' || ch == '}') {
