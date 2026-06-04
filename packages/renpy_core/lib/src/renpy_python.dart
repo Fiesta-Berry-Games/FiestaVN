@@ -783,17 +783,29 @@ class _DictNode implements _Node {
     RenPyPythonError? lastError;
     for (final entry in entries) {
       try {
-        final key = entry.key.eval(interp);
-        final value = entry.value.eval(interp);
-        result[key] = value;
+        if (entry.key is _DictSpreadNode) {
+          final spread = entry.value.eval(interp);
+          if (spread is Map) {
+            result.addAll(spread.cast());
+          }
+        } else {
+          final key = entry.key.eval(interp);
+          final value = entry.value.eval(interp);
+          result[key] = value;
+        }
       } on RenPyPythonError catch (e) {
-        // Skip the unevaluable entry; keep going.
         lastError = e;
       }
     }
     if (result.isEmpty && lastError != null) throw lastError;
     return result;
   }
+}
+
+class _DictSpreadNode implements _Node {
+  const _DictSpreadNode();
+  @override
+  Object? eval(_Interpreter interp) => null;
 }
 
 class _UnaryNode implements _Node {
@@ -1417,6 +1429,26 @@ class _Parser {
       _advance();
       return _DictNode(const []);
     }
+    if (_isOp('**')) {
+      _advance();
+      final entries = <MapEntry<_Node, _Node>>[
+        MapEntry(const _DictSpreadNode(), parseExpression()),
+      ];
+      while (_isOp(',')) {
+        _advance();
+        if (_isOp('}')) break;
+        if (_isOp('**')) {
+          _advance();
+          entries.add(MapEntry(const _DictSpreadNode(), parseExpression()));
+        } else {
+          final key = parseExpression();
+          _expectOp(':');
+          entries.add(MapEntry(key, parseExpression()));
+        }
+      }
+      _expectOp('}');
+      return _DictNode(entries);
+    }
     final first = parseExpression();
     if (_isOp(':')) {
       _advance();
@@ -1430,9 +1462,14 @@ class _Parser {
       while (_isOp(',')) {
         _advance();
         if (_isOp('}')) break;
-        final key = parseExpression();
-        _expectOp(':');
-        entries.add(MapEntry(key, parseExpression()));
+        if (_isOp('**')) {
+          _advance();
+          entries.add(MapEntry(const _DictSpreadNode(), parseExpression()));
+        } else {
+          final key = parseExpression();
+          _expectOp(':');
+          entries.add(MapEntry(key, parseExpression()));
+        }
       }
       _expectOp('}');
       return _DictNode(entries);
@@ -1739,6 +1776,9 @@ class _Interpreter {
     if (a is int && b is String) return b * a;
     if (a is List && b is int) return [for (var i = 0; i < b; i += 1) ...a];
     if (a is int && b is List) return [for (var i = 0; i < a; i += 1) ...b];
+    if (a is _GuiPlaceholder || b is _GuiPlaceholder) {
+      return _GuiPlaceholder('*', [a, b], const {});
+    }
     throw RenPyPythonError('unsupported operands for *');
   }
 
@@ -2223,11 +2263,20 @@ class _Interpreter {
         return null;
       case 'sound.is_playing':
       case 'music.is_playing':
-        // No audio playback is modelled, so report "nothing is playing". This
-        // is read in guards like `if not renpy.sound.is_playing(): play(...)`;
-        // returning false lets the enclosing method proceed instead of
-        // aborting the whole statement.
         return false;
+      case 'music.register_channel':
+        return null;
+      case 'list_files':
+        return <Object?>[];
+      case 'known_languages':
+        return <Object?>{};
+      case 'open_file':
+      case 'notl_file':
+        return _GuiPlaceholder('renpy.$function', positional, keywords);
+      case 'show':
+      case 'hide':
+      case 'pause':
+        return null;
       case 'hide_screen':
         {
           final name = _renpyScreenNameArgument(function, positional, keywords);
@@ -2591,6 +2640,8 @@ class _Interpreter {
       if (name == 'weekday') return receiver.weekday();
       throw RenPyPythonError('no date method `$name`');
     }
+    if (receiver is _MusicRoomInstance) return null;
+    if (receiver is _GuiPlaceholder) return null;
     throw RenPyPythonError('no method `$name` on ${_typeName(receiver)}');
   }
 
@@ -3019,6 +3070,12 @@ class _Interpreter {
     // as Borders/Frame: accepts any args/kwargs, returns an opaque value, never
     // throws, so the enclosing define evaluates instead of being skipped.
     'Transform': (a, k) => _GuiPlaceholder('Transform', a, k),
+    'ImageDissolve': (a, k) => _GuiPlaceholder('ImageDissolve', a, k),
+    'Composite': (a, k) => _GuiPlaceholder('Composite', a, k),
+    'LiveComposite': (a, k) => _GuiPlaceholder('LiveComposite', a, k),
+    'Solid': (a, k) => _GuiPlaceholder('Solid', a, k),
+    'Color': (a, k) => _GuiPlaceholder('Color', a, k),
+    'MusicRoom': (a, k) => _MusicRoomInstance(),
   };
 
   /// A small set of builtin exception classes so `raise ValueError("...")` and
@@ -3072,7 +3129,68 @@ class _Interpreter {
       'reset',
     ])
       name: _GuiPlaceholder(name, const [], const {}),
+    'renpy': _renpyStubModule(),
+    'im': _imStubModule(),
+    'Action': _PythonClass('Action', null, const {}, const {}),
   };
+
+  static _StubModule _renpyStubModule() => _StubModule(
+    'renpy',
+    attributes: {
+      'mobile': false,
+      'linux': false,
+      'windows': false,
+      'macintosh': false,
+      'android': false,
+      'ios': false,
+      'emscripten': false,
+      'Displayable': _PythonClass('Displayable', null, const {}, const {}),
+      'display': _StubModule(
+        'renpy.display',
+        attributes: {
+          'layout': _StubModule(
+            'renpy.display.layout',
+            attributes: {
+              'DynamicDisplayable': _PythonClass(
+                'DynamicDisplayable',
+                null,
+                const {},
+                const {},
+              ),
+            },
+          ),
+        },
+      ),
+    },
+  );
+
+  static _StubModule _imStubModule() {
+    final matrixStub = _StubModule(
+      'im.matrix',
+      functions: {
+        'tint': (a, k) => _GuiPlaceholder('im.matrix.tint', a, k),
+        'brightness': (a, k) => _GuiPlaceholder('im.matrix.brightness', a, k),
+        'saturation': (a, k) => _GuiPlaceholder('im.matrix.saturation', a, k),
+        'contrast': (a, k) => _GuiPlaceholder('im.matrix.contrast', a, k),
+        'opacity': (a, k) => _GuiPlaceholder('im.matrix.opacity', a, k),
+        'invert': (a, k) => _GuiPlaceholder('im.matrix.invert', a, k),
+        'identity': (a, k) => _GuiPlaceholder('im.matrix.identity', a, k),
+      },
+    );
+    return _StubModule(
+      'im',
+      attributes: {'matrix': matrixStub},
+      functions: {
+        'Sepia': (a, k) => _GuiPlaceholder('im.Sepia', a, k),
+        'Scale': (a, k) => _GuiPlaceholder('im.Scale', a, k),
+        'Crop': (a, k) => _GuiPlaceholder('im.Crop', a, k),
+        'Composite': (a, k) => _GuiPlaceholder('im.Composite', a, k),
+        'FactorScale': (a, k) => _GuiPlaceholder('im.FactorScale', a, k),
+        'Grayscale': (a, k) => _GuiPlaceholder('im.Grayscale', a, k),
+        'MatrixColor': (a, k) => _GuiPlaceholder('im.MatrixColor', a, k),
+      },
+    );
+  }
 
   Object? _minMax(List<Object?> args, {required bool isMin}) {
     final items = args.length == 1 ? _asIterable(args[0]).toList() : args;
@@ -3156,6 +3274,13 @@ class _GuiPlaceholder {
 
   @override
   String toString() => '<$name>';
+}
+
+/// Inert stand-in for `MusicRoom(...)`. Supports method calls like `.add()`
+/// so the music-room init loop evaluates instead of skipping.
+class _MusicRoomInstance {
+  @override
+  String toString() => '<MusicRoom>';
 }
 
 /// A whitelisted builtin function resolved as a first-class value so it can be
@@ -3393,6 +3518,57 @@ class _StubModule {
       'sub': (a, k) => _GuiPlaceholder('re.sub', a, k),
       'findall': (a, k) => _GuiPlaceholder('re.findall', a, k),
       'escape': (a, k) => _GuiPlaceholder('re.escape', a, k),
+    },
+  );
+
+  /// The `copy` module subset. `deepcopy` creates a best-effort clone: lists
+  /// and maps are copied recursively, `_PythonInstance`s get a new attribute
+  /// map, and primitives pass through unchanged.
+  static _StubModule copyModule() => _StubModule(
+    'copy',
+    functions: {
+      'deepcopy': (a, k) => a.isEmpty ? null : _deepCopy(a[0]),
+      'copy': (a, k) => a.isEmpty ? null : _shallowCopy(a[0]),
+    },
+  );
+
+  static Object? _deepCopy(Object? value) {
+    if (value is List) return [for (final e in value) _deepCopy(e)];
+    if (value is Map) {
+      return {for (final e in value.entries) e.key: _deepCopy(e.value)};
+    }
+    if (value is Set) return {for (final e in value) _deepCopy(e)};
+    if (value is _PythonInstance) {
+      final copy = _PythonInstance(value.cls);
+      for (final e in value.attributes.entries) {
+        copy.attributes[e.key] = _deepCopy(e.value);
+      }
+      return copy;
+    }
+    return value;
+  }
+
+  static Object? _shallowCopy(Object? value) {
+    if (value is List) return [...value];
+    if (value is Map) return {...value};
+    if (value is Set) return {...value};
+    return value;
+  }
+
+  /// The `urllib` module subset. `urllib.parse.quote` and `unquote` return
+  /// their first argument as a string (no real percent-encoding), which is
+  /// sufficient for inert use in tweet-intent URL builders.
+  static _StubModule urllibModule() => _StubModule(
+    'urllib',
+    attributes: {
+      'parse': _StubModule(
+        'urllib.parse',
+        functions: {
+          'quote': (a, k) => a.isNotEmpty ? a[0].toString() : '',
+          'unquote': (a, k) => a.isNotEmpty ? a[0].toString() : '',
+          'urlencode': (a, k) => a.isNotEmpty ? a[0].toString() : '',
+        },
+      ),
     },
   );
 
@@ -3999,43 +4175,64 @@ class _ClassStatement implements _Statement {
   void exec(_Interpreter interp) {
     _PythonClass? base;
     if (baseName != null) {
-      final resolved = interp.readName(baseName!);
-      if (resolved is! _PythonClass) {
-        throw RenPyPythonError('base class `$baseName` is not a class');
+      Object? resolved;
+      try {
+        if (baseName!.contains('.')) {
+          final parts = baseName!.split('.');
+          resolved = interp.readName(parts[0]);
+          for (var i = 1; i < parts.length; i++) {
+            resolved = interp.getAttribute(resolved, parts[i]);
+          }
+        } else {
+          resolved = interp.readName(baseName!);
+        }
+      } on RenPyPythonError {
+        resolved = null;
       }
-      base = resolved;
+      if (resolved is _PythonClass) {
+        base = resolved;
+      } else {
+        base = _PythonClass(baseName!, null, const {}, const {});
+      }
     }
 
     final methods = <String, _UserFunction>{};
     final attributes = <String, Object?>{};
-    for (final statement in body) {
-      if (statement is _DefStatement) {
-        methods[statement.name] = _UserFunction(
-          statement.name,
-          statement.spec,
-          statement.body,
-          interp.scope,
-        );
-      } else if (statement is _AssignStatement) {
-        final value = statement.value.eval(interp);
-        for (final target in statement.targets) {
-          if (target is! _NameNode) {
-            throw RenPyPythonError('unsupported class-level assignment target');
+    interp._locals.add(attributes);
+    try {
+      for (final statement in body) {
+        if (statement is _DefStatement) {
+          methods[statement.name] = _UserFunction(
+            statement.name,
+            statement.spec,
+            statement.body,
+            interp.scope,
+          );
+        } else if (statement is _AssignStatement) {
+          final value = statement.value.eval(interp);
+          for (final target in statement.targets) {
+            if (target is! _NameNode) {
+              throw RenPyPythonError(
+                'unsupported class-level assignment target',
+              );
+            }
+            attributes[target.name] = value;
           }
-          attributes[target.name] = value;
+        } else if (statement is _PassStatement) {
+          // Nothing to do.
+        } else if (statement is _ExpressionStatement) {
+          // A bare expression statement at class level (most commonly a
+          // triple-quoted docstring as the first statement) is evaluated by
+          // Python for side effects but binds no class attribute. Our class
+          // model only tracks methods + attribute assignments, so ignoring it is
+          // correct -- and crucially it must NOT abort the whole class (e.g.
+          // LearnToCodeRPG's `QuizQuestion` opens with a docstring).
+        } else {
+          throw RenPyPythonError('unsupported statement in class body');
         }
-      } else if (statement is _PassStatement) {
-        // Nothing to do.
-      } else if (statement is _ExpressionStatement) {
-        // A bare expression statement at class level (most commonly a
-        // triple-quoted docstring as the first statement) is evaluated by
-        // Python for side effects but binds no class attribute. Our class
-        // model only tracks methods + attribute assignments, so ignoring it is
-        // correct -- and crucially it must NOT abort the whole class (e.g.
-        // LearnToCodeRPG's `QuizQuestion` opens with a docstring).
-      } else {
-        throw RenPyPythonError('unsupported statement in class body');
       }
+    } finally {
+      interp._locals.removeLast();
     }
 
     interp.scope.write(name, _PythonClass(name, base, methods, attributes));
@@ -4080,6 +4277,12 @@ class _ImportStatement implements _Statement {
     if (reMember != _absent) return reMember;
     final osMember = _memberOf(module, 'os', _StubModule.osModule());
     if (osMember != _absent) return osMember;
+    final urlMember = _memberOf(module, 'urllib', _StubModule.urllibModule());
+    if (urlMember != _absent) return urlMember;
+    if (module == 'urllib') return _StubModule.urllibModule();
+    final copyMember = _memberOf(module, 'copy', _StubModule.copyModule());
+    if (copyMember != _absent) return copyMember;
+    if (module == 'copy') return _StubModule.copyModule();
     return _StubModule(module);
   }
 
@@ -4602,7 +4805,7 @@ class _StatementParser {
     if (trimmed == 'return' || trimmed.startsWith('return ')) {
       final rest = trimmed.substring('return'.length).trim();
       if (rest.isEmpty) return _ReturnStatement(null);
-      return _ReturnStatement(_parseFragment(rest));
+      return _ReturnStatement(_parseValueFragment(rest));
     }
 
     if (trimmed.startsWith('global ')) {
