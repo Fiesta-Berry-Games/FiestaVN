@@ -2314,6 +2314,37 @@ class RenPyRunner {
       // single-statement fast paths below use `dotAll` regexes that would
       // otherwise misread the whole block as one giant assignment value.
       if (stmt.code.contains('\n')) {
+        // FAITHFUL say-as-LAST-statement: when a multi-statement `python:` block
+        // ends in an interactive `renpy.say(...)`, run the leading statements
+        // first (so `text`/`day_activity`/etc. are computed and persisted into
+        // the live scope), then route the trailing say through the existing
+        // [_tryExecuteRenpySay] so the dialogue is actually shown (and blocks /
+        // advances correctly). Without this the whole block runs through the
+        // executor, whose `_callRenpy` does not model `say`, so the say line is
+        // silently skipped while its siblings run - the line is never shown.
+        //
+        // KNOWN LIMITATION: a `renpy.say` in the MIDDLE of a block (with
+        // statements after it) still skips as before - faithfully blocking
+        // mid-block requires a resumable executor (deferred). Only the
+        // say-LAST pattern (the dominant real case) is handled here.
+        final segments = _topLevelPythonStatements(stmt.code);
+        if (segments.length > 1 && _isRenpySayTail(segments.last)) {
+          final lastSegment = segments.last;
+          final leading = segments.sublist(0, segments.length - 1).join('\n');
+          _executePythonBlockResilient(leading);
+          // A leading segment armed a call/jump: RenPy abandons the rest of the
+          // block (including the trailing say) after a transfer.
+          if (_performPendingControlFlow()) return;
+          // Route the trailing say through the existing handler, which evaluates
+          // `what` against the live scope (resolving the just-computed value),
+          // resolves the speaker, emits the dialogue event, advances _position,
+          // and sets waitingForInput (interactive) or calls _executeNext
+          // (interact=False). When it claims the segment, RETURN immediately so
+          // we do not double-advance _position.
+          if (_tryExecuteRenpySay(lastSegment)) return;
+          // Malformed say (claim failed): fall through to the original
+          // whole-block path so nothing regresses.
+        }
         _executePythonBlockResilient(stmt.code);
         if (_performPendingControlFlow()) return;
         _position++;
@@ -3115,11 +3146,22 @@ class RenPyRunner {
   /// the speaker is resolved like a say statement's character. `interact=False`
   /// advances without blocking for input; otherwise the runner waits as it
   /// would after a normal say. Returns true when the call was claimed.
+  /// The shape a top-level block segment must match to be treated as a
+  /// say-tail: a bare `renpy.say(...)` call (trimmed, dotAll so a wrapped
+  /// argument list still matches). Shared with [_tryExecuteRenpySay] below.
+  static final RegExp _renpySayCallPattern = RegExp(
+    r'^renpy\.say\s*\((.*)\)$',
+    dotAll: true,
+  );
+
+  /// True when [segment] is a lone `renpy.say(...)` call - i.e. the last
+  /// top-level statement of a `python:` block can be routed through
+  /// [_tryExecuteRenpySay] rather than the (non-say-modelling) block executor.
+  bool _isRenpySayTail(String segment) =>
+      _renpySayCallPattern.hasMatch(segment.trim());
+
   bool _tryExecuteRenpySay(String code) {
-    final match = RegExp(
-      r'^renpy\.say\s*\((.*)\)$',
-      dotAll: true,
-    ).firstMatch(code.trim());
+    final match = _renpySayCallPattern.firstMatch(code.trim());
     if (match == null) return false;
 
     final args = _pythonCallArguments(match.group(1)!);
@@ -3146,11 +3188,16 @@ class RenPyRunner {
     final event = _dialogueEventForRenpySay(speaker, what?.toString() ?? '');
 
     _position++;
-    _emitDialogueEvent(event);
 
     if (interactive) {
+      // Set the state BEFORE emitting so a synchronous continueExecution()
+      // from inside onDialogue advances instead of stranding (mirrors the
+      // normal say path; the trampoline contract requires waiting statements
+      // to mark waitingForInput before their host callback fires).
       _state = RenPyRunnerState.waitingForInput;
+      _emitDialogueEvent(event);
     } else {
+      _emitDialogueEvent(event);
       _executeNext();
     }
     return true;
