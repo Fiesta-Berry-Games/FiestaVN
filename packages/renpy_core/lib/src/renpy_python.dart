@@ -2272,7 +2272,9 @@ class _Interpreter {
         return <Object?>{};
       case 'open_file':
       case 'notl_file':
-        return _GuiPlaceholder('renpy.$function', positional, keywords);
+        return _FileHandle(
+          positional.isNotEmpty ? '${positional[0]}' : 'renpy.$function',
+        );
       case 'show':
       case 'hide':
       case 'pause':
@@ -2475,6 +2477,8 @@ class _Interpreter {
     if (value is Iterable) return value;
     if (value is Map) return value.keys;
     if (value is String) return value.split('');
+    // Iterating an (empty) file handle yields its lines -- none are modelled.
+    if (value is _FileHandle) return const <Object?>[];
     throw RenPyPythonError('object is not iterable');
   }
 
@@ -2641,6 +2645,20 @@ class _Interpreter {
       throw RenPyPythonError('no date method `$name`');
     }
     if (receiver is _MusicRoomInstance) return null;
+    if (receiver is _FileHandle) {
+      switch (name) {
+        case 'read':
+        case 'readline':
+          return '';
+        case 'readlines':
+          return <Object?>[];
+        case '__enter__':
+          return receiver;
+        default:
+          // close/write/flush/seek/__exit__/etc. degrade to a no-op.
+          return null;
+      }
+    }
     if (receiver is _GuiPlaceholder) return null;
     throw RenPyPythonError('no method `$name` on ${_typeName(receiver)}');
   }
@@ -3281,6 +3299,22 @@ class _GuiPlaceholder {
 class _MusicRoomInstance {
   @override
   String toString() => '<MusicRoom>';
+}
+
+/// Inert file-like object returned by `renpy.open_file`/`renpy.notl_file`.
+///
+/// The engine runs headless against scripts only, so no real filesystem is
+/// modelled: reads yield empty content. It exists to make `with
+/// renpy.open_file(p) as f:` evaluate -- it binds as the `with` target and its
+/// `read()`/`readlines()` return empty results, so a reader's downstream
+/// parsing degrades to an empty value rather than skipping the whole body.
+class _FileHandle {
+  _FileHandle(this.name);
+
+  final String name;
+
+  @override
+  String toString() => '<file $name>';
 }
 
 /// A whitelisted builtin function resolved as a first-class value so it can be
@@ -4406,6 +4440,69 @@ class _TryStatement implements _Statement {
   }
 }
 
+/// One context manager of a `with` statement: the [manager] expression and its
+/// optional `as` [target].
+class _WithItem {
+  _WithItem(this.manager, this.target);
+  final _Node manager;
+  final _Node? target;
+}
+
+/// A `with <expr> [as <target>][, ...]:` statement.
+///
+/// Context managers are evaluated left to right. For a user value defining
+/// `__enter__`, its result is bound to the target; otherwise the manager value
+/// itself is bound -- which matches file objects (whose `__enter__` returns
+/// `self`), so `with renpy.open_file(p) as f:` binds the file handle. The body
+/// then runs and each manager's `__exit__` (if any) is invoked in reverse
+/// order. This is a simplified model: `__exit__` is always called with no
+/// exception context and cannot suppress a propagating exception (matching the
+/// common file/lock usage in real games). An `__exit__` that itself fails is
+/// swallowed so cleanup never masks the body's outcome with a new skip.
+class _WithStatement implements _Statement {
+  _WithStatement(this.items, this.body);
+  final List<_WithItem> items;
+  final List<_Statement> body;
+
+  @override
+  void exec(_Interpreter interp) {
+    final entered = <Object?>[];
+    try {
+      for (final item in items) {
+        final manager = item.manager.eval(interp);
+        entered.add(manager);
+        var bound = manager;
+        if (manager is _PythonInstance &&
+            manager.cls.findMethod('__enter__') != null) {
+          bound = interp.invoke(
+            interp.getAttribute(manager, '__enter__'),
+            const [],
+            const {},
+          );
+        }
+        if (item.target != null) interp.assign(item.target!, bound);
+      }
+      _execBody(body, interp);
+    } finally {
+      for (final manager in entered.reversed) {
+        if (manager is _PythonInstance &&
+            manager.cls.findMethod('__exit__') != null) {
+          try {
+            interp.invoke(
+              interp.getAttribute(manager, '__exit__'),
+              const [null, null, null],
+              const {},
+            );
+          } on RenPyPythonError {
+            // Cleanup failure degrades silently; it must not replace the
+            // body's own outcome.
+          }
+        }
+      }
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Statement parser
 // ---------------------------------------------------------------------------
@@ -4515,6 +4612,8 @@ class _StatementParser {
         return [_parseClass(line.indent)];
       case 'try':
         return [_parseTry(line.indent)];
+      case 'with':
+        return [_parseWith(line.indent)];
     }
 
     // A simple (non-compound) statement, possibly several split by `;`.
@@ -4724,6 +4823,93 @@ class _StatementParser {
     return _TryStatement(body, handlers, orElse, finalBody);
   }
 
+  _Statement _parseWith(int indent) {
+    final header = _stripColon(_lines[_index].text, 'with');
+    final items = _parseWithItems(header);
+    _index += 1;
+    final body = _parseBody(indent);
+    if (body.isEmpty) throw RenPyPythonError('empty `with` body');
+    return _WithStatement(items, body);
+  }
+
+  /// Parses the comma-separated context managers of a `with` header, each
+  /// optionally followed by `as <target>`. Splitting happens at top level so a
+  /// comma inside a call's argument list (`with open(a, b) as f:`) is ignored.
+  List<_WithItem> _parseWithItems(String header) {
+    final items = <_WithItem>[];
+    for (final piece in _splitTopLevel(header, ',')) {
+      final text = piece.trim();
+      if (text.isEmpty) continue;
+      final asIndex = _topLevelAsIndex(text);
+      if (asIndex < 0) {
+        items.add(_WithItem(_parseFragment(text), null));
+      } else {
+        final exprText = text.substring(0, asIndex).trim();
+        final targetText = text.substring(asIndex + 4).trim();
+        if (exprText.isEmpty || targetText.isEmpty) {
+          throw RenPyPythonError('malformed `with` item `$text`');
+        }
+        items.add(
+          _WithItem(_parseFragment(exprText), _parseTargetFragment(targetText)),
+        );
+      }
+    }
+    if (items.isEmpty) throw RenPyPythonError('empty `with` header');
+    return items;
+  }
+
+  /// Splits [text] on the single-character [sep], ignoring separators inside
+  /// brackets or string literals.
+  List<String> _splitTopLevel(String text, String sep) {
+    final parts = <String>[];
+    var depth = 0;
+    String? quote;
+    var start = 0;
+    for (var i = 0; i < text.length; i += 1) {
+      final ch = text[i];
+      if (quote != null) {
+        if (ch == quote) quote = null;
+        continue;
+      }
+      if (ch == '"' || ch == "'") {
+        quote = ch;
+      } else if (ch == '(' || ch == '[' || ch == '{') {
+        depth += 1;
+      } else if (ch == ')' || ch == ']' || ch == '}') {
+        depth -= 1;
+      } else if (depth == 0 && ch == sep) {
+        parts.add(text.substring(start, i));
+        start = i + 1;
+      }
+    }
+    parts.add(text.substring(start));
+    return parts;
+  }
+
+  /// Returns the index of the top-level ` as ` separator in a `with` item, or
+  /// -1 if there is none (the manager has no bound target).
+  int _topLevelAsIndex(String text) {
+    var depth = 0;
+    String? quote;
+    for (var i = 0; i + 4 <= text.length; i += 1) {
+      final ch = text[i];
+      if (quote != null) {
+        if (ch == quote) quote = null;
+        continue;
+      }
+      if (ch == '"' || ch == "'") {
+        quote = ch;
+      } else if (ch == '(' || ch == '[' || ch == '{') {
+        depth += 1;
+      } else if (ch == ')' || ch == ']' || ch == '}') {
+        depth -= 1;
+      } else if (depth == 0 && text.startsWith(' as ', i)) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
   _ExceptClause _parseExcept(int indent) {
     final header = _lines[_index].text.trim();
     if (!header.endsWith(':')) {
@@ -4828,8 +5014,7 @@ class _StatementParser {
       return _parseRaise(trimmed);
     }
 
-    if (trimmed.startsWith('with ') ||
-        trimmed.startsWith('assert ') ||
+    if (trimmed.startsWith('assert ') ||
         trimmed.startsWith('del ') ||
         trimmed.startsWith('yield') ||
         trimmed.startsWith('async ') ||
