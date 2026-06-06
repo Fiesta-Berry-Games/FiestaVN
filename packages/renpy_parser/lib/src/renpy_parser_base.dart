@@ -708,7 +708,14 @@ class RenPyParser {
     List<String> warnings,
   ) {
     final text = line.text.trim();
-    final labelRegex = RegExp(r'''^label\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*:''');
+    // A label may be parameterized: `label name(a, b=expr):` (Ren'Py). The
+    // optional `(...)` is captured and parsed into formal parameters; the label
+    // still registers under its bare name. A trailing `hide` modifier is
+    // tolerated. dotAll lets a parenthesized list span joined physical lines.
+    final labelRegex = RegExp(
+      r'''^label\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\((.*)\))?\s*(?:hide)?\s*:''',
+      dotAll: true,
+    );
     final match = labelRegex.firstMatch(text);
 
     if (match == null) {
@@ -721,6 +728,7 @@ class RenPyParser {
     }
 
     final labelName = match.group(1)!;
+    final parameters = _parseLabelParameters(match.group(2));
 
     // Parse the block if it exists.
     List<RenPyStatement> block = [];
@@ -728,7 +736,99 @@ class RenPyParser {
       block = _parseBlock(line.block, warnings);
     }
 
-    return RenPyLabelStatement(labelName, block, line.filename, line.number);
+    return RenPyLabelStatement(
+      labelName,
+      block,
+      line.filename,
+      line.number,
+      parameters: parameters,
+    );
+  }
+
+  /// Parses the inside of a `label name(<params>):` parameter list into formal
+  /// parameters. Splitting is at top-level commas (a default expression may
+  /// itself contain commas inside brackets). A leading `*`/`**` is preserved on
+  /// the name; `/` and bare `*` separators are skipped.
+  List<RenPyParameter> _parseLabelParameters(String? raw) {
+    if (raw == null) return const [];
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return const [];
+
+    final params = <RenPyParameter>[];
+    for (final piece in _splitTopLevelCommas(trimmed)) {
+      final part = piece.trim();
+      if (part.isEmpty || part == '*' || part == '/') continue;
+      final eq = _topLevelEqualsIndex(part);
+      if (eq < 0) {
+        params.add(RenPyParameter(part));
+      } else {
+        final name = part.substring(0, eq).trim();
+        final def = part.substring(eq + 1).trim();
+        if (name.isEmpty) continue;
+        params.add(RenPyParameter(name, def.isEmpty ? null : def));
+      }
+    }
+    return params;
+  }
+
+  /// Splits [text] on top-level commas, ignoring commas inside (), [], {} or
+  /// string literals.
+  List<String> _splitTopLevelCommas(String text) {
+    final parts = <String>[];
+    var depth = 0;
+    String? quote;
+    var start = 0;
+    for (var i = 0; i < text.length; i += 1) {
+      final ch = text[i];
+      if (quote != null) {
+        if (ch == quote) quote = null;
+        continue;
+      }
+      if (ch == '"' || ch == "'") {
+        quote = ch;
+      } else if (ch == '(' || ch == '[' || ch == '{') {
+        depth += 1;
+      } else if (ch == ')' || ch == ']' || ch == '}') {
+        depth -= 1;
+      } else if (depth == 0 && ch == ',') {
+        parts.add(text.substring(start, i));
+        start = i + 1;
+      }
+    }
+    parts.add(text.substring(start));
+    return parts;
+  }
+
+  /// Index of the top-level `=` separating a parameter name from its default
+  /// (ignoring `==`/`!=`/`<=`/`>=` and any `=` inside brackets/strings), or -1.
+  int _topLevelEqualsIndex(String text) {
+    var depth = 0;
+    String? quote;
+    for (var i = 0; i < text.length; i += 1) {
+      final ch = text[i];
+      if (quote != null) {
+        if (ch == quote) quote = null;
+        continue;
+      }
+      if (ch == '"' || ch == "'") {
+        quote = ch;
+      } else if (ch == '(' || ch == '[' || ch == '{') {
+        depth += 1;
+      } else if (ch == ')' || ch == ']' || ch == '}') {
+        depth -= 1;
+      } else if (depth == 0 && ch == '=') {
+        final prev = i > 0 ? text[i - 1] : '';
+        final next = i + 1 < text.length ? text[i + 1] : '';
+        if (prev != '=' &&
+            prev != '!' &&
+            prev != '<' &&
+            prev != '>' &&
+            next != '=') {
+          return i;
+        }
+      }
+    }
+    return -1;
   }
 
   RenPySayStatement _parseSayStatement(

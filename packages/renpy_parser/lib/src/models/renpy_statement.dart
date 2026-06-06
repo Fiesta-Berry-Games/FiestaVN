@@ -17,15 +17,34 @@ abstract class RenPyBlockStatement extends RenPyStatement {
 }
 
 /// Represents a label statement (label name:).
+/// A single formal parameter of a parameterized `label name(params):`. [name]
+/// is the bare parameter name (a leading `*`/`**` is preserved for varargs);
+/// [defaultExpression] is the raw source of its default, or null if none.
+class RenPyParameter {
+  final String name;
+  final String? defaultExpression;
+
+  const RenPyParameter(this.name, [this.defaultExpression]);
+
+  @override
+  String toString() =>
+      defaultExpression == null ? name : '$name=$defaultExpression';
+}
+
 class RenPyLabelStatement extends RenPyBlockStatement {
   final String name;
+
+  /// Formal parameters declared by a `label name(a, b=expr):` header. Empty for
+  /// a plain `label name:`.
+  final List<RenPyParameter> parameters;
 
   RenPyLabelStatement(
     this.name,
     List<RenPyStatement> block,
     String filename,
-    int linenumber,
-  ) : super(block, filename, linenumber);
+    int linenumber, {
+    this.parameters = const [],
+  }) : super(block, filename, linenumber);
 
   @override
   String toString() => 'Label: $name';

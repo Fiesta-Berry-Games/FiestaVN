@@ -2039,6 +2039,7 @@ class RenPyRunner {
     );
     _currentBlock = stmt.block;
     _position = 0;
+    _bindLabelParameters(stmt);
     _executeNext();
   }
 
@@ -3932,6 +3933,35 @@ class RenPyRunner {
     }
     _currentBlock = label.block;
     _position = 0;
+    _bindLabelParameters(label);
+  }
+
+  /// Binds a parameterized label's formal parameters at entry. Callers do not
+  /// pass arguments to a label yet (`call foo(args)` drops its args), so each
+  /// parameter takes its default - or null (Ren'Py's None) when it has none.
+  /// `*args`/`**kwargs` bind to an empty list/dict. A default that fails to
+  /// evaluate degrades to null rather than aborting label entry.
+  void _bindLabelParameters(RenPyLabelStatement label) {
+    if (label.parameters.isEmpty) return;
+    for (final parameter in label.parameters) {
+      var name = parameter.name;
+      Object? value;
+      if (name.startsWith('**')) {
+        name = name.substring(2).trim();
+        value = <dynamic, dynamic>{};
+      } else if (name.startsWith('*')) {
+        name = name.substring(1).trim();
+        value = <dynamic>[];
+      } else if (parameter.defaultExpression != null) {
+        try {
+          value = _evaluateExpression(parameter.defaultExpression!);
+        } catch (_) {
+          value = null;
+        }
+      }
+      if (name.isEmpty) continue;
+      _setVariable(name, value);
+    }
   }
 
   /// Registers a blocking `call screen` request and waits for a Return value.
@@ -4232,6 +4262,7 @@ class RenPyRunner {
 
     _currentBlock = label.block;
     _position = 0;
+    _bindLabelParameters(label);
 
     final nextPosition = context.index + 1;
     if (nextPosition < context.parentBlock.length) {
