@@ -1094,7 +1094,8 @@ class RenPyParser {
     }
 
     final callRegex = RegExp(
-      r'^call\s+([a-zA-Z_][a-zA-Z0-9_]*)(?:\s+from\s+[a-zA-Z_][a-zA-Z0-9_]*)?',
+      r'^call\s+([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*\(([^)]*)\))?(?:\s+from\s+[a-zA-Z_][a-zA-Z0-9_]*)?\s*$',
+      dotAll: true,
     );
     final match = callRegex.firstMatch(text);
 
@@ -1107,7 +1108,13 @@ class RenPyParser {
       );
     }
 
-    return RenPyCallStatement(match.group(1)!, line.filename, line.number);
+    final callArgs = match.group(2);
+    return RenPyCallStatement(
+      match.group(1)!,
+      line.filename,
+      line.number,
+      callArgs: callArgs,
+    );
   }
 
   RenPyShowStatement _parseShowStatement(
@@ -1534,34 +1541,52 @@ class RenPyParser {
     );
   }
 
+  /// Extract the condition text from an `if` or `elif` clause.
+  ///
+  /// The [text] is the trimmed logical-line text (which may span multiple
+  /// physical lines when the condition contains open parentheses / brackets).
+  /// [keyword] is either `'if'` or `'elif'`.
+  ///
+  /// Returns the condition string, or `null` if the line doesn't match.
+  String? _extractCondition(String text, String keyword) {
+    // The keyword must appear at the start, followed by whitespace.
+    if (!text.startsWith('$keyword ')) return null;
+
+    // The logical line (after trim) must end with ':'.
+    if (!text.endsWith(':')) return null;
+
+    // Strip the keyword prefix and the trailing colon, then trim whitespace.
+    final condition =
+        text.substring(keyword.length, text.length - 1).trim();
+    if (condition.isEmpty) return null;
+    return condition;
+  }
+
   RenPyIfStatement _parseIfStatement(
     GroupedLine line,
     List<String> warnings, {
     List<GroupedLine> branches = const [],
   }) {
     final text = line.text.trim();
-    final ifRegex = RegExp(r'^if\s+(.+?)\s*:');
-    final match = ifRegex.firstMatch(text);
+    final condition = _extractCondition(text, 'if');
 
-    if (match == null) {
+    if (condition == null) {
       throw RenPyParseError('Invalid if syntax', line.filename, line.number, 0);
     }
-
-    final condition = match.group(1)!;
 
     final entries = <IfEntry>[];
     entries.add(IfEntry(condition, _parseBlock(line.block, warnings)));
 
     for (final branch in branches) {
       final branchText = branch.text.trim();
-      final elifMatch = RegExp(r'^elif\s+(.+?)\s*:').firstMatch(branchText);
-      if (elifMatch != null) {
+      final elifCondition = _extractCondition(branchText, 'elif');
+      if (elifCondition != null) {
         entries.add(
-          IfEntry(elifMatch.group(1)!, _parseBlock(branch.block, warnings)),
+          IfEntry(elifCondition, _parseBlock(branch.block, warnings)),
         );
         continue;
       }
-      if (RegExp(r'^else\s*:').hasMatch(branchText)) {
+      if (RegExp(r'^else\s*:', dotAll: true).hasMatch(branchText)) {
         entries.add(IfEntry('True', _parseBlock(branch.block, warnings)));
         continue;
       }

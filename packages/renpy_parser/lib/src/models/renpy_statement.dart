@@ -156,6 +156,10 @@ class RenPyCallStatement extends RenPyStatement {
   /// invocation (e.g. `"Quit?"`), or null when no parentheses were given.
   final String? screenArgs;
 
+  /// The raw argument string inside the parentheses of a `call label(args)`
+  /// invocation, or null when no parentheses were given.
+  final String? callArgs;
+
   RenPyCallStatement(
     this.target,
     String filename,
@@ -164,6 +168,7 @@ class RenPyCallStatement extends RenPyStatement {
     this.isScreen = false,
     this.screenName,
     this.screenArgs,
+    this.callArgs,
   }) : super(filename, linenumber);
 
   @override
