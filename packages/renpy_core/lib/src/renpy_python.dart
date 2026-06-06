@@ -1296,6 +1296,18 @@ class _Parser {
     _Node? start;
     if (!_isOp(':')) {
       start = parseExpression();
+      // A bare-comma subscript is a tuple index: `d[a, b, c]` means
+      // `d[(a, b, c)]` (CPython). Collect the remaining comma-separated parts
+      // into a tuple. A trailing comma (`d[a,]`) yields a 1-tuple.
+      if (_isOp(',')) {
+        final elements = <_Node>[start];
+        while (_isOp(',')) {
+          _advance();
+          if (_isOp(']')) break;
+          elements.add(parseExpression());
+        }
+        return _TupleNode(elements);
+      }
       if (!_isOp(':')) return start;
     }
     // A slice: collect up to two more colon-separated parts.
@@ -2872,7 +2884,23 @@ class _Interpreter {
         if (args.length > 1) return args[1];
         throw RenPyPythonError('key error: ${args[0]}');
       case 'update':
-        map.addAll((args[0] as Map).cast());
+        // Write entries through the dynamic `[]=` setter rather than
+        // `addAll(other.cast())`: when the receiver is a reified map (e.g. a
+        // `**kwargs` value typed `Map<String, Object?>`), `addAll` runtime-type-
+        // checks a `CastMap` argument and throws. Per-entry assignment widens
+        // safely and matches Python's `dict.update` (Map or iterable-of-pairs).
+        final other = args.isNotEmpty ? args[0] : null;
+        if (other is Map) {
+          for (final entry in other.entries) {
+            map[entry.key] = entry.value;
+          }
+        } else if (other is Iterable) {
+          for (final pair in other) {
+            if (pair is List && pair.length == 2) {
+              map[pair[0]] = pair[1];
+            }
+          }
+        }
         return null;
       case 'clear':
         map.clear();
