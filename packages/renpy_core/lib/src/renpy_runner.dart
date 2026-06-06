@@ -139,12 +139,25 @@ class _PendingMenuResult {
 /// A collected `init python:` block awaiting execution at load. [priority] is
 /// the init priority (lower runs first), [sourceIndex] breaks priority ties in
 /// source order, and [lines] are the block's top-level Python source lines.
+/// One init-time item ordered by (priority, sourceIndex): EITHER an
+/// `init python:` body ([lines]) OR a single `define` statement ([define]).
+/// In Ren'Py a `define` is sugar for an `init python` at the same priority, so
+/// both kinds share one priority/source-order stream and interleave faithfully.
 class _InitPythonBlock {
-  const _InitPythonBlock(this.priority, this.sourceIndex, this.lines);
+  const _InitPythonBlock(this.priority, this.sourceIndex, this.lines)
+    : define = null;
+
+  const _InitPythonBlock.define(this.priority, this.sourceIndex, this.define)
+    : lines = const [];
 
   final int priority;
   final int sourceIndex;
   final List<String> lines;
+
+  /// Non-null when this item is a `define` to apply rather than a python body.
+  final RenPyDefineStatement? define;
+
+  bool get isDefine => define != null;
 }
 
 /// Result of attempting to evaluate a `define`/`default` right-hand side:
@@ -326,6 +339,14 @@ class RenPyRunner {
   /// early blocks first; multiple early blocks keep source order via the
   /// sourceIndex tie-break.
   static const int _earlyInitPriority = -1000000;
+
+  /// Init priority for a plain `define` statement. In Ren'Py `define` is sugar
+  /// for `init python` at priority 0 (the default for a bare `init`/`init
+  /// python:`), so defines and unprioritized init-python blocks interleave by
+  /// source order. (The parser does not currently retain an explicit `define
+  /// -N` priority, so every define is treated as priority 0 - faithful for the
+  /// common case and both wild corpora.)
+  static const int _defineInitPriority = 0;
 
   /// The current state of the runner
   RenPyRunnerState _state = RenPyRunnerState.ready;
@@ -643,6 +664,7 @@ class RenPyRunner {
     'translate_clean_stores',
     'searchpath',
     'keymap_overrides',
+    'lint_stats_callbacks',
   ];
 
   static const List<String> _configDictDefaults = [
@@ -667,12 +689,19 @@ class RenPyRunner {
   /// Process all init-time declarations in the script in RenPy's load order:
   ///
   ///  1. Register UI/transform metadata (transform/screen/style) and collect
-  ///     the `init python:` blocks, ordered by init priority then source order.
-  ///  2. Run every `init python:` body through the Python executor so the
-  ///     classes/functions/variables they declare exist BEFORE any `define`/
-  ///     `default` expression that depends on them is evaluated.
-  ///  3. Evaluate `define` statements (init-time bindings).
-  ///  4. Apply `default` statements LAST (game-start bindings), so
+  ///     both the `init python:` blocks AND the `define` statements into one
+  ///     stream tagged with (priority, sourceIndex). `python early:` blocks take
+  ///     the earliest sentinel priority; `define`s and unprioritized init-python
+  ///     blocks share priority 0, so they interleave by SOURCE ORDER - matching
+  ///     Ren'Py, where `define X = ...` is sugar for `init python` at the same
+  ///     priority. A `define` therefore becomes visible to an `init python:`
+  ///     block that FOLLOWS it in source order (and stays invisible to one that
+  ///     precedes it).
+  ///  2. Execute the merged stream in (priority, source) order: a contiguous run
+  ///     of `define`s is applied together via a bounded fixpoint (so defines may
+  ///     forward-reference each other within the run); an init-python body runs
+  ///     through the Python executor.
+  ///  3. Apply `default` statements LAST (game-start bindings), so
   ///     `default x = SomeClass()` constructs a real instance against a scope
   ///     that already has the class.
   ///
@@ -687,18 +716,24 @@ class RenPyRunner {
     // does not clobber a value already returned by a call.
     _variables.putIfAbsent('_return', () => null);
 
-    final defines = <RenPyDefineStatement>[];
     final defaults = <RenPyDefaultStatement>[];
-    // Init-python blocks paired with their priority and a monotonically
-    // increasing source index, so a stable sort orders them by priority first
-    // and source order for ties (RenPy's init-block ordering).
+    // Init items (init-python blocks AND defines) paired with their priority and
+    // a monotonically increasing source index, so a stable sort orders them by
+    // priority first and source order for ties (RenPy's init ordering, with
+    // `define` interleaved as init python at priority 0).
     final initPythonBlocks = <_InitPythonBlock>[];
     var sourceIndex = 0;
 
     void collect(List<RenPyStatement> statements) {
       for (final statement in statements) {
         if (statement is RenPyDefineStatement) {
-          defines.add(statement);
+          initPythonBlocks.add(
+            _InitPythonBlock.define(
+              _defineInitPriority,
+              sourceIndex++,
+              statement,
+            ),
+          );
         } else if (statement is RenPyDefaultStatement) {
           defaults.add(statement);
         } else if (statement is RenPyPythonStatement) {
@@ -760,11 +795,25 @@ class RenPyRunner {
       return a.sourceIndex.compareTo(b.sourceIndex);
     });
 
-    for (final block in initPythonBlocks) {
-      _runInitPythonBlock(block.lines);
+    // Execute the merged stream in order. A contiguous run of defines is
+    // applied together through the bounded fixpoint so they can forward-
+    // reference each other; an init-python item runs its body. This lets a
+    // define be visible to a later init-python block (and vice versa, an init
+    // python block's bindings be visible to a later define).
+    var i = 0;
+    while (i < initPythonBlocks.length) {
+      if (initPythonBlocks[i].isDefine) {
+        final run = <RenPyDefineStatement>[];
+        while (i < initPythonBlocks.length && initPythonBlocks[i].isDefine) {
+          run.add(initPythonBlocks[i].define!);
+          i += 1;
+        }
+        _applyDefinesWithFixpoint(run);
+      } else {
+        _runInitPythonBlock(initPythonBlocks[i].lines);
+        i += 1;
+      }
     }
-
-    _applyDefinesWithFixpoint(defines);
 
     for (final aDefault in defaults) {
       _applyDefault(aDefault.name, aDefault.expression);
@@ -2615,11 +2664,90 @@ class RenPyRunner {
       current.clear();
     }
 
+    // Open-bracket depth and open triple-quote across physical lines. A column-0
+    // line that lands inside an unclosed `([{`, an unterminated triple-quoted
+    // string, or after a trailing `\` is a CONTINUATION of the current
+    // statement, not a new top-level statement - otherwise a multi-line list /
+    // dict literal (`xs = [\n    Foo(),\n]`) gets shredded into unparseable
+    // fragments. The scan is string- and comment-aware so brackets inside
+    // strings or after `#` don't affect the depth.
+    var depth = 0;
+    String? triple;
+    var pendingBackslash = false;
+
+    void scan(String line) {
+      var i = 0;
+      String? quote;
+      while (i < line.length) {
+        final ch = line[i];
+        if (triple != null) {
+          if (line.startsWith(triple!, i)) {
+            i += 3;
+            triple = null;
+          } else if (ch == r'\') {
+            i += 2;
+          } else {
+            i += 1;
+          }
+          continue;
+        }
+        if (quote != null) {
+          if (ch == r'\') {
+            i += 2;
+          } else if (ch == quote) {
+            quote = null;
+            i += 1;
+          } else {
+            i += 1;
+          }
+          continue;
+        }
+        if (ch == '#') break; // comment: ignore the rest of the line
+        if (line.startsWith("'''", i) || line.startsWith('"""', i)) {
+          triple = line.substring(i, i + 3);
+          i += 3;
+          continue;
+        }
+        if (ch == '"' || ch == "'") {
+          quote = ch;
+          i += 1;
+          continue;
+        }
+        if (ch == '(' || ch == '[' || ch == '{') {
+          depth += 1;
+        } else if (ch == ')' || ch == ']' || ch == '}') {
+          if (depth > 0) depth -= 1;
+        }
+        i += 1;
+      }
+      // A trailing backslash (outside any string, at bracket depth 0) continues
+      // onto the next physical line.
+      if (triple == null && quote == null) {
+        final trimmed = line.trimRight();
+        var backslashes = 0;
+        for (var j = trimmed.length - 1; j >= 0 && trimmed[j] == r'\'; j--) {
+          backslashes += 1;
+        }
+        pendingBackslash = backslashes.isOdd;
+      } else {
+        pendingBackslash = false;
+      }
+    }
+
     for (final line in lines) {
+      final continuing = depth > 0 || triple != null || pendingBackslash;
+      if (continuing) {
+        // Mid-bracket / mid-triple-quote / line-continuation: always attached,
+        // regardless of this line's indentation.
+        current.add(line);
+        scan(line);
+        continue;
+      }
       final isTopLevel = line.isNotEmpty && line[0] != ' ' && line[0] != '\t';
       if (!isTopLevel) {
         // Indented body, blank, or comment line: part of the current statement.
         current.add(line);
+        scan(line);
         continue;
       }
       final stripped = line.trimLeft();
@@ -2629,10 +2757,12 @@ class RenPyRunner {
       if (current.isNotEmpty &&
           (isContinuation(stripped) || pendingDecorator())) {
         current.add(line);
+        scan(line);
         continue;
       }
       flush();
       current.add(line);
+      scan(line);
     }
     flush();
     return segments;
