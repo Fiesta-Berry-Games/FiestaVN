@@ -1592,7 +1592,15 @@ class _Interpreter {
     final full = node.fullName;
     if (full != null && _isScopedName(full)) {
       if (scope.has(full)) return scope.read(full);
-      if (full.startsWith('persistent.')) return null;
+      // An unset `persistent.`/`config.` attribute reads as null rather than
+      // throwing: Ren'Py's `persistent` defaults attributes to None, and `config`
+      // is a module whose many built-in attributes a game reads defensively
+      // (e.g. `config.gamedir`). Returning null keeps such reads from aborting
+      // the whole statement. (`gui.`/`store.` are intentionally NOT covered:
+      // an unset `store.x` should still surface as a NameError.)
+      if (full.startsWith('persistent.') || full.startsWith('config.')) {
+        return null;
+      }
     }
     final target = node.target.eval(this);
     return getAttribute(target, node.attribute);
