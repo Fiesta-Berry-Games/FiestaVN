@@ -998,48 +998,6 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     }
   }
 
-  RenPyImageChange _imageChangeForScene(RenPyVisualElementSnapshot snapshot) {
-    return RenPyImageChange(
-      scene: snapshot.imageName,
-      scenePlacement: snapshot.placement,
-      sceneAsset: snapshot.assetPath,
-      sceneImage: _resolvedImageFor(snapshot),
-      sceneZOrder: snapshot.zOrder,
-    );
-  }
-
-  RenPyImageChange _imageChangeForSprite(RenPyVisualElementSnapshot snapshot) {
-    return RenPyImageChange(
-      show: snapshot.imageName,
-      showOnLayer: snapshot.layer,
-      showPlacement: snapshot.placement,
-      showAsset: snapshot.assetPath,
-      showImage: _resolvedImageFor(snapshot),
-      showZOrder: snapshot.zOrder,
-      showText: snapshot.text,
-    );
-  }
-
-  RenPyResolvedImage? _resolvedImageFor(RenPyVisualElementSnapshot snapshot) {
-    final solidColor = snapshot.solidColor;
-    if (solidColor != null) {
-      return RenPyResolvedImage.solid(
-        solidColor,
-        operations: snapshot.operations,
-      );
-    }
-
-    final assetPath = snapshot.assetPath;
-    if (assetPath != null) {
-      return RenPyResolvedImage(
-        assetPath: assetPath,
-        operations: snapshot.operations,
-      );
-    }
-
-    return null;
-  }
-
   String? _tagForSnapshot(RenPyVisualElementSnapshot snapshot) {
     final imageName = snapshot.imageName;
     if (imageName == null) return null;
