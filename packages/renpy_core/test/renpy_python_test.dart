@@ -294,7 +294,8 @@ void main() {
 
   group('graceful failure', () {
     test('unsupported syntax throws RenPyPythonError', () {
-      expect(() => eval('lambda x: x'), throwsA(isA<RenPyPythonError>()));
+      // `lambda x: x` is now supported (returns a _UserFunction), so it is no
+      // longer an unsupported-syntax case.
       expect(() => eval('1 +'), throwsA(isA<RenPyPythonError>()));
       expect(() => eval('foo('), throwsA(isA<RenPyPythonError>()));
     });
@@ -473,7 +474,8 @@ out = collect(1, 2, 3, mode="x")
         () => run('with open("x") as f:\n    pass\n'),
         throwsA(isA<RenPyPythonError>()),
       );
-      expect(() => run('del a\n'), throwsA(isA<RenPyPythonError>()));
+      // `del` is now an intentional no-op (Ren'Py-faithful); see
+      // renpy_python_except_del_test.dart. It no longer raises.
       expect(() => run('yield 1\n'), throwsA(isA<RenPyPythonError>()));
       expect(() => run('assert x == 1\n'), throwsA(isA<RenPyPythonError>()));
     });

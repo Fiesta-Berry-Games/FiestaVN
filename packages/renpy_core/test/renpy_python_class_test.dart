@@ -131,11 +131,9 @@ origin = Point(2, 5)
       expect(evaluator.evaluate('origin.x + origin.y', scope), 7);
     });
 
-    test('multiple inheritance falls back without aborting', () {
-      expect(
-        () => run('class C(A, B):\n    pass\n'),
-        throwsA(isA<RenPyPythonError>()),
-      );
+    test('multiple inheritance uses first base and ignores the rest', () {
+      final s = run('class C(A, B):\n    pass\n');
+      expect(s.containsKey('C'), isTrue);
     });
 
     test('metaclass keyword falls back without aborting', () {

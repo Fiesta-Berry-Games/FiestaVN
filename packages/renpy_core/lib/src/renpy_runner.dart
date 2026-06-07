@@ -332,6 +332,13 @@ class RenPyRunner {
 
   static const int _maxScriptLoopIterations = 100000;
 
+  /// Creator-defined statement (CDS) verbs registered via
+  /// `renpy.register_statement(name, ...)` during init-python. After init
+  /// completes the runner uses this set to (a) reclassify say statements
+  /// whose "character" matches a CDS verb, and (b) silently skip
+  /// `RenPyGenericStatement` lines whose leading text matches.
+  final Set<String> _cdsVerbs = {};
+
   /// Sentinel init priority for `python early:` blocks. Ren'Py runs the
   /// `python early` phase BEFORE every `init` block (and thus before
   /// `define`/`default`). Realistic init priorities are small ints (commonly
@@ -684,6 +691,11 @@ class RenPyRunner {
     for (final name in _configDictDefaults) {
       _config.putIfAbsent(name, () => <dynamic, dynamic>{});
     }
+    // Ren'Py defaults screen_width/screen_height to the window dimensions
+    // (typically 1280x720). Seeding them here ensures expressions like
+    // `config.screen_height - 715` evaluate instead of failing with null.
+    _config.putIfAbsent('screen_width', () => 1280);
+    _config.putIfAbsent('screen_height', () => 720);
   }
 
   /// Process all init-time declarations in the script in RenPy's load order:
@@ -800,6 +812,15 @@ class RenPyRunner {
     // reference each other; an init-python item runs its body. This lets a
     // define be visible to a later init-python block (and vice versa, an init
     // python block's bindings be visible to a later define).
+    //
+    // Defines that cannot resolve within their own contiguous batch (because
+    // their dependency is in a LATER batch, e.g. separated by an init-python
+    // block) are collected here and retried in one final cross-batch fixpoint
+    // after all batches have run. This handles patterns like
+    //   `define updated = the_dict`   (batch A, before an init-python block)
+    //   `define the_dict = { ... }`   (batch B, after the block)
+    // which would otherwise emit a spurious skippedDefinition for `updated`.
+    final crossBatchDeferred = <RenPyDefineStatement>[];
     var i = 0;
     while (i < initPythonBlocks.length) {
       if (initPythonBlocks[i].isDefine) {
@@ -808,16 +829,90 @@ class RenPyRunner {
           run.add(initPythonBlocks[i].define!);
           i += 1;
         }
-        _applyDefinesWithFixpoint(run);
+        crossBatchDeferred.addAll(
+          _applyDefinesWithFixpoint(run, diagnose: false),
+        );
       } else {
         _runInitPythonBlock(initPythonBlocks[i].lines);
         i += 1;
       }
     }
-
-    for (final aDefault in defaults) {
-      _applyDefault(aDefault.name, aDefault.expression);
+    // Final pass: retry all cross-batch unresolved defines now that all
+    // init-python blocks and define batches have run.
+    if (crossBatchDeferred.isNotEmpty) {
+      _applyDefinesWithFixpoint(crossBatchDeferred);
     }
+
+    _applyDefaultsWithFixpoint(defaults);
+
+    // After init completes, reclassify any say statements that the parser
+    // mis-identified because their "speaker" is actually a CDS verb.
+    _reclassifyCdsStatements();
+  }
+
+  /// After init runs and CDS verbs are registered, walk the entire statement
+  /// tree and reclassify any [RenPySayStatement] whose character name matches a
+  /// registered CDS verb back to a [RenPyGenericStatement]. This prevents
+  /// `msg ja "Hello"` from being emitted as dialogue with character `msg`.
+  void _reclassifyCdsStatements() {
+    if (_cdsVerbs.isEmpty) return;
+
+    void walk(List<RenPyStatement> block) {
+      for (var i = 0; i < block.length; i++) {
+        final stmt = block[i];
+        if (stmt is RenPySayStatement && stmt.character != null) {
+          if (_matchesCdsVerb(stmt.character!) != null) {
+            // Reconstruct the original line text so the generic statement
+            // carries it for later CDS matching in _executeStatement.
+            final buf = StringBuffer(stmt.character!);
+            for (final attr in stmt.attributes) {
+              buf.write(' $attr');
+            }
+            if (stmt.text != null) {
+              buf.write(' "${stmt.text}"');
+            }
+            block[i] = RenPyGenericStatement(
+              buf.toString(),
+              stmt.filename,
+              stmt.linenumber,
+            );
+          }
+        } else if (stmt is RenPyBlockStatement) {
+          walk(stmt.block);
+        } else if (stmt is RenPyIfStatement) {
+          for (final entry in stmt.entries) {
+            walk(entry.block);
+          }
+        } else if (stmt is RenPyMenuStatement) {
+          for (final item in stmt.items) {
+            walk(item.block);
+          }
+        }
+      }
+    }
+
+    walk(script.statements);
+    // Rebuild block-owner mappings since we may have replaced statements.
+    _blockOwners.clear();
+    _buildBlockOwners();
+  }
+
+  /// Returns the matching CDS verb if [text] starts with a registered CDS
+  /// verb, checking multi-word verbs (longest first) before single-word ones.
+  /// Returns null when no verb matches.
+  String? _matchesCdsVerb(String text) {
+    // Sort verbs longest-first so "enter chatroom" beats "enter".
+    final sorted = _cdsVerbs.toList()
+      ..sort((a, b) => b.length.compareTo(a.length));
+    for (final verb in sorted) {
+      if (text == verb) return verb;
+      if (text.startsWith(verb) &&
+          text.length > verb.length &&
+          (text[verb.length] == ' ' || text[verb.length] == '\t')) {
+        return verb;
+      }
+    }
+    return null;
   }
 
   /// Applies all `define` statements, tolerating forward references between
@@ -836,7 +931,9 @@ class RenPyRunner {
   ///     resolves at least one, so the fixpoint converges in at most N passes
   ///     and a pass with no progress stops the loop, so there is no infinite
   ///     loop even if some defines never resolve.
-  ///   * Defines still unresolved after the fixpoint are applied a final time
+  ///   * Defines still unresolved after the fixpoint are either returned to
+  ///     the caller (when [diagnose] is false, so the caller can retry them
+  ///     later after more definitions are available) or applied a final time
   ///     WITH diagnostics, emitting exactly one `skippedDefinition` each and
   ///     storing the literal fallback (the prior graceful behavior).
   ///
@@ -849,7 +946,15 @@ class RenPyRunner {
   /// unchanged. Each attempt is a single, side-effect-free expression
   /// evaluation that only writes the target when evaluation SUCCEEDS, so a
   /// failed attempt never partially applies and re-attempting is safe.
-  void _applyDefinesWithFixpoint(List<RenPyDefineStatement> defines) {
+  ///
+  /// Returns any still-unresolved defines when [diagnose] is false, so the
+  /// caller can collect them for a later cross-batch retry. Always returns
+  /// an empty list when [diagnose] is true (unresolved defines are diagnosed
+  /// and stored inline before returning).
+  List<RenPyDefineStatement> _applyDefinesWithFixpoint(
+    List<RenPyDefineStatement> defines, {
+    bool diagnose = true,
+  }) {
     // Ren'Py semantics: the textually-LAST `define` of a name wins. The forward
     // -reference fixpoint below can resolve a deferred EARLIER define of a
     // re-defined name on a later pass and clobber the later one (or emit a
@@ -884,16 +989,19 @@ class RenPyRunner {
             define,
       ];
       if (next.length == pending.length) {
-        // No progress this pass: the remaining defines are genuinely
-        // unresolvable (forward references would have resolved by now). Apply
-        // them once more WITH diagnostics so each emits its skip exactly once.
+        // No progress this pass. When diagnose is false, return the unresolved
+        // defines to the caller for a later cross-batch retry; when diagnose
+        // is true, apply them one more time WITH diagnostics so each emits its
+        // skip exactly once.
+        if (!diagnose) return next;
         for (final define in next) {
           _applyDefinition(define.name, define.expression, diagnose: true);
         }
-        return;
+        return const [];
       }
       pending = next;
     }
+    return const [];
   }
 
   /// Runs one collected `init python:` block. The parser hands the body as a
@@ -996,13 +1104,28 @@ class RenPyRunner {
   /// the variable is left untouched until it resolves); when [diagnose] is true
   /// (the final attempt) the failure emits the diagnostic and stores the
   /// literal fallback as before.
+  static bool _isCharacterDefine(String expression) {
+    final match = RegExp(r'\bCharacter\s*\(').firstMatch(expression);
+    if (match == null) return false;
+    final start = match.start;
+    if (start > 0) {
+      final prev = expression.codeUnitAt(start - 1);
+      if ((prev >= 65 && prev <= 90) ||
+          (prev >= 97 && prev <= 122) ||
+          prev == 95 ||
+          (prev >= 48 && prev <= 57)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   bool _applyDefinition(
     String name,
     String expression, {
     bool diagnose = true,
   }) {
-    if (expression.contains('Character(') ||
-        expression.contains('Character (')) {
+    if (_isCharacterDefine(expression)) {
       _parseCharacter(name, expression);
       return true;
     }
@@ -1067,19 +1190,63 @@ class RenPyRunner {
     return true;
   }
 
+  /// Applies all `default` statements using a bounded fixpoint so that forward
+  /// references between defaults resolve. Mirrors [_applyDefinesWithFixpoint]:
+  /// first pass tries all defaults silently; subsequent passes retry the ones
+  /// that failed; when no further progress is made the remaining defaults are
+  /// applied with diagnostics enabled so each emits its skip exactly once.
+  void _applyDefaultsWithFixpoint(List<RenPyDefaultStatement> defaults) {
+    // First pass: try all defaults, collect any that fail.
+    var pending = <RenPyDefaultStatement>[
+      for (final d in defaults)
+        if (!_applyDefault(d.name, d.expression, diagnose: false)) d,
+    ];
+
+    // Bounded retry: each productive pass resolves at least one default, so at
+    // most `pending.length` further passes run.
+    while (pending.isNotEmpty) {
+      final next = <RenPyDefaultStatement>[
+        for (final d in pending)
+          if (!_applyDefault(d.name, d.expression, diagnose: false)) d,
+      ];
+      if (next.length == pending.length) {
+        // No progress: the remaining defaults are genuinely unresolvable. Apply
+        // them once more WITH diagnostics so each emits its skip exactly once.
+        for (final d in next) {
+          _applyDefault(d.name, d.expression, diagnose: true);
+        }
+        return;
+      }
+      pending = next;
+    }
+  }
+
   /// Applies a `default name = expression`, routing namespaced targets into the
   /// matching scope and bare names into the store. Mirrors RenPy's `default`:
   /// the value is only set when the name is not already present, so a value
   /// already supplied (for instance a surviving `persistent.X`) is preserved.
-  void _applyDefault(String name, String expression) {
+  ///
+  /// Returns `true` when the expression resolved (or the name was already
+  /// present), `false` when evaluation failed. When [diagnose] is `false` and
+  /// evaluation fails, neither the store nor diagnostics are touched so the
+  /// caller can retry on a later pass.
+  bool _applyDefault(String name, String expression, {bool diagnose = true}) {
     if (_isNamespacedName(name)) {
       if (!_pythonScope.has(name)) {
-        _pythonScope.write(
-          name,
-          _evaluateDefinitionExpression(name, expression),
-        );
+        final outcome = _tryEvaluateDefinitionExpression(name, expression);
+        if (!outcome.resolved) {
+          if (!diagnose) return false;
+          _emitDiagnostic(
+            RenPyDiagnostic(
+              code: RenPyDiagnosticCode.skippedDefinition,
+              message: 'Failed to evaluate $name; stored literal fallback.',
+              detail: '$name = $expression (${outcome.error})',
+            ),
+          );
+        }
+        _pythonScope.write(name, outcome.value);
       }
-      return;
+      return true;
     }
     // `default npc = annika` where `annika` is a defined Character: mirror the
     // `define`/`$` alias paths so `npc` renders with annika's name/color, but
@@ -1090,12 +1257,23 @@ class RenPyRunner {
         _characters.containsKey(trimmed)) {
       _maybeAliasCharacter(name, expression);
       _variables[name] = _CharacterRef(name);
-      return;
+      return true;
     }
-    _variables.putIfAbsent(
-      name,
-      () => _evaluateDefinitionExpression(name, expression),
-    );
+    if (!_variables.containsKey(name)) {
+      final outcome = _tryEvaluateDefinitionExpression(name, expression);
+      if (!outcome.resolved) {
+        if (!diagnose) return false;
+        _emitDiagnostic(
+          RenPyDiagnostic(
+            code: RenPyDiagnosticCode.skippedDefinition,
+            message: 'Failed to evaluate $name; stored literal fallback.',
+            detail: '$name = $expression (${outcome.error})',
+          ),
+        );
+      }
+      _variables[name] = outcome.value;
+    }
+    return true;
   }
 
   /// Evaluates a `define`/`default` right-hand side like [_evaluateExpression],
@@ -1813,6 +1991,28 @@ class RenPyRunner {
       _executeNext();
     } else if (stmt is RenPyPauseStatement) {
       _executePauseStatement(stmt);
+    } else if (stmt is RenPyGenericStatement) {
+      // Check whether this generic statement matches a registered CDS verb.
+      // CDS lines that were either originally generic (the parser didn't know
+      // them) or reclassified from say statements land here.
+      final verb = _matchesCdsVerb(stmt.text.trim());
+      if (verb != null) {
+        // Registered creator-defined statement - skip silently.
+        _position++;
+        _executeNext();
+      } else {
+        // Genuinely unknown generic statement.
+        print('Warning: Unknown statement type: ${stmt.runtimeType}');
+        _emitDiagnostic(
+          RenPyDiagnostic(
+            code: RenPyDiagnosticCode.unknownStatement,
+            message: 'Skipped unknown RenPy statement.',
+            detail: stmt.text,
+          ),
+        );
+        _position++;
+        _executeNext();
+      }
     } else {
       // Unknown statement type, just skip it.
       print('Warning: Unknown statement type: ${stmt.runtimeType}');
@@ -3916,14 +4116,17 @@ class RenPyRunner {
         callerLabel: _currentLabel,
       ),
     );
-    _enterLabelTarget(context);
+    _enterLabelTarget(context, callArgs: stmt.callArgs);
     _executeNext();
   }
 
   /// Moves execution into a resolved jump/call target. For a `label` it
   /// descends into the label's block; for a named `menu` it runs the menu
   /// statement in place so its choices are presented.
-  void _enterLabelTarget(_LabelContext context) {
+  ///
+  /// [callArgs] is the raw argument string from `call foo(args)`, or null
+  /// when no arguments were passed (plain `call foo` or a `jump`).
+  void _enterLabelTarget(_LabelContext context, {String? callArgs}) {
     _currentLabel = context.name;
     final label = context.label;
     if (label == null) {
@@ -3933,30 +4136,76 @@ class RenPyRunner {
     }
     _currentBlock = label.block;
     _position = 0;
-    _bindLabelParameters(label);
+    _bindLabelParameters(label, callArgs: callArgs);
   }
 
-  /// Binds a parameterized label's formal parameters at entry. Callers do not
-  /// pass arguments to a label yet (`call foo(args)` drops its args), so each
-  /// parameter takes its default - or null (Ren'Py's None) when it has none.
-  /// `*args`/`**kwargs` bind to an empty list/dict. A default that fails to
-  /// evaluate degrades to null rather than aborting label entry.
-  void _bindLabelParameters(RenPyLabelStatement label) {
-    if (label.parameters.isEmpty) return;
+  /// Binds a parameterized label's formal parameters at entry. When [callArgs]
+  /// is provided (from `call foo(args)`), the argument expressions are
+  /// evaluated and bound to the label's positional/keyword parameters.
+  /// Unmatched parameters fall back to their default - or null (Ren'Py's None)
+  /// when they have none. `*args`/`**kwargs` collect any surplus positional or
+  /// keyword arguments respectively. A default that fails to evaluate degrades
+  /// to null rather than aborting label entry.
+  void _bindLabelParameters(
+    RenPyLabelStatement label, {
+    String? callArgs,
+  }) {
+    if (label.parameters.isEmpty && callArgs == null) return;
+
+    // Parse and evaluate the call arguments, if any.
+    var positionalArgs = const <Object?>[];
+    var keywordArgs = const <String, Object?>{};
+    if (callArgs != null && callArgs.trim().isNotEmpty) {
+      final parsed = _pythonCallArguments(callArgs);
+      positionalArgs = [
+        for (final expr in parsed.positional) _evaluateExpression(expr),
+      ];
+      keywordArgs = <String, Object?>{
+        for (final entry in parsed.keywords.entries)
+          entry.key: _evaluateExpression(entry.value),
+      };
+    }
+
+    // Separate the formal parameters into positional, *args, and **kwargs.
+    var positionalIndex = 0;
+    final usedKeywords = <String>{};
     for (final parameter in label.parameters) {
       var name = parameter.name;
       Object? value;
+
       if (name.startsWith('**')) {
+        // **kwargs - collect all unused keyword arguments.
         name = name.substring(2).trim();
-        value = <dynamic, dynamic>{};
+        final remaining = <dynamic, dynamic>{};
+        for (final entry in keywordArgs.entries) {
+          if (!usedKeywords.contains(entry.key)) {
+            remaining[entry.key] = entry.value;
+          }
+        }
+        value = remaining;
       } else if (name.startsWith('*')) {
+        // *args - collect all remaining positional arguments.
         name = name.substring(1).trim();
-        value = <dynamic>[];
-      } else if (parameter.defaultExpression != null) {
-        try {
-          value = _evaluateExpression(parameter.defaultExpression!);
-        } catch (_) {
-          value = null;
+        value =
+            positionalIndex < positionalArgs.length
+                ? positionalArgs.sublist(positionalIndex).toList()
+                : <dynamic>[];
+        positionalIndex = positionalArgs.length;
+      } else {
+        // Regular parameter: check keyword args first, then positional, then
+        // default.
+        if (keywordArgs.containsKey(name)) {
+          value = keywordArgs[name];
+          usedKeywords.add(name);
+        } else if (positionalIndex < positionalArgs.length) {
+          value = positionalArgs[positionalIndex];
+          positionalIndex++;
+        } else if (parameter.defaultExpression != null) {
+          try {
+            value = _evaluateExpression(parameter.defaultExpression!);
+          } catch (_) {
+            value = null;
+          }
         }
       }
       if (name.isEmpty) continue;
@@ -4673,6 +4922,11 @@ class _RunnerRenPyApi implements RenPyApi {
   @override
   void hideScreen(String name) {
     _runner._hideScreen(name);
+  }
+
+  @override
+  void registerStatement(String name, Map<String, Object?> kwargs) {
+    _runner._cdsVerbs.add(name);
   }
 }
 

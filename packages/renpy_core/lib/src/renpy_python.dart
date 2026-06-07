@@ -90,6 +90,12 @@ abstract class RenPyApi {
   /// `renpy.hide_screen(name)` - best-effort screen hide. A no-op host ignores
   /// it; a driving host removes the screen from its layer.
   void hideScreen(String name);
+
+  /// `renpy.register_statement(name, ...)` - registers a creator-defined
+  /// statement (CDS) verb so the runner can recognize and skip (or execute)
+  /// lines that start with [name] instead of mis-parsing them as say or
+  /// emitting an unknownStatement diagnostic.
+  void registerStatement(String name, Map<String, Object?> kwargs);
 }
 
 /// A [RenPyApi] whose every method is a no-op (or a neutral return). Used when
@@ -145,6 +151,9 @@ class _NoOpRenPyApi implements RenPyApi {
 
   @override
   void hideScreen(String name) {}
+
+  @override
+  void registerStatement(String name, Map<String, Object?> kwargs) {}
 }
 
 /// A scope backed by plain Dart maps, one per RenPy namespace.
@@ -164,7 +173,13 @@ class RenPyMapScope implements RenPyPythonScope {
        _persistent = persistent,
        _config = config ?? <String, Object?>{},
        _gui = gui ?? <String, Object?>{},
-       renpy = renpy ?? const _NoOpRenPyApi();
+       renpy = renpy ?? const _NoOpRenPyApi() {
+    // Seed Ren'Py's standard screen-dimension defaults so expressions like
+    // `config.screen_height - 715` evaluate instead of subtracting from null.
+    _config.putIfAbsent('screen_width', () => 1280);
+    _config.putIfAbsent('screen_height', () => 720);
+    _config.putIfAbsent('pygame_events', () => <Object?>[]);
+  }
 
   final Map<String, Object?> _store;
   final Map<String, Object?> _persistent;
@@ -176,6 +191,12 @@ class RenPyMapScope implements RenPyPythonScope {
   final RenPyApi renpy;
 
   Map<String, Object?> _mapFor(String name) {
+    // `store.persistent.x` / `store.config.x` are two-level aliases that
+    // route to the inner namespace, matching Ren'Py's behaviour where
+    // `store.persistent` is the same object as `persistent`.
+    if (name.startsWith('store.persistent.')) return _persistent;
+    if (name.startsWith('store.config.')) return _config;
+    if (name.startsWith('store.gui.')) return _gui;
     if (name.startsWith('persistent.')) return _persistent;
     if (name.startsWith('config.')) return _config;
     if (name.startsWith('gui.')) return _gui;
@@ -185,6 +206,17 @@ class RenPyMapScope implements RenPyPythonScope {
   }
 
   String _fieldFor(String name) {
+    // Two-level `store.<namespace>.<field>` - strip both `store.` and the
+    // inner namespace prefix, leaving just the bare field name.
+    if (name.startsWith('store.persistent.')) {
+      return name.substring('store.persistent.'.length);
+    }
+    if (name.startsWith('store.config.')) {
+      return name.substring('store.config.'.length);
+    }
+    if (name.startsWith('store.gui.')) {
+      return name.substring('store.gui.'.length);
+    }
     final dot = name.indexOf('.');
     if (dot < 0) return name;
     final prefix = name.substring(0, dot);
@@ -900,6 +932,24 @@ class _SliceNode implements _Node {
       _Slice(start?.eval(interp), stop?.eval(interp), step?.eval(interp));
 }
 
+/// A lambda expression: `lambda [params]: body`.
+///
+/// When evaluated, produces a [_UserFunction] whose body is a single
+/// `return <expr>` so it behaves like a def with one return statement.
+class _LambdaNode implements _Node {
+  _LambdaNode(this.spec, this.body);
+  final _ParamSpec spec;
+  final _Node body;
+
+  @override
+  Object? eval(_Interpreter interp) {
+    // Wrap the body expression in a synthetic `return` statement so
+    // _UserFunction.invoke returns its value.
+    final returnStmt = _ReturnStatement(body);
+    return _UserFunction('<lambda>', spec, [returnStmt], interp.scope);
+  }
+}
+
 class _CallNode implements _Node {
   _CallNode(
     this.target,
@@ -977,7 +1027,10 @@ class _Parser {
     }
   }
 
-  _Node parseExpression() => _parseTernary();
+  _Node parseExpression() {
+    if (_isKeyword('lambda')) return _parseLambda();
+    return _parseTernary();
+  }
 
   /// Whether the parser has consumed every token.
   bool get atEnd => _current.type == _TokenType.eof;
@@ -1045,6 +1098,46 @@ class _Parser {
     }
     _expectOp(')');
     return _ParamSpec(params, defaults, varargs, kwargs);
+  }
+
+  /// Parses a `lambda` expression: `lambda [params]: expr`.
+  ///
+  /// Lambda parameters use the same syntax as `def` parameters but without
+  /// surrounding parentheses: `lambda x, y=1, *a, **kw: expr`.
+  _Node _parseLambda() {
+    _advance(); // consume 'lambda'
+    final params = <String>[];
+    final defaults = <String, _Node>{};
+    String? varargs;
+    String? kwargs;
+    // Parse optional parameters before the colon.
+    while (!_isOp(':')) {
+      if (_isOp('**')) {
+        _advance();
+        kwargs = _expectName();
+      } else if (_isOp('*')) {
+        _advance();
+        varargs = _expectName();
+      } else {
+        final name = _expectName();
+        if (_isOp('=')) {
+          _advance();
+          defaults[name] = _parseTernary();
+        }
+        params.add(name);
+      }
+      if (_isOp(',')) {
+        _advance();
+      } else {
+        break;
+      }
+    }
+    _expectOp(':');
+    final body = parseExpression();
+    return _LambdaNode(
+      _ParamSpec(params, defaults, varargs, kwargs),
+      body,
+    );
   }
 
   String _expectName() {
@@ -1352,7 +1445,7 @@ class _Parser {
           return _parseNot();
         }
         if (token.value == 'lambda') {
-          throw RenPyPythonError('lambda is not supported');
+          return _parseLambda();
         }
         _advance();
         return _NameNode(token.value);
@@ -1584,6 +1677,10 @@ class _Interpreter {
     final exceptionType = _builtinExceptions[name];
     if (exceptionType != null) return exceptionType;
     if (_builtinConstants.containsKey(name)) return _builtinConstants[name];
+    // The bare name `store` resolves to a proxy that routes attribute reads
+    // and writes back to the scope's default store, matching Ren'Py's
+    // `store.x` alias for the default namespace.
+    if (name == 'store') return _StoreProxy(scope);
     throw RenPyPythonNameError(name);
   }
 
@@ -1593,12 +1690,20 @@ class _Interpreter {
     if (full != null && _isScopedName(full)) {
       if (scope.has(full)) return scope.read(full);
       // An unset `persistent.`/`config.` attribute reads as null rather than
-      // throwing: Ren'Py's `persistent` defaults attributes to None, and `config`
-      // is a module whose many built-in attributes a game reads defensively
-      // (e.g. `config.gamedir`). Returning null keeps such reads from aborting
-      // the whole statement. (`gui.`/`store.` are intentionally NOT covered:
-      // an unset `store.x` should still surface as a NameError.)
-      if (full.startsWith('persistent.') || full.startsWith('config.')) {
+      // throwing: Ren'Py's `persistent` defaults attributes to None, and
+      // `config` is a module whose built-in attributes a game reads
+      // defensively (e.g. `config.gamedir`). `store.persistent.` and
+      // `store.config.` are two-level aliases that behave identically.
+      // Returning null keeps such reads from aborting the whole statement.
+      // Plain `store.` falls through so that deeper chains like `store.c.n`
+      // evaluate the target object properly; single-level `store.x` for an
+      // undefined `x` is handled by the [_StoreProxy] fallback in [readName].
+      if (full.startsWith('persistent.') ||
+          full.startsWith('config.') ||
+          full.startsWith('preferences.') ||
+          full.startsWith('store.persistent.') ||
+          full.startsWith('store.config.') ||
+          full.startsWith('store.gui.')) {
         return null;
       }
     }
@@ -1611,13 +1716,20 @@ class _Interpreter {
   /// [_BoundMethod] for the builtin collection methods.
   Object? getAttribute(Object? target, String name) {
     if (target is _PythonInstance) {
+      // `self.__dict__` returns the raw attributes map (supports subscript).
+      if (name == '__dict__') return target.attributes;
       if (target.attributes.containsKey(name)) return target.attributes[name];
       final lookup = target.cls.findMethodWithOwner(name);
       if (lookup != null) {
         return _BoundUserMethod(target, lookup.function, lookup.owner);
       }
       if (target.cls.hasClassAttribute(name)) {
-        return target.cls.readClassAttribute(name);
+        final attr = target.cls.readClassAttribute(name);
+        // A `@property`-decorated method is auto-invoked with `self` on access.
+        if (attr is _PropertyDescriptor) {
+          return attr.function.invoke([target], const {});
+        }
+        return attr;
       }
       throw RenPyPythonError(
         '${target.cls.name} object has no attribute `$name`',
@@ -1634,12 +1746,30 @@ class _Interpreter {
     if (target is _SuperProxy) {
       return _superAttribute(target, name);
     }
+    if (target is _StoreProxy) {
+      // `store.x` evaluated the long way: delegate to the scope.
+      final key = 'store.$name';
+      if (target._scope.has(key)) return target._scope.read(key);
+      // An unset `store.x` reads as the bare name from the store, falling
+      // back to null (matching Ren'Py's permissive behavior inside class
+      // bodies where `store.foo` is common before the name is defined).
+      if (target._scope.has(name)) return target._scope.read(name);
+      return null;
+    }
     if (target is _StubModule) {
       if (target.attributes.containsKey(name)) return target.attributes[name];
       final fn = target.functions[name];
       if (fn != null) return _BuiltinFunction('${target.name}.$name', fn);
       // Unknown module member: an opaque stub keeps deeper chains alive.
       return _StubModule('${target.name}.$name');
+    }
+    if (target is _GuiPlaceholder) {
+      // Attribute reads on placeholders check the mutable attrs map (set by
+      // `obj.condition = "..."` etc.) and kwargs, falling back to a bound
+      // method (which _callMethod will absorb as a no-op).
+      if (target.attrs.containsKey(name)) return target.attrs[name];
+      if (target.kwargs.containsKey(name)) return target.kwargs[name];
+      return _BoundMethod(target, name);
     }
     if (target is _UnsupportedMember) target.raise();
     if (target is _PythonDate) {
@@ -1660,7 +1790,11 @@ class _Interpreter {
       name.startsWith('config.') ||
       name.startsWith('gui.') ||
       // `store.x` is the explicit spelling of the default namespace.
-      name.startsWith('store.');
+      name.startsWith('store.') ||
+      // `preferences.x` is the RenPy player-preferences object; treat
+      // attribute reads/writes as store entries so `preferences.afm_enable`
+      // works without pre-defining the object.
+      name.startsWith('preferences.');
 
   /// Whether the dotted call target [full] is a runtime-irrelevant build/gui
   /// config directive that should execute as a silent no-op returning None.
@@ -1673,7 +1807,7 @@ class _Interpreter {
   /// caller keeps its normal resolution and the unknown-name fallback fires.
   bool _isConfigNoOpCall(String full) {
     if (full.startsWith('build.')) return true;
-    if (full == 'gui.init') return true;
+    if (full == 'gui.init' || full == 'gui.preference') return true;
     return false;
   }
 
@@ -2029,8 +2163,19 @@ class _Interpreter {
         return null;
       }
       if (full != null && _isScopedName(full) && scope.has(full)) {
+        final resolved = scope.read(full);
+        // When the scoped value IS the callable (e.g. `store.fn_name()`
+        // where `fn_name` is a user function), invoke it directly. Otherwise
+        // dispatch as a method call on the container value (e.g.
+        // `config.map.get(key)` where the map is the container).
+        if (resolved is _UserFunction ||
+            resolved is _BoundUserMethod ||
+            resolved is _BuiltinFunction ||
+            resolved is _PythonClass) {
+          return invoke(resolved, positional, keywords);
+        }
         return _callMethod(
-          scope.read(full),
+          resolved,
           target.attribute,
           positional,
           keywords,
@@ -2083,6 +2228,9 @@ class _Interpreter {
       return null;
     }
     if (callee is _UnsupportedMember) callee.raise();
+    if (callee is _NamedTupleFactory) {
+      return callee.construct(positional, keywords);
+    }
     if (callee is _DefaultDictType) {
       _DefaultDictType._factoryInterp = this;
       return callee.construct(positional);
@@ -2134,21 +2282,42 @@ class _Interpreter {
 
   /// Resolves attribute [name] on a `super()` proxy: looks the method up
   /// starting at the proxy's start class (the parent of the defining class) and
-  /// binds it to the proxy's receiver. A missing method throws so callers fall
-  /// back gracefully; the common `super().__init__(...)` with no base
-  /// `__init__` is handled as a no-op at the call site.
+  /// binds it to the proxy's receiver. When the super chain has no implementation
+  /// for [name], an inert callable is returned so that `super().method(...)` calls
+  /// degrade to no-ops rather than aborting the surrounding statement.
+  ///
+  /// For `__init__` specifically, keyword arguments are stored as instance
+  /// attributes on the bound receiver so that fields passed to an opaque external
+  /// base (e.g. `shuffle`, `channel` passed to `MusicRoom.__init__`) are visible
+  /// to the subclass body after the super call.
   Object? _superAttribute(_SuperProxy proxy, String name) {
     final lookup = proxy.startClass?.findMethodWithOwner(name);
     if (lookup != null) {
       return _BoundUserMethod(proxy.self, lookup.function, lookup.owner);
     }
-    // No base implementation: `super().__init__(...)` is a no-op (an inert
-    // bound method that ignores its arguments); any other missing attribute
-    // throws so the caller can fall back.
+    // No base implementation found. For `__init__`, store keyword arguments as
+    // instance attributes (mirrors what an opaque external base class constructor
+    // would do - keeps fields like `self.shuffle` visible after the super call).
+    // For any other method, return a no-op callable so `super().add(...)` and
+    // similar calls on opaque bases degrade gracefully instead of aborting the
+    // surrounding statement.
     if (name == '__init__') {
-      return _NoOpCallable();
+      final target = proxy.self;
+      return _BuiltinFunction('super.__init__', (a, k) {
+        // Store kwargs as instance attributes (mirrors what an opaque external
+        // base like MusicRoom or renpy.Displayable would do with keyword args).
+        target.attributes.addAll(k);
+        // Seed list attributes that RenPy's MusicRoom and similar playlist/
+        // library base classes initialize in their own __init__ bodies.
+        // A subclass body that reads `self.playlist` or `self.always_unlocked`
+        // before assigning them must find a list (not throw) for the for-loop
+        // iteration to proceed.
+        target.attributes.putIfAbsent('playlist', () => <Object?>[]);
+        target.attributes.putIfAbsent('always_unlocked', () => <Object?>[]);
+        return null;
+      });
     }
-    throw RenPyPythonError("'super' object has no attribute `$name`");
+    return _NoOpCallable();
   }
 
   /// Constructs an instance of [cls], running `__init__` (resolved up the base
@@ -2161,16 +2330,30 @@ class _Interpreter {
     final instance = _PythonInstance(cls);
     final init = cls.findMethodWithOwner('__init__');
     if (init != null) {
-      init.function.invoke(
-        [instance, ...positional],
-        keywords,
-        definingClass: init.owner,
-        selfReceiver: instance,
-      );
+      try {
+        init.function.invoke(
+          [instance, ...positional],
+          keywords,
+          definingClass: init.owner,
+          selfReceiver: instance,
+        );
+      } on RenPyPythonError {
+        // __init__ may reference names not yet in scope (forward references to
+        // other classes, Character defines, etc.).  Return the partially-
+        // constructed instance so the object exists in the store - missing
+        // attributes surface naturally if/when accessed at runtime.
+      }
     } else if (cls.isExceptionLike) {
       // Exception stubs keep their message as `message` for `except ... as e`.
       instance.attributes['message'] =
           positional.isEmpty ? '' : _str(positional.first);
+    } else if (cls.base != null) {
+      // The class inherits from an external/opaque base whose constructor
+      // signature we cannot inspect (e.g. `MyADVCharacter(renpy.character.
+      // ADVCharacter)`).  Keyword arguments are stored directly as instance
+      // attributes so downstream attribute reads work; positional arguments
+      // are ignored (the base constructor is opaque to us).  Never throws.
+      instance.attributes.addAll(keywords);
     } else if (positional.isNotEmpty || keywords.isNotEmpty) {
       throw RenPyPythonError('${cls.name}() takes no arguments');
     }
@@ -2228,10 +2411,28 @@ class _Interpreter {
       case 'get_screen':
         // No screen system yet; matches RenPy returning None for an absent one.
         return null;
+      case 'has_label':
+        // Conservative stub: no label registry at init time, so always report
+        // false. This keeps `if renpy.has_label(x):` guards from entering
+        // branches that depend on labels whose bodies we haven't executed, which
+        // prevents partially-constructed instances (e.g. a ChatRoom whose
+        // __init__ threw inside a `has_label`-gated branch).
+        return false;
+      case 'is_skipping':
+        // The player is never skipping in a headless run.
+        return false;
       case 'register_statement':
-        // Custom statement (creator-defined statement) registration has no
-        // analogue in this runner; treat as a no-op rather than a skip.
+        // Register a creator-defined statement (CDS) verb so the runner can
+        // recognize and skip lines that use it at runtime.
+        if (positional.isNotEmpty && positional[0] is String) {
+          api.registerStatement(positional[0] as String, keywords);
+        }
         return null;
+      case 'register_sl_displayable':
+        // Screen-language displayable registration has no analogue in this
+        // runner; return a chainable placeholder so `.add_property(...)` calls
+        // on the result evaluate instead of failing on null.
+        return _GuiPlaceholder('register_sl_displayable', positional, keywords);
       case 'image':
         // Dynamic image registration is not modelled here; treat as a no-op.
         return null;
@@ -2295,6 +2496,33 @@ class _Interpreter {
         return _FileHandle(
           positional.isNotEmpty ? '${positional[0]}' : 'renpy.$function',
         );
+      case 'loadable':
+        // Headless: no assets, so nothing is loadable.
+        return false;
+      case 'get_registered_image':
+        // No image registry in headless mode.
+        return null;
+      case 'image_exists':
+      case 'has_image':
+        // Headless: no images.
+        return false;
+      case 'retain_after_load':
+      case 'error':
+      case 'log':
+        return null;
+      case 'display.get_info':
+        {
+          // Returns a stub display-info object with the config screen
+          // dimensions so code like `inf = renpy.display.get_info(); ww = inf.current_w`
+          // can continue rather than failing with an unsupported-renpy error.
+          final info = _PythonInstance(
+            _PythonClass('DisplayInfo', null, const {}, const {}),
+          );
+          info.attributes['current_w'] = scope.read('config.screen_width') ?? 1280;
+          info.attributes['current_h'] = scope.read('config.screen_height') ?? 720;
+          return info;
+        }
+      case 'scene':
       case 'show':
       case 'hide':
       case 'pause':
@@ -2306,6 +2534,32 @@ class _Interpreter {
           return null;
         }
       default:
+        // If the function path contains a dot, the caller may be invoking a
+        // method on a concrete attribute value (e.g.
+        // `renpy.version_only.startswith("8")`).  Resolve the attribute prefix
+        // through the renpy stub module and, if it yields a concrete (non-stub)
+        // value, dispatch the trailing method call on that value.
+        final lastDot = function.lastIndexOf('.');
+        if (lastDot > 0) {
+          final renpyModule = _builtinConstants['renpy'];
+          if (renpyModule is _StubModule) {
+            Object? resolved = renpyModule;
+            final segments = function.substring(0, lastDot).split('.');
+            for (final seg in segments) {
+              if (resolved is _StubModule &&
+                  resolved.attributes.containsKey(seg)) {
+                resolved = resolved.attributes[seg];
+              } else {
+                resolved = null;
+                break;
+              }
+            }
+            if (resolved != null && resolved is! _StubModule) {
+              final method = function.substring(lastDot + 1);
+              return _callMethod(resolved, method, positional, keywords);
+            }
+          }
+        }
         throw RenPyPythonError('unsupported renpy.$function');
     }
   }
@@ -2361,12 +2615,29 @@ class _Interpreter {
         return;
       }
       final receiver = target.target.eval(this);
+      if (receiver is _StoreProxy) {
+        // `store.x = value` writes to the store scope.
+        receiver._scope.write('store.${target.attribute}', value);
+        return;
+      }
       if (receiver is _PythonInstance) {
+        // Check for a @property setter on the class before writing directly.
+        if (receiver.cls.hasClassAttribute(target.attribute)) {
+          final desc = receiver.cls.readClassAttribute(target.attribute);
+          if (desc is _PropertyDescriptor && desc.setter != null) {
+            desc.setter!.invoke([receiver, value], const {});
+            return;
+          }
+        }
         receiver.attributes[target.attribute] = value;
         return;
       }
       if (receiver is _PythonClass) {
         receiver.attributes[target.attribute] = value;
+        return;
+      }
+      if (receiver is _GuiPlaceholder) {
+        receiver.attrs[target.attribute] = value;
         return;
       }
       if (receiver is Map) {
@@ -2499,6 +2770,10 @@ class _Interpreter {
     if (value is String) return value.split('');
     // Iterating an (empty) file handle yields its lines -- none are modelled.
     if (value is _FileHandle) return const <Object?>[];
+    // A null value (undefined variable) is treated as an empty sequence so
+    // init-time constructions like `for x in store.all_characters` degrade
+    // gracefully when `all_characters` is not yet defined in the scope.
+    if (value == null) return const <Object?>[];
     throw RenPyPythonError('object is not iterable');
   }
 
@@ -2657,12 +2932,29 @@ class _Interpreter {
     if (receiver is Map) return _dictMethod(receiver, name, positional);
     if (receiver is Set) return _setMethod(receiver, name, positional);
     if (receiver is _DateType) {
-      if (name == 'today') return receiver.today();
+      // `today()` and `now()` both return a fixed reference date.
+      if (name == 'today' || name == 'now') return receiver.today();
+      // `fromtimestamp(ts)` - interpret as today for headless runs.
+      if (name == 'fromtimestamp') return receiver.today();
+      // `strftime(fmt)` on the class itself is unusual; return an empty string.
+      if (name == 'strftime') return '';
       throw RenPyPythonError('no date method `$name`');
     }
     if (receiver is _PythonDate) {
       if (name == 'weekday') return receiver.weekday();
       throw RenPyPythonError('no date method `$name`');
+    }
+    if (receiver is _StoreProxy) {
+      // A method call like `store._window_hide()` looks up the name in the
+      // store scope. If it resolves to a callable, invoke it; if absent or
+      // None (a RenPy built-in not modelled here), degrade to a no-op.
+      final val = receiver._scope.has(name)
+          ? receiver._scope.read(name)
+          : receiver._scope.has('store.$name')
+              ? receiver._scope.read('store.$name')
+              : null;
+      if (val != null) return invoke(val, positional, keywords);
+      return null; // no-op for unmodelled store methods
     }
     if (receiver is _MusicRoomInstance) return null;
     if (receiver is _FileHandle) {
@@ -2679,7 +2971,9 @@ class _Interpreter {
           return null;
       }
     }
-    if (receiver is _GuiPlaceholder) return null;
+    // Return the placeholder itself so chained calls like
+    // `register_sl_displayable(...).add_property(...)` keep working.
+    if (receiver is _GuiPlaceholder) return receiver;
     throw RenPyPythonError('no method `$name` on ${_typeName(receiver)}');
   }
 
@@ -2741,6 +3035,11 @@ class _Interpreter {
         return s.length >= width ? s : '0' * (width - s.length) + s;
       case 'isdigit':
         return s.isNotEmpty && RegExp(r'^\d+$').hasMatch(s);
+      case 'isalpha':
+        return s.isNotEmpty && RegExp(r'^[a-zA-Z]+$').hasMatch(s);
+      case 'encode':
+        // Stub: return the string itself (no real byte-string in Dart).
+        return s;
       default:
         throw RenPyPythonError('no str method `$name`');
     }
@@ -2849,7 +3148,7 @@ class _Interpreter {
         list.insert(insertAt, args[1]);
         return null;
       case 'extend':
-        list.addAll(_asIterable(args[0]));
+        if (args.isNotEmpty && args[0] != null) list.addAll(_asIterable(args[0]));
         return null;
       case 'sort':
         list.sort((a, b) => _defaultCompare(a, b));
@@ -2863,6 +3162,8 @@ class _Interpreter {
       case 'clear':
         list.clear();
         return null;
+      case 'copy':
+        return List<Object?>.from(list);
       default:
         throw RenPyPythonError('no list method `$name`');
     }
@@ -2913,6 +3214,8 @@ class _Interpreter {
       case 'clear':
         map.clear();
         return null;
+      case 'copy':
+        return Map<Object?, Object?>.from(map);
       default:
         throw RenPyPythonError('no dict method `$name`');
     }
@@ -2947,7 +3250,14 @@ class _Interpreter {
         throw RenPyPythonError('values are not orderable');
       }
     }
-    throw RenPyPythonError('values are not orderable');
+    // Opaque stub values (e.g. from un-executed regex.sub calls) are not
+    // naturally orderable, but falling back to their string representation
+    // keeps sorted()/min()/max() from aborting an otherwise-valid call.
+    // This matches Python's behavior for types that define __str__ but not
+    // __lt__: callers that depend on a real ordering still get a stable
+    // (if arbitrary) result rather than an exception.
+    final sa = _repr(a), sb = _repr(b);
+    return sa.compareTo(sb);
   }
 
   String _typeName(Object? value) {
@@ -3026,14 +3336,26 @@ class _Interpreter {
       final v = a[0];
       if (v is num) return v.toDouble();
       if (v is String) {
-        final d = double.tryParse(v.trim());
+        final t = v.trim();
+        final low = t.toLowerCase();
+        // Handle Python-style special float values (case-insensitive).
+        if (low == 'inf' || low == '+inf' || low == 'infinity' || low == '+infinity') {
+          return double.infinity;
+        }
+        if (low == '-inf' || low == '-infinity') {
+          return double.negativeInfinity;
+        }
+        if (low == 'nan') {
+          return double.nan;
+        }
+        final d = double.tryParse(t);
         if (d != null) return d;
       }
       throw RenPyPythonError('cannot convert to float');
     },
     'bool': (a, k) => a.isEmpty ? false : truthy(a[0]),
-    'list': (a, k) => a.isEmpty ? <Object?>[] : _asIterable(a[0]).toList(),
-    'tuple': (a, k) => a.isEmpty ? <Object?>[] : _asIterable(a[0]).toList(),
+    'list': (a, k) => a.isEmpty || a[0] == null ? <Object?>[] : _asIterable(a[0]).toList(),
+    'tuple': (a, k) => a.isEmpty || a[0] == null ? <Object?>[] : _asIterable(a[0]).toList(),
     'dict': (a, k) {
       final result = <Object?, Object?>{};
       if (a.isNotEmpty) {
@@ -3047,6 +3369,18 @@ class _Interpreter {
     'sorted': (a, k) {
       final items = _asIterable(a[0]).toList();
       final reverse = k['reverse'] == true;
+      final keyFn = k['key'];
+      if (keyFn != null) {
+        // Decorate-sort-undecorate: compute the key for each item once,
+        // sort the decorated pairs, then strip the keys.
+        final decorated = items
+            .map((e) => [e, invoke(keyFn, [e], const {})])
+            .toList();
+        decorated.sort((x, y) => _defaultCompare(x[1], y[1]));
+        final result = [for (final pair in decorated) pair[0]];
+        if (reverse) return result.reversed.toList();
+        return result;
+      }
       items.sort((x, y) => _defaultCompare(x, y));
       if (reverse) return items.reversed.toList();
       return items;
@@ -3103,8 +3437,78 @@ class _Interpreter {
     },
     'isinstance': (a, k) => _isinstance(a[0], a[1]),
     'type': (a, k) => _typeName(a[0]),
+    'hasattr': (a, k) {
+      if (a.length < 2) return false;
+      final obj = a[0];
+      final name = a[1];
+      if (name is! String) return false;
+      if (obj is _PythonInstance) {
+        return obj.attributes.containsKey(name) ||
+            obj.cls.findMethod(name) != null ||
+            obj.cls.hasClassAttribute(name);
+      }
+      if (obj is _PythonClass) {
+        return obj.findMethod(name) != null || obj.hasClassAttribute(name);
+      }
+      if (obj is _GuiPlaceholder) {
+        return obj.attrs.containsKey(name) || obj.kwargs.containsKey(name);
+      }
+      if (obj is Map) return obj.containsKey(name);
+      if (obj is _StubModule) {
+        return obj.attributes.containsKey(name) ||
+            obj.functions.containsKey(name);
+      }
+      // For other objects, try attribute access via BoundMethod fallback.
+      return false;
+    },
+    'getattr': (a, k) {
+      if (a.length < 2) {
+        throw RenPyPythonError('getattr expected at least 2 arguments');
+      }
+      final obj = a[0];
+      final name = a[1] as String;
+      final defaultVal = a.length > 2 ? a[2] : null;
+      final hasDefault = a.length > 2;
+      if (obj is _PythonInstance) {
+        if (obj.attributes.containsKey(name)) return obj.attributes[name];
+        final lookup = obj.cls.findMethodWithOwner(name);
+        if (lookup != null) {
+          return _BoundUserMethod(obj, lookup.function, lookup.owner);
+        }
+        if (obj.cls.hasClassAttribute(name)) {
+          return obj.cls.readClassAttribute(name);
+        }
+        if (hasDefault) return defaultVal;
+        throw RenPyPythonError(
+          '${obj.cls.name} object has no attribute `$name`',
+        );
+      }
+      if (obj is _PythonClass) {
+        final method = obj.findMethod(name);
+        if (method != null) return method;
+        if (obj.hasClassAttribute(name)) return obj.readClassAttribute(name);
+        if (hasDefault) return defaultVal;
+        throw RenPyPythonError('${obj.name} has no attribute `$name`');
+      }
+      if (obj is _GuiPlaceholder) {
+        if (obj.attrs.containsKey(name)) return obj.attrs[name];
+        if (obj.kwargs.containsKey(name)) return obj.kwargs[name];
+        if (hasDefault) return defaultVal;
+        return null;
+      }
+      if (obj is Map) {
+        if (obj.containsKey(name)) return obj[name];
+        if (hasDefault) return defaultVal;
+        throw RenPyPythonError('dict has no attribute `$name`');
+      }
+      if (hasDefault) return defaultVal;
+      return null;
+    },
     // gettext translation marker: returns the string unchanged.
     '_': (a, k) => a.isEmpty ? '' : a[0],
+    // Ren'Py string-substitution translation marker (e.g. `__("text")`).
+    // Works like `_()`: identity on its first argument.
+    '__': (a, k) => a.isEmpty ? '' : a[0],
     // Ren'Py paragraph/translatable-string marker (e.g.
     // `define gui.about = _p("""...""")`). Identity on its first argument so the
     // string is stored unchanged; returns null gracefully if called with no
@@ -3124,12 +3528,79 @@ class _Interpreter {
     // as Borders/Frame: accepts any args/kwargs, returns an opaque value, never
     // throws, so the enclosing define evaluates instead of being skipped.
     'Transform': (a, k) => _GuiPlaceholder('Transform', a, k),
+    // Ren'Py layout container - e.g. `Fixed(child1, child2, fit_first=True)`.
+    // We don't render, so this is an inert opaque placeholder that accepts any
+    // args/kwargs and never throws. Needed so expressions like
+    // `Achievement(..., Fixed(Transform(...), ..., fit_first=True))` evaluate
+    // to a placeholder rather than skipping the whole assignment.
+    'Fixed': (a, k) => _GuiPlaceholder('Fixed', a, k),
+    // Ren'Py matrix-color filter - e.g. `InvertMatrix(1.0)` inside a
+    // `matrixcolor=` kwarg. Returns an inert placeholder; never throws.
+    'InvertMatrix': (a, k) => _GuiPlaceholder('InvertMatrix', a, k),
     'ImageDissolve': (a, k) => _GuiPlaceholder('ImageDissolve', a, k),
     'Composite': (a, k) => _GuiPlaceholder('Composite', a, k),
     'LiveComposite': (a, k) => _GuiPlaceholder('LiveComposite', a, k),
     'Solid': (a, k) => _GuiPlaceholder('Solid', a, k),
     'Color': (a, k) => _GuiPlaceholder('Color', a, k),
+    'Crop': (a, k) => _GuiPlaceholder('Crop', a, k),
+    // Ren'Py null displayable - renders nothing. Inert placeholder so
+    // expressions like `self.default_art = Null()` evaluate without skipping.
+    'Null': (a, k) => _GuiPlaceholder('Null', a, k),
     'MusicRoom': (a, k) => _MusicRoomInstance(),
+    'ExtendedMusicRoom': (a, k) => _MusicRoomInstance(),
+    'Achievement': (a, k) => _GuiPlaceholder('Achievement', a, k),
+    'Gallery': (a, k) => _GuiPlaceholder('Gallery', a, k),
+    'GalleryAlbum': (a, k) => _GuiPlaceholder('GalleryAlbum', a, k),
+    'GalleryImage': (a, k) => _GuiPlaceholder('GalleryImage', a, k),
+    'ZoomGallery': (a, k) => _GuiPlaceholder('ZoomGallery', a, k),
+    'namedtuple': (a, k) {
+      final name = a[0] as String;
+      final fields = (a[1] is String)
+          ? (a[1] as String).split(RegExp(r'[,\s]+'))
+          : (a[1] as List).cast<String>();
+      return _NamedTupleFactory(name, fields);
+    },
+    'print': (a, k) => null,
+    'print_file': (a, k) => null,
+    'setattr': (a, k) {
+      if (a.length < 3) return null;
+      final obj = a[0];
+      final name = a[1] as String;
+      final value = a[2];
+      if (obj is _PythonInstance) obj.attributes[name] = value;
+      if (obj is _GuiPlaceholder) obj.attrs[name] = value;
+      return null;
+    },
+    'eval': (a, k) {
+      if (a.isEmpty) throw RenPyPythonError('eval requires an argument');
+      final expr = a[0];
+      if (expr is String) return expr;
+      return expr;
+    },
+    'id': (a, k) => a.isNotEmpty ? identityHashCode(a[0]) : 0,
+    'map': (a, k) => a.length >= 2 ? _asIterable(a[1]).toList() : <Object?>[],
+    'filter': (a, k) {
+      if (a.length < 2) return <Object?>[];
+      final fn = a[0];
+      final items = _asIterable(a[1]).toList();
+      if (fn == null) return items.where((e) => truthy(e)).toList();
+      return items;
+    },
+    'object': (a, k) => _GuiPlaceholder('object', a, k),
+    'property': (a, k) => _GuiPlaceholder('property', a, k),
+    'classmethod': (a, k) => a.isNotEmpty ? a[0] : null,
+    'staticmethod': (a, k) => a.isNotEmpty ? a[0] : null,
+    // Ren'Py screen actions - callable in init python blocks (e.g. as default
+    // values or list elements in stop_action lists).  Return inert placeholders;
+    // never throw.  Note: `Return` and `Jump` are intentionally excluded here
+    // because the screen-action parser resolves them as first-class action kinds
+    // and must not be shadowed by a generic placeholder builtin.
+    'SetScreenVariable': (a, k) => _GuiPlaceholder('SetScreenVariable', a, k),
+    'SetVariable': (a, k) => _GuiPlaceholder('SetVariable', a, k),
+    'SetField': (a, k) => _GuiPlaceholder('SetField', a, k),
+    'ToggleVariable': (a, k) => _GuiPlaceholder('ToggleVariable', a, k),
+    'ToggleField': (a, k) => _GuiPlaceholder('ToggleField', a, k),
+    'Function': (a, k) => _GuiPlaceholder('Function', a, k),
   };
 
   /// A small set of builtin exception classes so `raise ValueError("...")` and
@@ -3183,9 +3654,16 @@ class _Interpreter {
       'reset',
     ])
       name: _GuiPlaceholder(name, const [], const {}),
+    'menu': _GuiPlaceholder('menu', const [], const {}),
     'renpy': _renpyStubModule(),
     'im': _imStubModule(),
+    'ui': _uiStubModule(),
     'Action': _PythonClass('Action', null, const {}, const {}),
+    // The third-party `regex` module is auto-available in the RenPy runtime
+    // (mirroring the stdlib `re` surface). Stubbed identically to `re` so that
+    // `regex.compile(...).match(...)` chains evaluate inertly instead of
+    // throwing NameError and causing the whole statement to be skipped.
+    'regex': _StubModule.reModule(),
   };
 
   static _StubModule _renpyStubModule() => _StubModule(
@@ -3198,6 +3676,9 @@ class _Interpreter {
       'android': false,
       'ios': false,
       'emscripten': false,
+      'version_only': '8.0.0',
+      'version_string': "Ren'Py 8.0.0",
+      'version_tuple': <Object?>[8, 0, 0, 0],
       'Displayable': _PythonClass('Displayable', null, const {}, const {}),
       'display': _StubModule(
         'renpy.display',
@@ -3245,6 +3726,23 @@ class _Interpreter {
       },
     );
   }
+
+  /// The `ui` module stub. `ui.adjustment()` and any other `ui.*` call return
+  /// an inert [_GuiPlaceholder] so `define` statements that reference the ui
+  /// module evaluate instead of skipping.
+  static _StubModule _uiStubModule() => _StubModule(
+    'ui',
+    functions: {
+      'adjustment': (a, k) {
+        // Seed `range` and `value` as 0 so arithmetic like
+        // `abs(yadj.range - yadj.value) < 200` evaluates without throwing.
+        final ph = _GuiPlaceholder('ui.adjustment', a, k);
+        ph.attrs['range'] = 0;
+        ph.attrs['value'] = 0;
+        return ph;
+      },
+    },
+  );
 
   Object? _minMax(List<Object?> args, {required bool isMin}) {
     final items = args.length == 1 ? _asIterable(args[0]).toList() : args;
@@ -3326,9 +3824,58 @@ class _GuiPlaceholder {
   final List<Object?> args;
   final Map<String, Object?> kwargs;
 
+  /// Mutable attribute map so Python code can do `obj.condition = "..."` on a
+  /// placeholder without throwing.
+  final Map<String, Object?> attrs = {};
+
   @override
   String toString() => '<$name>';
 }
+
+/// A callable factory created by `namedtuple('Name', ['field', ...])`. When
+/// invoked with positional arguments, it creates a `_PythonInstance` of a
+/// dynamically generated `_PythonClass` whose `__init__` stores each argument
+/// as an instance attribute keyed by the corresponding field name.
+class _NamedTupleFactory {
+  _NamedTupleFactory(this.name, this.fields);
+
+  final String name;
+  final List<String> fields;
+
+  /// Construct an instance with positional args mapped to field names.
+  _PythonInstance construct(
+    List<Object?> positional,
+    Map<String, Object?> keywords,
+  ) {
+    final cls = _PythonClass(name, null, const {}, const {});
+    final instance = _PythonInstance(cls);
+    for (var i = 0; i < fields.length; i += 1) {
+      if (i < positional.length) {
+        instance.attributes[fields[i]] = positional[i];
+      } else if (keywords.containsKey(fields[i])) {
+        instance.attributes[fields[i]] = keywords[fields[i]];
+      } else {
+        instance.attributes[fields[i]] = null;
+      }
+    }
+    return instance;
+  }
+
+  @override
+  String toString() => '<namedtuple $name>';
+}
+
+/// A proxy for the bare name `store` so that `store.x` evaluated the long way
+/// (when the short-circuit via [_AttributeNode.fullName] does not fire) routes
+/// attribute reads and writes to the enclosing scope's default store.
+class _StoreProxy {
+  _StoreProxy(this._scope);
+  final RenPyPythonScope _scope;
+
+  @override
+  String toString() => '<store>';
+}
+
 
 /// Inert stand-in for `MusicRoom(...)`. Supports method calls like `.add()`
 /// so the music-room init loop evaluates instead of skipping.
@@ -3387,10 +3934,12 @@ class _BoundMethod {
 ///
 /// Methods are stored as [_UserFunction]s closing over the scope the class was
 /// defined in, and class-level attributes (plain assignments in the body) are
-/// stored alongside them. Single inheritance is supported through [base]:
+/// stored alongside them.  Single inheritance is supported through [base]:
 /// attribute and method lookups that miss this class walk up the base chain.
-/// `super()`, multiple bases and metaclasses are out of scope and the parser
-/// rejects them so the runner falls back.
+/// Multiple bases in the source are accepted but only the first is used;
+/// subsequent bases are silently dropped (best-effort; full C3 MRO is
+/// deferred).  `super()` dispatches up the single-inheritance chain;
+/// metaclasses are out of scope.
 class _PythonClass {
   _PythonClass(
     this.name,
@@ -3455,6 +4004,21 @@ class _PythonInstance {
 
   final _PythonClass cls;
   final Map<String, Object?> attributes = {};
+}
+
+/// A marker wrapping a [_UserFunction] that was defined with `@property`.
+///
+/// When attribute access on a [_PythonInstance] resolves to a
+/// `_PropertyDescriptor`, the interpreter auto-invokes the underlying getter
+/// with `self` and returns the result instead of the raw function.
+class _PropertyDescriptor {
+  _PropertyDescriptor(this.function);
+  final _UserFunction function;
+
+  /// The setter function registered via `@<name>.setter`. When present,
+  /// assigning to the property name on an instance invokes this function
+  /// instead of writing directly to `instance.attributes`.
+  _UserFunction? setter;
 }
 
 /// The result of resolving a method up a class chain: the [function] and the
@@ -3562,6 +4126,15 @@ class _StubModule {
   static _StubModule collectionsModule() => _StubModule(
     'collections',
     attributes: {'defaultdict': const _DefaultDictType()},
+    functions: {
+      'namedtuple': (a, k) {
+        final name = a[0] as String;
+        final fields = (a[1] is String)
+            ? (a[1] as String).split(RegExp(r'[,\s]+'))
+            : (a[1] as List).cast<String>();
+        return _NamedTupleFactory(name, fields);
+      },
+    },
   );
 
   /// The `datetime` module subset: `date`, `timedelta` and `datetime` itself.
@@ -3597,21 +4170,32 @@ class _StubModule {
   static _StubModule copyModule() => _StubModule(
     'copy',
     functions: {
-      'deepcopy': (a, k) => a.isEmpty ? null : _deepCopy(a[0]),
+      'deepcopy': (a, k) => a.isEmpty ? null : _deepCopy(a[0], 0),
       'copy': (a, k) => a.isEmpty ? null : _shallowCopy(a[0]),
     },
   );
 
-  static Object? _deepCopy(Object? value) {
-    if (value is List) return [for (final e in value) _deepCopy(e)];
-    if (value is Map) {
-      return {for (final e in value.entries) e.key: _deepCopy(e.value)};
+  // Depth cap: beyond this the recursion returns values in-place to avoid
+  // a Dart StackOverflowError when copying deeply nested _PythonInstances
+  // (e.g. RouteDay -> ChatRoom trees in a Ren'Py game).  The cap is generous
+  // enough for typical define-time data but finite.
+  static const int _deepCopyMaxDepth = 20;
+
+  static Object? _deepCopy(Object? value, int depth) {
+    if (depth >= _deepCopyMaxDepth) return value;
+    if (value is List) {
+      return [for (final e in value) _deepCopy(e, depth + 1)];
     }
-    if (value is Set) return {for (final e in value) _deepCopy(e)};
+    if (value is Map) {
+      return {
+        for (final e in value.entries) e.key: _deepCopy(e.value, depth + 1),
+      };
+    }
+    if (value is Set) return {for (final e in value) _deepCopy(e, depth + 1)};
     if (value is _PythonInstance) {
       final copy = _PythonInstance(value.cls);
       for (final e in value.attributes.entries) {
-        copy.attributes[e.key] = _deepCopy(e.value);
+        copy.attributes[e.key] = _deepCopy(e.value, depth + 1);
       }
       return copy;
     }
@@ -3650,6 +4234,13 @@ class _StubModule {
     'os',
     attributes: {'environ': <String, Object?>{}},
     functions: {'getenv': (a, k) => a.length >= 2 ? a[1] : null},
+  );
+
+  /// The `time` module - only `time.time()` is modelled; it returns 0.0 so
+  /// arithmetic like `unix_seconds + delta` evaluates instead of throwing.
+  static _StubModule timeModule() => _StubModule(
+    'time',
+    functions: {'time': (a, k) => 0.0},
   );
 }
 
@@ -4145,10 +4736,29 @@ class _ContinueStatement implements _Statement {
 }
 
 class _DefStatement implements _Statement {
-  _DefStatement(this.name, this.spec, this.body);
+  _DefStatement(
+    this.name,
+    this.spec,
+    this.body, {
+    this.isProperty = false,
+    this.isSetter = false,
+    this.setterPropertyName,
+  });
   final String name;
   final _ParamSpec spec;
   final List<_Statement> body;
+
+  /// Whether this function was defined with `@property`, so the class should
+  /// store it as a [_PropertyDescriptor] instead of a plain [_UserFunction].
+  final bool isProperty;
+
+  /// Whether this function was defined with `@<name>.setter`, so the class
+  /// should attach it as the setter on an existing [_PropertyDescriptor].
+  final bool isSetter;
+
+  /// The property name this setter belongs to (the part before `.setter`).
+  final String? setterPropertyName;
+
   @override
   void exec(_Interpreter interp) {
     interp.scope.write(name, _UserFunction(name, spec, body, interp.scope));
@@ -4228,13 +4838,14 @@ void _execBody(List<_Statement> body, _Interpreter interp) {
   }
 }
 
-/// A `class Name(Base):` definition.
+/// A `class Name(Base):` or `class Name(Base, Mixin, ...):` definition.
 ///
-/// The body is a mix of `def` methods, class-level attribute assignments and
-/// `pass`. At exec time the methods become [_UserFunction]s closing over the
-/// defining scope, the attribute assignments run into a fresh map, an optional
-/// single base name resolves to its [_PythonClass], and the resulting class is
-/// written into the scope.
+/// The body is a mix of `def` methods (optionally `@property`-decorated),
+/// class-level attribute assignments and `pass`.  At exec time the methods
+/// become [_UserFunction]s (or [_PropertyDescriptor]s for `@property` defs)
+/// closing over the defining scope, the attribute assignments run into a fresh
+/// map, the first base name resolves to its [_PythonClass] (subsequent bases
+/// are silently dropped), and the resulting class is written into the scope.
 class _ClassStatement implements _Statement {
   _ClassStatement(this.name, this.baseName, this.body);
   final String name;
@@ -4271,34 +4882,57 @@ class _ClassStatement implements _Statement {
     interp._locals.add(attributes);
     try {
       for (final statement in body) {
-        if (statement is _DefStatement) {
-          methods[statement.name] = _UserFunction(
-            statement.name,
-            statement.spec,
-            statement.body,
-            interp.scope,
-          );
-        } else if (statement is _AssignStatement) {
-          final value = statement.value.eval(interp);
-          for (final target in statement.targets) {
-            if (target is! _NameNode) {
-              throw RenPyPythonError(
-                'unsupported class-level assignment target',
-              );
+        try {
+          if (statement is _DefStatement) {
+            final fn = _UserFunction(
+              statement.name,
+              statement.spec,
+              statement.body,
+              interp.scope,
+            );
+            if (statement.isProperty) {
+              // Store as a class attribute wrapping the getter, so attribute
+              // access auto-invokes it (see [_Interpreter.getAttribute]).
+              attributes[statement.name] = _PropertyDescriptor(fn);
+            } else if (statement.isSetter &&
+                statement.setterPropertyName != null) {
+              // Attach the setter to an existing @property descriptor.
+              final propName = statement.setterPropertyName!;
+              final existing = attributes[propName];
+              if (existing is _PropertyDescriptor) {
+                existing.setter = fn;
+              }
+            } else {
+              methods[statement.name] = fn;
             }
-            attributes[target.name] = value;
+          } else if (statement is _AssignStatement) {
+            final value = statement.value.eval(interp);
+            for (final target in statement.targets) {
+              if (target is! _NameNode) {
+                // Unsupported target - skip instead of aborting the class.
+                continue;
+              }
+              attributes[target.name] = value;
+            }
+          } else if (statement is _PassStatement) {
+            // Nothing to do.
+          } else if (statement is _ExpressionStatement) {
+            // A bare expression statement at class level (most commonly a
+            // triple-quoted docstring as the first statement) is evaluated by
+            // Python for side effects but binds no class attribute. Our class
+            // model only tracks methods + attribute assignments, so ignoring
+            // it is correct -- and crucially it must NOT abort the whole class
+            // (e.g. LearnToCodeRPG's `QuizQuestion` opens with a docstring).
           }
-        } else if (statement is _PassStatement) {
-          // Nothing to do.
-        } else if (statement is _ExpressionStatement) {
-          // A bare expression statement at class level (most commonly a
-          // triple-quoted docstring as the first statement) is evaluated by
-          // Python for side effects but binds no class attribute. Our class
-          // model only tracks methods + attribute assignments, so ignoring it is
-          // correct -- and crucially it must NOT abort the whole class (e.g.
-          // LearnToCodeRPG's `QuizQuestion` opens with a docstring).
-        } else {
-          throw RenPyPythonError('unsupported statement in class body');
+          // Silently skip any other statement types (e.g. unsupported compound
+          // statements that parsed into opaque nodes) instead of aborting the
+          // entire class definition.
+        } on RenPyPythonError {
+          // A single statement in the class body failed to execute. Skip it
+          // and continue registering the remaining methods/attributes. This
+          // graceful degradation keeps large classes (e.g. a 611-line
+          // ChatEntry with 42 methods) alive even when a handful of methods
+          // use constructs we don't yet support.
         }
       }
     } finally {
@@ -4331,6 +4965,7 @@ class _ImportStatement implements _Statement {
     if (module == 'math') return _StubModule.mathModule();
     if (module == 'collections') return _StubModule.collectionsModule();
     if (module == 'datetime') return _StubModule.datetimeModule();
+    if (module == 'time') return _StubModule.timeModule();
     if (module == 're') return _StubModule.reModule();
     if (module == 'os') return _StubModule.osModule();
     final concrete = _memberOf(module, 'math', _StubModule.mathModule());
@@ -4398,12 +5033,30 @@ class _RaiseStatement implements _Statement {
   }
 }
 
+/// A bare `raise` statement (no argument).
+///
+/// In Python, a bare `raise` inside an `except` block re-raises the currently
+/// handled exception. Outside an `except` block it raises a `RuntimeError`.
+/// We model this by throwing a [_RaisedException] with a `null` value and an
+/// empty type name; the nearest enclosing `except` will catch and (if it
+/// re-raises again) propagate it.
+class _BareRaiseStatement implements _Statement {
+  const _BareRaiseStatement();
+
+  @override
+  void exec(_Interpreter interp) {
+    throw _RaisedException(null, '');
+  }
+}
+
 /// A single `except [Type [as name]]:` clause.
 class _ExceptClause {
-  _ExceptClause(this.typeName, this.alias, this.body);
+  _ExceptClause(this.typeNames, this.alias, this.body);
 
-  /// The matched exception type name, or `null` for a bare `except:`.
-  final String? typeName;
+  /// The matched exception type name(s), or `null` for a bare `except:`.
+  /// A single-element list is the common `except TypeError:` case; a
+  /// multi-element list is `except (TypeError, ValueError):`.
+  final List<String>? typeNames;
   final String? alias;
   final List<_Statement> body;
 }
@@ -4444,7 +5097,7 @@ class _TryStatement implements _Statement {
 
   void _handle(_Interpreter interp, Object? value, String typeName) {
     for (final handler in handlers) {
-      if (_matches(handler.typeName, value, typeName)) {
+      if (_matches(handler.typeNames, value, typeName)) {
         if (handler.alias != null) {
           interp.scope.write(handler.alias!, value);
         }
@@ -4457,20 +5110,27 @@ class _TryStatement implements _Statement {
     throw _RaisedException(value, typeName);
   }
 
-  bool _matches(String? clauseType, Object? value, String typeName) {
-    if (clauseType == null) return true; // bare except catches anything
-    if (clauseType == typeName) return true;
-    // A user instance matches any base class on its chain by name.
-    if (value is _PythonInstance) {
-      for (_PythonClass? c = value.cls; c != null; c = c.base) {
-        if (c.name == clauseType) return true;
+  bool _matches(List<String>? clauseTypes, Object? value, String typeName) {
+    if (clauseTypes == null) return true; // bare except catches anything
+    // A RenPy stub error (typeName=='') has no known Python type; let any
+    // named except clause catch it since the real code would raise a typed
+    // exception (ValueError, KeyError, AttributeError, etc.) that we cannot
+    // model precisely.
+    if (typeName.isEmpty) return true;
+    for (final clauseType in clauseTypes) {
+      if (clauseType == typeName) return true;
+      // A user instance matches any base class on its chain by name.
+      if (value is _PythonInstance) {
+        for (_PythonClass? c = value.cls; c != null; c = c.base) {
+          if (c.name == clauseType) return true;
+        }
       }
-    }
-    // Builtin exceptions are all conceptually `Exception` subclasses.
-    if (clauseType == 'Exception' &&
-        value is _PythonInstance &&
-        value.cls.isExceptionLike) {
-      return true;
+      // Builtin exceptions are all conceptually `Exception` subclasses.
+      if (clauseType == 'Exception' &&
+          value is _PythonInstance &&
+          value.cls.isExceptionLike) {
+        return true;
+      }
     }
     return false;
   }
@@ -4663,14 +5323,25 @@ class _StatementParser {
 
   /// Consumes one or more stacked decorator lines (already known to start with
   /// `@`) at [indent] and parses the `def`/`class` they decorate, returning it
-  /// undecorated. The decorators themselves are discarded - their call/registry
-  /// semantics are irrelevant to headless logic. A decorator not followed by a
-  /// `def`/`class` (or by a deeper-indented line) is malformed; throwing here is
-  /// caught by the normal graceful fallback rather than corrupting the block.
+  /// undecorated. Most decorators are discarded - their call/registry semantics
+  /// are irrelevant to headless logic. `@property` is special-cased: it marks
+  /// the resulting `def` so the class stores it as a [_PropertyDescriptor]. A
+  /// decorator not followed by a `def`/`class` (or by a deeper-indented line)
+  /// is malformed; throwing here is caught by the normal graceful fallback
+  /// rather than corrupting the block.
   List<_Statement> _parseDecorated(int indent) {
+    var hasProperty = false;
+    String? setterPropertyName;
     while (_index < _lines.length &&
         _lines[_index].indent == indent &&
         _lines[_index].text.trimLeft().startsWith('@')) {
+      final decoratorText = _lines[_index].text.trimLeft().substring(1).trim();
+      if (decoratorText == 'property') {
+        hasProperty = true;
+      } else if (decoratorText.endsWith('.setter')) {
+        setterPropertyName =
+            decoratorText.substring(0, decoratorText.length - '.setter'.length);
+      }
       // Discard the decorator line.
       _index += 1;
     }
@@ -4680,7 +5351,24 @@ class _StatementParser {
     final keyword = _leadingKeyword(_lines[_index].text);
     switch (keyword) {
       case 'def':
-        return [_parseDef(indent)];
+        final stmt = _parseDef(indent) as _DefStatement;
+        if (hasProperty) {
+          return [
+            _DefStatement(stmt.name, stmt.spec, stmt.body, isProperty: true),
+          ];
+        }
+        if (setterPropertyName != null) {
+          return [
+            _DefStatement(
+              stmt.name,
+              stmt.spec,
+              stmt.body,
+              isSetter: true,
+              setterPropertyName: setterPropertyName,
+            ),
+          ];
+        }
+        return [stmt];
       case 'class':
         return [_parseClass(indent)];
       default:
@@ -4714,8 +5402,20 @@ class _StatementParser {
     int indent,
   ) {
     final header = _lines[_index].text;
-    final condition = _parseHeaderExpression(header, keyword);
+    // Support single-line `if cond: stmt` / `elif cond: stmt`.
+    // _splitInlineHeader finds the first `:` at bracket depth 0 outside
+    // strings; when content follows it that is the inline body.
+    final split = _splitInlineHeader(header, keyword);
+    final condition = _parseFragment(split.condition);
     _index += 1;
+    if (split.inlineBody != null) {
+      final stmts = <_Statement>[];
+      for (final piece in _splitSimpleStatements(split.inlineBody!)) {
+        stmts.add(_parseSimpleStatement(piece));
+      }
+      if (stmts.isEmpty) throw RenPyPythonError('empty `$keyword` body');
+      return MapEntry(condition, stmts);
+    }
     final body = _parseBody(indent);
     if (body.isEmpty) throw RenPyPythonError('empty `$keyword` body');
     return MapEntry(condition, body);
@@ -4723,8 +5423,20 @@ class _StatementParser {
 
   List<_Statement> _parseElse(int indent) {
     final header = _lines[_index].text.trim();
-    if (header != 'else:') throw RenPyPythonError('malformed `else`');
+    // Support both `else:` (block form) and `else: stmt` (inline form).
+    if (!header.startsWith('else')) throw RenPyPythonError('malformed `else`');
+    final afterElse = header.substring('else'.length).trim();
+    if (!afterElse.startsWith(':')) throw RenPyPythonError('malformed `else`');
+    final inlineBody = afterElse.substring(1).trim();
     _index += 1;
+    if (inlineBody.isNotEmpty) {
+      final stmts = <_Statement>[];
+      for (final piece in _splitSimpleStatements(inlineBody)) {
+        stmts.add(_parseSimpleStatement(piece));
+      }
+      if (stmts.isEmpty) throw RenPyPythonError('empty `else` body');
+      return stmts;
+    }
     final body = _parseBody(indent);
     if (body.isEmpty) throw RenPyPythonError('empty `else` body');
     return body;
@@ -4732,12 +5444,74 @@ class _StatementParser {
 
   _Statement _parseWhile(int indent) {
     final header = _lines[_index].text;
-    final condition = _parseHeaderExpression(header, 'while');
+    final split = _splitInlineHeader(header, 'while');
+    final condition = _parseFragment(split.condition);
     _index += 1;
-    final body = _parseBody(indent);
+    List<_Statement> body;
+    if (split.inlineBody != null) {
+      body = [];
+      for (final piece in _splitSimpleStatements(split.inlineBody!)) {
+        body.add(_parseSimpleStatement(piece));
+      }
+    } else {
+      body = _parseBody(indent);
+    }
     if (body.isEmpty) throw RenPyPythonError('empty `while` body');
     final orElse = _parseOptionalElse(indent);
     return _WhileStatement(condition, body, orElse);
+  }
+
+  /// Splits an `if`/`elif`/`while` header into the condition text and an
+  /// optional inline body.  The header-ending `:` is the first one found at
+  /// bracket depth 0, outside any string literal.  Returns [condition] without
+  /// the leading keyword, and [inlineBody] with the trimmed remainder after the
+  /// `:`, or `null` when the `:` is the last non-space character (block form).
+  _InlineHeaderSplit _splitInlineHeader(String header, String keyword) {
+    var text = header.trim();
+    if (text.startsWith('$keyword ') || text.startsWith('$keyword:')) {
+      text = text.substring(keyword.length).trim();
+    }
+    var depth = 0;
+    String? quote;
+    var tripleOpen = false;
+    for (var i = 0; i < text.length; i++) {
+      final ch = text[i];
+      if (tripleOpen) {
+        if (ch == '\\') { i++; continue; }
+        if (quote != null && text.startsWith(quote * 3, i)) {
+          tripleOpen = false;
+          quote = null;
+          i += 2;
+        }
+        continue;
+      }
+      if (quote != null) {
+        if (ch == '\\') { i++; continue; }
+        if (ch == quote) quote = null;
+        continue;
+      }
+      if (ch == '"' || ch == "'") {
+        if (text.startsWith(ch * 3, i)) {
+          tripleOpen = true;
+          quote = ch;
+          i += 2;
+        } else {
+          quote = ch;
+        }
+      } else if (ch == '(' || ch == '[' || ch == '{') {
+        depth++;
+      } else if (ch == ')' || ch == ']' || ch == '}') {
+        depth--;
+      } else if (ch == ':' && depth == 0) {
+        final condition = text.substring(0, i).trim();
+        final after = text.substring(i + 1).trim();
+        return _InlineHeaderSplit(
+          condition: condition,
+          inlineBody: after.isEmpty ? null : after,
+        );
+      }
+    }
+    throw RenPyPythonError('expected `:` ending `$keyword` header');
   }
 
   _Statement _parseFor(int indent) {
@@ -4803,9 +5577,10 @@ class _StatementParser {
           .split(',')
           .map((b) => b.trim())
           .where((b) => b.isNotEmpty);
-      if (bases.length > 1) {
-        throw RenPyPythonError('multiple inheritance is not supported');
-      }
+      // Best-effort multiple inheritance: use the FIRST base for method
+      // resolution and silently drop subsequent bases.  Full C3 MRO is
+      // deferred; this unblocks `class Foo(A, B):` definitions that appear
+      // in real games like mysterious-messenger.
       final only = bases.first;
       // `object` is Python's implicit root; treat it as no explicit base.
       if (only.contains('=') || only.startsWith('metaclass')) {
@@ -4952,23 +5727,48 @@ class _StatementParser {
       throw RenPyPythonError('expected `:` ending `except` header');
     }
     final spec = header.substring('except'.length, header.length - 1).trim();
-    String? typeName;
+    List<String>? typeNames;
     String? alias;
     if (spec.isNotEmpty) {
-      final match = RegExp(
-        r'^([A-Za-z_]\w*)(?:\s+as\s+([A-Za-z_]\w*))?$',
+      // Split off an optional trailing `as <alias>` at the top-level.
+      String typeSpec = spec;
+      final asMatch = RegExp(
+        r'^(.*\S)\s+as\s+([A-Za-z_]\w*)\s*$',
       ).firstMatch(spec);
-      if (match == null) {
-        // Tuples of types and dotted names are out of scope.
-        throw RenPyPythonError('unsupported `except` clause `$spec`');
+      if (asMatch != null) {
+        typeSpec = asMatch.group(1)!.trim();
+        alias = asMatch.group(2);
       }
-      typeName = match.group(1);
-      alias = match.group(2);
+
+      if (typeSpec.startsWith('(') && typeSpec.endsWith(')')) {
+        // Tuple of exception types: `except (TypeError, ValueError):` or
+        // `except (TypeError, ValueError) as e:`.
+        final inner = typeSpec.substring(1, typeSpec.length - 1);
+        typeNames = [
+          for (final part in inner.split(','))
+            if (part.trim().isNotEmpty)
+              // Strip dotted prefix (`store.Foo` -> use `Foo` for matching).
+              part.trim().split('.').last,
+        ];
+        if (typeNames.isEmpty) {
+          throw RenPyPythonError('empty `except` type tuple');
+        }
+      } else {
+        // Single name or dotted name: `except ValueError:` / `except store.Foo:`.
+        final nameMatch = RegExp(
+          r'^[A-Za-z_][\w.]*$',
+        ).firstMatch(typeSpec);
+        if (nameMatch == null) {
+          throw RenPyPythonError('unsupported `except` clause `$spec`');
+        }
+        // Use only the last component of a dotted name for matching.
+        typeNames = [typeSpec.split('.').last];
+      }
     }
     _index += 1;
     final body = _parseBody(indent);
     if (body.isEmpty) throw RenPyPythonError('empty `except` body');
-    return _ExceptClause(typeName, alias, body);
+    return _ExceptClause(typeNames, alias, body);
   }
 
   _Statement _parseImport(String trimmed) {
@@ -5012,8 +5812,9 @@ class _StatementParser {
   _Statement _parseRaise(String trimmed) {
     final rest = trimmed.substring('raise'.length).trim();
     if (rest.isEmpty) {
-      // A bare re-raise has no exception context to reuse here.
-      throw RenPyPythonError('bare `raise` is not supported');
+      // A bare `raise` re-raises the current exception (if any) or raises a
+      // generic RuntimeError when no exception is being handled.
+      return const _BareRaiseStatement();
     }
     return _RaiseStatement(_parseFragment(rest));
   }
@@ -5050,8 +5851,13 @@ class _StatementParser {
       return _parseRaise(trimmed);
     }
 
+    // `del <name>` is treated as a no-op: we don't track variable lifetimes,
+    // so removing a binding is harmless to ignore. This lets def bodies that
+    // contain `del` (e.g. `del item` after a list.pop) parse and register
+    // successfully rather than being silently dropped.
+    if (trimmed.startsWith('del ')) return const _PassStatement();
+
     if (trimmed.startsWith('assert ') ||
-        trimmed.startsWith('del ') ||
         trimmed.startsWith('yield') ||
         trimmed.startsWith('async ') ||
         trimmed.startsWith('nonlocal ')) {
@@ -5105,11 +5911,6 @@ class _StatementParser {
       throw RenPyPythonError('invalid assignment target `$text`');
     }
     return node;
-  }
-
-  _Node _parseHeaderExpression(String header, String keyword) {
-    final body = _stripColon(header, keyword);
-    return _parseFragment(body);
   }
 
   _ForHeader _splitForHeader(String header) {
@@ -5225,6 +6026,10 @@ class _StatementParser {
 
   /// Returns the indices of every top-level `=` that is a real assignment
   /// (not part of `==`, `<=`, `>=`, `!=` or an augmented operator).
+  ///
+  /// When `lambda` appears at depth 0, scanning stops because any `=` in a
+  /// lambda parameter list (`lambda x, y=10: ...`) is a default value, not an
+  /// assignment.
   List<int> _topLevelAssignPositions(String text) {
     final positions = <int>[];
     var depth = 0;
@@ -5261,9 +6066,26 @@ class _StatementParser {
         }
         positions.add(i);
       }
+      // Stop scanning once `lambda` appears at depth 0: any subsequent `=`
+      // is a parameter default, not an assignment.
+      if (depth == 0 &&
+          quote == null &&
+          ch == 'l' &&
+          text.length - i >= 6 &&
+          text.substring(i, i + 6) == 'lambda' &&
+          (i == 0 || !_isIdentChar(text[i - 1])) &&
+          (i + 6 >= text.length || !_isIdentChar(text[i + 6]))) {
+        break;
+      }
     }
     return positions;
   }
+
+  static bool _isIdentChar(String ch) =>
+      (ch.codeUnitAt(0) >= 0x30 && ch.codeUnitAt(0) <= 0x39) || // 0-9
+      (ch.codeUnitAt(0) >= 0x41 && ch.codeUnitAt(0) <= 0x5A) || // A-Z
+      (ch.codeUnitAt(0) >= 0x61 && ch.codeUnitAt(0) <= 0x7A) || // a-z
+      ch == '_';
 
   // -- line splitting -------------------------------------------------------
 
@@ -5362,6 +6184,7 @@ class _StatementParser {
     for (var i = 0; i < content.length; i += 1) {
       final ch = content[i];
       if (tripleOpen) {
+        if (ch == '\\') { i += 1; continue; }
         if (i + 2 < content.length + 1 && content.startsWith(quote! * 3, i)) {
           tripleOpen = false;
           quote = null;
@@ -5370,6 +6193,7 @@ class _StatementParser {
         continue;
       }
       if (quote != null) {
+        if (ch == '\\') { i += 1; continue; }
         if (ch == quote) quote = null;
         continue;
       }
@@ -5401,6 +6225,7 @@ class _StatementParser {
     for (var i = 0; i < content.length; i += 1) {
       final ch = content[i];
       if (tripleOpen) {
+        if (ch == '\\') { i += 1; continue; }
         if (content.startsWith(quote! * 3, i)) {
           tripleOpen = false;
           quote = null;
@@ -5409,6 +6234,7 @@ class _StatementParser {
         continue;
       }
       if (quote != null) {
+        if (ch == '\\') { i += 1; continue; }
         if (ch == quote) quote = null;
         continue;
       }
@@ -5434,6 +6260,7 @@ class _StatementParser {
       // Inside a triple-quoted span a `#` is docstring text, not a comment;
       // only its matching triple delimiter closes it.
       if (tripleOpen) {
+        if (ch == '\\') { i += 1; continue; }
         if (content.startsWith(quote! * 3, i)) {
           tripleOpen = false;
           quote = null;
@@ -5442,6 +6269,7 @@ class _StatementParser {
         continue;
       }
       if (quote != null) {
+        if (ch == '\\') { i += 1; continue; }
         if (ch == quote) quote = null;
         continue;
       }
@@ -5482,4 +6310,12 @@ class _ForHeader {
   _ForHeader(this.target, this.iterable);
   final String target;
   final String iterable;
+}
+
+/// Result of splitting an `if`/`elif`/`while` header into the condition text
+/// and an optional inline suite for single-line forms (`if cond: stmt`).
+class _InlineHeaderSplit {
+  _InlineHeaderSplit({required this.condition, required this.inlineBody});
+  final String condition;
+  final String? inlineBody; // null -> block form; non-null -> inline body text
 }

@@ -92,16 +92,22 @@ r = f(41)
       expect(scope.read('r'), 42);
     });
 
-    test('genuinely-unsupported class-body statement still throws', () {
-      // Fallback contract: a bare `if` at class level remains unsupported.
-      expect(
-        () => executor.execute('''
-class Bad(object):
+    test('unsupported class-body statement is skipped gracefully', () {
+      // A bare `if` at class level is an unsupported statement type, but it
+      // should be silently skipped rather than aborting the whole class. This
+      // ensures large classes survive even when some body statements use
+      // constructs we don't yet support.
+      final scope = newScope();
+      executor.execute('''
+class Partial(object):
     if True:
         pass
-''', newScope()),
-        throwsA(isA<RenPyPythonError>()),
-      );
+    def good(self):
+        return 42
+p = Partial()
+v = p.good()
+''', scope);
+      expect(scope.read('v'), 42);
     });
   });
 

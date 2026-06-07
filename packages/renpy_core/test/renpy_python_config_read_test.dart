@@ -31,11 +31,11 @@ void main() {
     expect(s.read('p'), isNotNull);
   });
 
-  test('an unset store attribute still throws (contract preserved)', () {
-    expect(
-      () => evaluator.evaluate('store.never_set_xyz', scope()),
-      throwsA(isA<RenPyPythonError>()),
-    );
+  test('an unset store attribute reads as null (matching Ren\'Py)', () {
+    // In Ren'Py, `store.x` for an undefined name returns None rather than
+    // raising AttributeError, matching the behavior of `persistent.` and
+    // `config.` reads.
+    expect(evaluator.evaluate('store.never_set_xyz', scope()), isNull);
   });
 
   test('a genuinely unknown bare name still throws', () {
