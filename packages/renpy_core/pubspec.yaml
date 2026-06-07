@@ -1,7 +1,15 @@
 name: renpy_core
-description: RenPy commandline interface runner & tests.
+description: >-
+  Ren'Py script runner and Python-subset evaluator for Dart: executes parsed
+  .rpy scripts via callbacks for dialogue, menus, images, and screen actions.
 version: 0.0.2
-repository: https://git.cypherstack.com/FiestaBerry/renpy_core
+repository: https://git.cypherstack.com/FiestaBerry/fiestavn
+homepage: https://git.cypherstack.com/FiestaBerry/fiestavn
+
+topics:
+  - renpy
+  - visual-novel
+  - interpreter
 
 environment:
   sdk: ^3.7.2
