@@ -15,7 +15,7 @@ Packages with breaking changes:
 
 Packages with other changes:
 
- - [`renpy_core` - `v0.0.2`](#renpy_core---v002)
+ - [`renpy_core` - `v0.0.3`](#renpy_core---v002)
  - [`renpy_parser` - `v0.0.2`](#renpy_parser---v002)
  - [`renpy_flutter` - `v0.0.1`](#renpy_flutter---v002)
 
@@ -25,7 +25,7 @@ Packages with other changes:
 
  - **FEAT**: parse parameterized labels.
 
-#### `renpy_core` - `v0.0.2`
+#### `renpy_core` - `v0.0.3`
 
  - **FEAT**: parameterized label support (parse and bind parameters on entry).
  - **FIX**: read unset config.* attributes as null instead of throwing.
@@ -50,12 +50,12 @@ Packages with breaking changes:
 
 Packages with other changes:
 
- - [`renpy_core` - `v0.0.1`](#renpy_core---v002)
+ - [`renpy_core` - `v0.0.2`](#renpy_core---v002)
  - [`renpy_parser` - `v0.0.1`](#renpy_parser---v002)
 
 ---
 
-#### `renpy_core` - `v0.0.1`
+#### `renpy_core` - `v0.0.2`
 
  - **FEAT**: renpy_core tests and examples.
  - **FEAT**(renpy_core): integrate features like menus (and more) from reference (test) game 2.

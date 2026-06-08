@@ -1,3 +1,10 @@
+## 0.0.3 - 2026-06-08
+
+- Bump renpy_parser dependency to ^0.0.2 (adds screen-language and ATL model 
+  types required by this package)
+- BREAKING: requires renpy_parser ≥0.0.2; 0.0.1 is no longer compatible at 
+  analysis time
+
 ## 0.0.2 - 2026-06-08
 
 Runtime for executing Ren'Py scripts parsed by `renpy_parser`.

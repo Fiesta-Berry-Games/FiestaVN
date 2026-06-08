@@ -2,7 +2,7 @@ name: renpy_core
 description: >-
   Ren'Py script runner and Python-subset evaluator for Dart: executes parsed
   .rpy scripts via callbacks for dialogue, menus, images, and screen actions.
-version: 0.0.2
+version: 0.0.3
 repository: https://git.cypherstack.com/FiestaBerry/fiestavn
 homepage: https://git.cypherstack.com/FiestaBerry/fiestavn
 
@@ -17,7 +17,7 @@ environment:
 dependencies:
   path: ^1.8.0
   meta: ^1.8.0
-  renpy_parser: ^0.0.1
+  renpy_parser: ^0.0.2
   archive: ^4.0.9
 
 dev_dependencies:

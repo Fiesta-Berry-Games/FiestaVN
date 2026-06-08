@@ -237,10 +237,10 @@ packages:
     dependency: "direct main"
     description:
       name: renpy_parser
-      sha256: "15a79e248e21da61d3ee9a715a6dc57f89c7d16c4ec31e034fe5c9d5541190d9"
+      sha256: b828fb3579e5e7936e9640ec14dc997c408ee1798d777a963786f527fa3042f8
       url: "https://pub.dev"
     source: hosted
-    version: "0.0.1"
+    version: "0.0.2"
   shelf:
     dependency: transitive
     description:

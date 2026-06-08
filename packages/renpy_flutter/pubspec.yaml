@@ -17,8 +17,8 @@ dependencies:
   audioplayers: ^6.6.0
   flutter:
     sdk: flutter
-  renpy_core: ^0.0.2
-  renpy_parser: ^0.0.1
+  renpy_core: ^0.0.3
+  renpy_parser: ^0.0.2
   shared_preferences: ^2.5.5
 
 dev_dependencies:
