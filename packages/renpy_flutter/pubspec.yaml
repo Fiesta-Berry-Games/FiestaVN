@@ -1,7 +1,14 @@
 name: renpy_flutter
-description: Flutter UI adapters and widgets for RenPy-compatible visual novels.
+description: >-
+  Flutter widgets and UI adapters for Ren'Py-compatible visual novels: dialogue,
+  menus, image/audio layers, ATL animation, screen-language, and transitions.
 version: 0.0.1
-publish_to: 'none'
+repository: https://git.cypherstack.com/FiestaBerry/fiestavn
+topics:
+  - visual-novel
+  - renpy
+  - game
+  - flutter
 
 environment:
   sdk: ^3.7.2
@@ -10,17 +17,12 @@ dependencies:
   audioplayers: ^6.6.0
   flutter:
     sdk: flutter
-  renpy_core:
-    path: ../renpy_core
+  renpy_core: ^0.0.2
+  renpy_parser: ^0.0.1
   shared_preferences: ^2.5.5
-
-dependency_overrides:
-  renpy_parser:
-    path: ../renpy_parser
 
 dev_dependencies:
   audioplayers_platform_interface: ^7.1.1
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
-

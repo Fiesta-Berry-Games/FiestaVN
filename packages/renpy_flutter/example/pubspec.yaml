@@ -1,0 +1,35 @@
+name: renpy_flutter_example
+description: Minimal example app for the renpy_flutter package.
+publish_to: 'none'
+version: 0.0.1
+
+environment:
+  sdk: ^3.7.2
+  flutter: '>=3.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  renpy_flutter:
+    path: ../
+  # Used by the "open game folder" picker on desktop/mobile.
+  file_picker: ^11.0.2
+  # Used by the "open game folder" picker on web.
+  web: ^1.1.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+# renpy_flutter pins its siblings by version (renpy_core ^0.0.2, renpy_parser
+# ^0.0.1). They are published from this same monorepo; until they are on
+# pub.dev, resolve them locally so the example builds against the workspace.
+dependency_overrides:
+  renpy_core:
+    path: ../../renpy_core
+  renpy_parser:
+    path: ../../renpy_parser
+
+flutter:
+  assets:
+    - assets/game/script.rpy
