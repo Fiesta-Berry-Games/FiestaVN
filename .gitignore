@@ -4,6 +4,13 @@
 build/
 
 apps/renspine/assets/chibi-stickers/source/
-apps/renfly/.flutter-plugins-dependencies
 apps/renfly/assets/games/Confession-1.03-pc/
 apps/renfly/assets/games/Confession-1.03-pc.zip
+
+# Melos-generated files
+*.iml
+pubspec_overrides.yaml
+
+# Flutter / tool noise
+*.log
+**/.flutter-plugins-dependencies

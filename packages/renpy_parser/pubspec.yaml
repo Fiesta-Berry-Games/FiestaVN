@@ -2,7 +2,7 @@ name: renpy_parser
 description: >-
   Parses Ren'Py .rpy script files into a typed Dart AST covering labels,
   dialogue, menus, screens, python blocks, and more.
-version: 0.0.1
+version: 0.0.2
 repository: https://git.cypherstack.com/FiestaBerry/fiestavn
 homepage: https://git.cypherstack.com/FiestaBerry/fiestavn
 
