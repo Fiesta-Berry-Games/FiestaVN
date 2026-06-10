@@ -608,6 +608,24 @@ class RenPyBytesAudioPlayback extends _AudioPlayersRenPyAudioPlaybackBase {
   }
 }
 
+/// Audio backend that streams tracks over HTTP from a base URL, for games
+/// whose assets are served remotely instead of bundled (the URL is the base
+/// joined with the game-root-relative track path).
+class RenPyUrlAudioPlayback extends _AudioPlayersRenPyAudioPlaybackBase {
+  RenPyUrlAudioPlayback({required String baseUrl})
+    : _baseUrl = baseUrl.endsWith('/') ? baseUrl : '$baseUrl/';
+
+  final String _baseUrl;
+
+  @override
+  audio.Source? _sourceFor({
+    required String asset,
+    required String assetSourcePath,
+  }) {
+    return audio.UrlSource('$_baseUrl$assetSourcePath');
+  }
+}
+
 /// Audio backend for tests and callers that intentionally disable audio.
 class RenPyNoOpAudioPlayback implements RenPyAudioPlayback {
   const RenPyNoOpAudioPlayback();

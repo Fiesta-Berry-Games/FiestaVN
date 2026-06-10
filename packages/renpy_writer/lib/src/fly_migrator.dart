@@ -392,6 +392,37 @@ class FlyMigrator {
   }
 }
 
+/// Converts [rpySource] to a `.fly` document and merges in the round-trip
+/// verification, so the caller sees every fidelity issue before discarding
+/// the original `.rpy` source.
+///
+/// This is the migration gate: a [FlyMigrationReport.isFaithful] result
+/// means the produced `.fly` output reproduces an equivalent script, so the
+/// migration may proceed silently. Otherwise the report lists exactly which
+/// code is not faithfully migrated.
+///
+/// Throws [RenPyParseError] (from `renpy_parser`) when [rpySource] does not
+/// parse at all.
+FlyMigrationResult runRpyToFlyGate(
+  String rpySource, {
+  String filename = 'script.rpy',
+}) {
+  const migrator = FlyMigrator();
+  final result = migrator.rpyToFly(rpySource, filename: filename);
+  // rpyToFly already reports parse warnings and unstructured statements;
+  // verifyRoundTrip repeats those, so only its divergence findings are new.
+  final verification = migrator.verifyRoundTrip(rpySource, filename: filename);
+  final divergences = [
+    for (final issue in verification.issues)
+      if (issue.kind == 'roundtrip-divergence') issue,
+  ];
+  if (divergences.isEmpty) return result;
+  return FlyMigrationResult(
+    result.output,
+    FlyMigrationReport([...result.report.issues, ...divergences]),
+  );
+}
+
 /// Deep-diffs two JSON values (maps, lists, scalars) and returns one entry
 /// per divergence, formatted as a JSON-pointer path followed by a short
 /// description, e.g. `/script/3/items/0/text: "Yes" != "No"`.

@@ -50,12 +50,23 @@ class _EditorScreenState extends State<EditorScreen> {
   final RenPyMemoryPreferenceStore _preferenceStore =
       RenPyMemoryPreferenceStore();
 
+  /// Assets bundled with the opened script (from a `.fly.zip`), keyed by
+  /// archive path (e.g. `game/images/bg.png`). The preview resolves images
+  /// from here so characters and backgrounds actually display.
+  final Map<String, Uint8List> _assets = {};
+
   Timer? _debounce;
+  Timer? _followDebounce;
   bool _dirty = false;
   bool _suppressDirty = false;
   bool _hasRun = false;
   double _splitRatio = 0.5;
   int _activeTab = 0; // 0 = editor, 1 = preview (narrow layout only).
+  String _lastText = '';
+
+  /// The cursor line the running preview was last brought to, so selection
+  /// changes within the same line don't reload the preview.
+  int _previewCursorLine = 0;
 
   RenPyParseError? _parseError;
   List<String> _parseWarnings = const [];
@@ -65,6 +76,7 @@ class _EditorScreenState extends State<EditorScreen> {
   void initState() {
     super.initState();
     _editorScrollController = ScrollController();
+    _lastText = starterTemplate;
     _scriptController = SyntaxHighlightController(text: starterTemplate)
       ..addListener(_onScriptChanged);
     _previewController = RenPyFlutterController(
@@ -73,11 +85,19 @@ class _EditorScreenState extends State<EditorScreen> {
       slotStore: RenPyMemoryRunnerSnapshotSlotStore(),
     );
     _parseForDiagnostics(notify: false);
+    // The preview is live from launch: start the script once the first frame
+    // has mounted the player layers, then follow edits and the cursor.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _hasRun) return;
+      setState(() => _hasRun = true);
+      _reloadPreview(cursorLine: _cursorLine());
+    });
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
+    _followDebounce?.cancel();
     _editorScrollController.dispose();
     _scriptController.dispose();
     _previewController.dispose();
@@ -87,11 +107,94 @@ class _EditorScreenState extends State<EditorScreen> {
   // --- Diagnostics -----------------------------------------------------
 
   void _onScriptChanged() {
+    if (_scriptController.text == _lastText) {
+      // Selection-only change: follow the cursor in the running preview.
+      _scheduleCursorFollow();
+      return;
+    }
+    _lastText = _scriptController.text;
     if (!_suppressDirty) _dirty = true;
     _debounce?.cancel();
-    _debounce = Timer(parseDebounce, _parseForDiagnostics);
+    _debounce = Timer(parseDebounce, () {
+      _parseForDiagnostics();
+      _hotReloadPreview();
+    });
     // Rebuild for the live line/character counts.
     setState(() {});
+  }
+
+  /// Re-runs the preview after an edit once typing settles ("hot reload"),
+  /// bringing it back to the beat at the cursor. Parse errors leave the last
+  /// good preview running.
+  void _hotReloadPreview() {
+    if (!mounted || !_hasRun || _parseError != null) return;
+    _reloadPreview(cursorLine: _cursorLine());
+  }
+
+  void _scheduleCursorFollow() {
+    if (!_hasRun) return;
+    _followDebounce?.cancel();
+    _followDebounce = Timer(parseDebounce, () {
+      if (!mounted || !_hasRun || _parseError != null) return;
+      final line = _cursorLine();
+      if (line == null || line == _previewCursorLine) return;
+      _reloadPreview(cursorLine: line);
+    });
+  }
+
+  /// The 1-based line the editor cursor is on, or null without a selection.
+  int? _cursorLine() {
+    final selection = _scriptController.selection;
+    if (!selection.isValid) return null;
+    final text = _scriptController.text;
+    final offset = selection.baseOffset.clamp(0, text.length);
+    var line = 1;
+    for (var i = 0; i < offset; i++) {
+      if (text.codeUnitAt(i) == 0x0A) line++;
+    }
+    return line;
+  }
+
+  /// The name of the last label declared at or above [line], so the preview
+  /// can start from the section the cursor is in.
+  String? _labelForLine(int line) {
+    final RenPyScript script;
+    try {
+      script = RenPyParser().parse(_scriptController.text, 'editor.rpy').script;
+    } catch (_) {
+      return null;
+    }
+    String? best;
+    for (final statement in script.statements) {
+      if (statement is RenPyLabelStatement && statement.linenumber <= line) {
+        best = statement.name;
+      }
+    }
+    return best;
+  }
+
+  /// (Re)loads the preview controller from the current script, starting at
+  /// the label enclosing [cursorLine] and fast-forwarding to it.
+  void _reloadPreview({int? cursorLine}) {
+    _followDebounce?.cancel();
+    if (_runDiagnostics.isNotEmpty) {
+      setState(() => _runDiagnostics.clear());
+    }
+    _previewCursorLine = cursorLine ?? 0;
+    try {
+      _previewController.load(
+        _scriptController.text,
+        filename: 'editor.rpy',
+        gameRoot: 'game',
+        availableAssets: _assets.keys.toSet(),
+        startLabel: cursorLine == null ? null : _labelForLine(cursorLine),
+      );
+      if (cursorLine != null) {
+        _previewController.fastForwardToLine(cursorLine);
+      }
+    } catch (error) {
+      _previewController.value = RenPyError(error.toString());
+    }
   }
 
   /// Parses the current script for diagnostics only. Never touches the
@@ -148,15 +251,7 @@ class _EditorScreenState extends State<EditorScreen> {
       _runDiagnostics.clear();
       _activeTab = 1;
     });
-    try {
-      _previewController.load(
-        _scriptController.text,
-        filename: 'editor.rpy',
-        gameRoot: 'game',
-      );
-    } catch (error) {
-      _previewController.value = RenPyError(error.toString());
-    }
+    _reloadPreview(cursorLine: _cursorLine());
   }
 
   Future<void> _newScript() async {
@@ -278,7 +373,13 @@ class _EditorScreenState extends State<EditorScreen> {
       return;
     }
 
-    _setScript(text);
+    _setScript(
+      text,
+      assets: {
+        for (final file in archive.files)
+          if (file.path != archive.scriptPath) file.path: file.bytes,
+      },
+    );
 
     if (archive.notes.isNotEmpty) {
       _showSnackBar(archive.notes.join('; '));
@@ -349,7 +450,10 @@ class _EditorScreenState extends State<EditorScreen> {
     _dirty = false;
   }
 
-  void _setScript(String text) {
+  void _setScript(String text, {Map<String, Uint8List> assets = const {}}) {
+    _assets
+      ..clear()
+      ..addAll(assets);
     _suppressDirty = true;
     _scriptController.text = text;
     _suppressDirty = false;
@@ -357,6 +461,7 @@ class _EditorScreenState extends State<EditorScreen> {
     _debounce?.cancel();
     setState(() => _activeTab = 0);
     _parseForDiagnostics();
+    if (_hasRun && _parseError == null) _reloadPreview();
   }
 
   void _showSnackBar(String message) {
@@ -730,6 +835,7 @@ class _EditorScreenState extends State<EditorScreen> {
         ),
       );
     }
+    final screenSize = RenPyScreenSize.fromScriptSource(_scriptController.text);
     return RenPyPlayer(
       controller: _previewController,
       backgroundColor: const Color(0xFF121212),
@@ -737,7 +843,27 @@ class _EditorScreenState extends State<EditorScreen> {
       preferenceStore: _preferenceStore,
       showRestartButton: true,
       onRestart: _run,
+      gameRoot: 'game',
+      screenSize: screenSize,
+      dialogueImageProvider: _previewImageProvider,
+      screenImageProvider: _previewImageProvider,
+      imageLayerBuilder: (context, controller) {
+        return RenPyImageLayer(
+          controller: controller,
+          imageProvider: _previewImageProvider,
+          screenSize: screenSize ?? RenPyScreenSize.fallback,
+          atlResolver: controller.resolveAtl,
+        );
+      },
     );
+  }
+
+  /// Resolves preview image paths against the opened archive's assets,
+  /// falling back to Flutter bundle assets for paths we don't carry.
+  ImageProvider<Object> _previewImageProvider(String assetPath) {
+    final bytes = _assets[assetPath];
+    if (bytes == null) return AssetImage(assetPath);
+    return MemoryImage(bytes);
   }
 }
 

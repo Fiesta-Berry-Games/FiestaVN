@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:renpy_flutter/renpy_flutter.dart';
 
 import 'game_library.dart';
 import 'project_picker.dart';
+import 'streamed_game.dart';
 
 void main() => runApp(const FiestaVNApp());
 
@@ -83,6 +85,30 @@ class _GameLibraryScreenState extends State<GameLibraryScreen> {
   void initState() {
     super.initState();
     _initialize();
+    // `/play/?stream=<url>` deep-links straight into a streamed game; the
+    // URL may be origin-relative (e.g. `/games/the-question/`).
+    if (kIsWeb) {
+      final stream = Uri.base.queryParameters['stream'];
+      if (stream != null && stream.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _startStreamedGame(Uri.base.resolve(stream).toString());
+        });
+      }
+    }
+  }
+
+  void _startStreamedGame(String baseUrl, {String? title}) {
+    Navigator.of(context).push(
+      _renPyGameRoute(
+        builder:
+            (_) => StreamedGameScreen(
+              baseUrl: baseUrl,
+              title: title,
+              audioPlayback: widget.audioPlayback,
+              onControllerCreated: widget.onGameControllerCreated,
+            ),
+      ),
+    );
   }
 
   Future<void> _initialize() async {
@@ -242,6 +268,9 @@ class _GameLibraryScreenState extends State<GameLibraryScreen> {
             tooltip: 'Add project',
             onPressed: _loading ? null : _addProject,
           ),
+          // The renfly.org embed overlays an "Open fullscreen" button on the
+          // top-right corner of the iframe; keep our actions clear of it.
+          if (kIsWeb) const SizedBox(width: 48),
         ],
       ),
       body:
@@ -257,6 +286,21 @@ class _GameLibraryScreenState extends State<GameLibraryScreen> {
                       title: Text(game.title),
                       trailing: const Icon(Icons.play_arrow),
                       onTap: () => _startBundledGame(context, game),
+                    ),
+                  // Streamed demos only resolve against the hosting site's
+                  // origin, so they're web-only.
+                  if (kIsWeb)
+                    ListTile(
+                      key: const ValueKey('demo_game_streamed_the_question'),
+                      leading: const Icon(Icons.cloud_download),
+                      title: const Text('The Question (.fly, streamed)'),
+                      subtitle: const Text('Assets download as the story needs them'),
+                      trailing: const Icon(Icons.play_arrow),
+                      onTap:
+                          () => _startStreamedGame(
+                            Uri.base.resolve('/games/the-question/').toString(),
+                            title: 'The Question',
+                          ),
                     ),
                   const _LibrarySectionHeader('Your projects'),
                   if (_projects.isEmpty)

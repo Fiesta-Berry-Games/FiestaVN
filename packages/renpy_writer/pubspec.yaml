@@ -15,6 +15,9 @@ topics:
 environment:
   sdk: ^3.7.2
 
+executables:
+  fly_stream:
+
 dependencies:
   archive: ^4.0.2
   renpy_parser: ^0.0.2

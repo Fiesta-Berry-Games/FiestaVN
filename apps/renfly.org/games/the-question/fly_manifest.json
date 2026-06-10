@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "name": "The Question",
+  "script": "game/script.fly",
+  "files": [
+    "game/illurock.opus",
+    "game/images/bg club.jpg",
+    "game/images/bg lecturehall.jpg",
+    "game/images/bg meadow.jpg",
+    "game/images/bg uni.jpg",
+    "game/images/sylvie blue giggle.png",
+    "game/images/sylvie blue normal.png",
+    "game/images/sylvie blue smile.png",
+    "game/images/sylvie blue surprised.png",
+    "game/images/sylvie green giggle.png",
+    "game/images/sylvie green normal.png",
+    "game/images/sylvie green smile.png",
+    "game/images/sylvie green surprised.png",
+    "game/script.fly"
+  ]
+}

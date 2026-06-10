@@ -58,12 +58,21 @@ void main() {
     );
     expect(field.controller?.text, starterTemplate);
 
-    // Before the first run the preview shows the placeholder.
+    // The preview is live from launch: no placeholder, status Running, and
+    // the starter's first dialogue line appears (its text also exists in the
+    // editor's TextField, so wait for a second occurrence).
     expect(
       find.byKey(const ValueKey('editor-preview-placeholder')),
-      findsOneWidget,
+      findsNothing,
     );
-    expect(find.text('Idle'), findsOneWidget);
+    expect(find.text('Running'), findsOneWidget);
+    await pumpUntil(
+      tester,
+      () =>
+          find.textContaining('Welcome to RenFly Editor.').evaluate().length >=
+          2,
+      description: 'auto-started preview',
+    );
   });
 
   testWidgets('invalid script surfaces a parse error after the debounce', (
@@ -121,6 +130,76 @@ void main() {
           2,
       attempts: 200,
       description: 'first dialogue line in the preview',
+    );
+  });
+
+  testWidgets('edits hot-reload the running preview to the cursor', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('editor-script-field')),
+      'label start:\n    "Alpha"\n    "Beta"\n',
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+
+    await tester.tap(find.byKey(const ValueKey('editor-run-button')));
+    await tester.pump();
+
+    // enterText leaves the cursor at the end of the script, so the preview
+    // fast-forwards past "Alpha" to the beat at the cursor.
+    await pumpUntil(
+      tester,
+      () => find.textContaining('Beta').evaluate().length >= 2,
+      description: 'preview fast-forwarded to the cursor',
+    );
+
+    // Typing more dialogue hot-reloads the running preview without pressing
+    // Run again.
+    await tester.enterText(
+      find.byKey(const ValueKey('editor-script-field')),
+      'label start:\n    "Alpha"\n    "Beta"\n    "Gamma"\n',
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+
+    await pumpUntil(
+      tester,
+      () => find.textContaining('Gamma').evaluate().length >= 2,
+      description: 'hot-reloaded preview at the new cursor',
+    );
+  });
+
+  testWidgets('moving the cursor refocuses the running preview', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('editor-script-field')),
+      'label start:\n    "Alpha"\n    "Beta"\n',
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+
+    await tester.tap(find.byKey(const ValueKey('editor-run-button')));
+    await tester.pump();
+    await pumpUntil(
+      tester,
+      () => find.textContaining('Beta').evaluate().length >= 2,
+      description: 'preview at the cursor line',
+    );
+
+    // Move the cursor into the "Alpha" line without editing the text.
+    final field = tester.widget<TextField>(
+      find.byKey(const ValueKey('editor-script-field')),
+    );
+    field.controller!.selection = const TextSelection.collapsed(offset: 17);
+    await tester.pump(const Duration(milliseconds: 500));
+
+    await pumpUntil(
+      tester,
+      () => find.textContaining('Alpha').evaluate().length >= 2,
+      description: 'preview following the cursor back to Alpha',
     );
   });
 
@@ -259,17 +338,19 @@ void main() {
   // Status chip transitions
   // ---------------------------------------------------------------
 
-  testWidgets('status chip shows Running after Run is pressed', (
+  testWidgets('status chip shows Running once the preview auto-starts', (
     tester,
   ) async {
     await pumpEditor(tester);
-    expect(find.text('Idle'), findsOneWidget);
+
+    // The preview is live from launch, and Run keeps it that way.
+    expect(find.text('Running'), findsOneWidget);
+    expect(find.text('Idle'), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('editor-run-button')));
     await tester.pump();
 
     expect(find.text('Running'), findsOneWidget);
-    expect(find.text('Idle'), findsNothing);
   });
 
   testWidgets('status chip shows issue count after parse error', (

@@ -28,6 +28,7 @@
       <p class="subtitle">RenFly is a Ren'Py visual novel player that runs natively on web, desktop, and mobile.</p>
 
       <div class="player-embed">
+        <div class="player-loading" aria-hidden="true"></div>
         <iframe src="/play/" title="RenFly Player" loading="lazy" allowfullscreen></iframe>
         <a class="maximize" href="/play/" target="_blank" rel="noopener" title="Open fullscreen" aria-label="Open RenFly fullscreen">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -52,6 +53,19 @@
       </p>
     </section>
 
+    <section class="about" id="streaming">
+      <h2>Streaming</h2>
+      <p>
+        Games migrated to the <code>.fly</code> format can be streamed: the player downloads the
+        script first and fetches images and audio only as the story needs them, so play starts
+        without waiting for the whole game. Classic <code>.rpy</code> games need a one-time
+        migration before they can stream.
+      </p>
+      <p>
+        <a href="/play/?stream=/games/the-question/">▶ Stream “The Question” (.fly demo)</a>
+      </p>
+    </section>
+
     <section class="downloads" id="downloads">
       <h2>Downloads</h2>
       <div class="badges">
@@ -72,6 +86,26 @@
       <a href="https://github.com/FiestaBerry/fiestavn/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
     </div>
   </footer>
+
+  <script>
+    // Hide the player-embed spinner once the Flutter app paints its first
+    // frame. /play/ is same-origin, so we can listen on the iframe's window;
+    // if that ever fails, fall back to the iframe load event plus a timeout.
+    (function () {
+      var embed = document.querySelector('.player-embed');
+      var iframe = embed && embed.querySelector('iframe');
+      if (!iframe) return;
+      var done = function () { embed.classList.add('loaded'); };
+      iframe.addEventListener('load', function () {
+        try {
+          iframe.contentWindow.addEventListener('flutter-first-frame', done);
+          setTimeout(done, 20000); // safety net
+        } catch (e) {
+          done();
+        }
+      });
+    })();
+  </script>
 
 </body>
 </html>

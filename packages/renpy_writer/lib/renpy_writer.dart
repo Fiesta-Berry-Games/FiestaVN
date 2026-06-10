@@ -8,4 +8,6 @@ library;
 export 'src/fly_archive.dart';
 export 'src/fly_codec.dart';
 export 'src/fly_migrator.dart';
+export 'src/fly_stream_builder.dart';
+export 'src/fly_stream_manifest.dart';
 export 'src/renpy_emitter.dart';

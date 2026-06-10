@@ -1,0 +1,586 @@
+{
+  "format": "fly",
+  "version": 1,
+  "script": [
+    {
+      "type": "define",
+      "name": "s",
+      "expression": "Character(_(\"Sylvie\"), color=\"#c8ffc8\")"
+    },
+    {
+      "type": "define",
+      "name": "m",
+      "expression": "Character(_(\"Me\"), color=\"#c8c8ff\")"
+    },
+    {
+      "type": "default",
+      "name": "book",
+      "expression": "False"
+    },
+    {
+      "type": "label",
+      "name": "start",
+      "block": [
+        {
+          "type": "play",
+          "channel": "music",
+          "expression": "\"illurock.opus\""
+        },
+        {
+          "type": "scene",
+          "image_name": "bg lecturehall"
+        },
+        {
+          "type": "with",
+          "transition": "fade"
+        },
+        {
+          "type": "say",
+          "text": "It's only when I hear the sounds of shuffling feet and supplies being put away that I realize that the lecture's over."
+        },
+        {
+          "type": "say",
+          "text": "Professor Eileen's lectures are usually interesting, but today I just couldn't concentrate on it."
+        },
+        {
+          "type": "say",
+          "text": "I've had a lot of other thoughts on my mind...thoughts that culminate in a question."
+        },
+        {
+          "type": "say",
+          "text": "It's a question that I've been meaning to ask a certain someone."
+        },
+        {
+          "type": "scene",
+          "image_name": "bg uni"
+        },
+        {
+          "type": "with",
+          "transition": "fade"
+        },
+        {
+          "type": "say",
+          "text": "When we come out of the university, I spot her right away."
+        },
+        {
+          "type": "show",
+          "image_name": "sylvie green normal"
+        },
+        {
+          "type": "with",
+          "transition": "dissolve"
+        },
+        {
+          "type": "say",
+          "text": "I've known Sylvie since we were kids. She's got a big heart and she's always been a good friend to me."
+        },
+        {
+          "type": "say",
+          "text": "But recently... I've felt that I want something more."
+        },
+        {
+          "type": "say",
+          "text": "More than just talking, more than just walking home together when our classes end."
+        },
+        {
+          "type": "menu",
+          "items": [
+            {
+              "text": "To ask her right away.",
+              "condition": "True",
+              "block": [
+                {
+                  "type": "jump",
+                  "target": "rightaway"
+                }
+              ]
+            },
+            {
+              "text": "To ask her later.",
+              "condition": "True",
+              "block": [
+                {
+                  "type": "jump",
+                  "target": "later"
+                }
+              ]
+            }
+          ],
+          "caption": "As soon as she catches my eye, I decide..."
+        }
+      ]
+    },
+    {
+      "type": "label",
+      "name": "rightaway",
+      "block": [
+        {
+          "type": "show",
+          "image_name": "sylvie green smile"
+        },
+        {
+          "type": "say",
+          "character": "s",
+          "text": "Hi there! How was class?"
+        },
+        {
+          "type": "say",
+          "character": "m",
+          "text": "Good..."
+        },
+        {
+          "type": "say",
+          "text": "I can't bring myself to admit that it all went in one ear and out the other."
+        },
+        {
+          "type": "say",
+          "character": "m",
+          "text": "Are you going home now? Wanna walk back with me?"
+        },
+        {
+          "type": "say",
+          "character": "s",
+          "text": "Sure!"
+        },
+        {
+          "type": "scene",
+          "image_name": "bg meadow"
+        },
+        {
+          "type": "with",
+          "transition": "fade"
+        },
+        {
+          "type": "say",
+          "text": "After a short while, we reach the meadows just outside the neighborhood where we both live."
+        },
+        {
+          "type": "say",
+          "text": "It's a scenic view I've grown used to. Autumn is especially beautiful here."
+        },
+        {
+          "type": "say",
+          "text": "When we were children, we played in these meadows a lot, so they're full of memories."
+        },
+        {
+          "type": "say",
+          "character": "m",
+          "text": "Hey... Umm..."
+        },
+        {
+          "type": "show",
+          "image_name": "sylvie green smile"
+        },
+        {
+          "type": "with",
+          "transition": "dissolve"
+        },
+        {
+          "type": "say",
+          "text": "She turns to me and smiles. She looks so welcoming that I feel my nervousness melt away."
+        },
+        {
+          "type": "say",
+          "text": "I'll ask her...!"
+        },
+        {
+          "type": "say",
+          "character": "m",
+          "text": "Ummm... Will you..."
+        },
+        {
+          "type": "say",
+          "character": "m",
+          "text": "Will you be my artist for a visual novel?"
+        },
+        {
+          "type": "show",
+          "image_name": "sylvie green surprised"
+        },
+        {
+          "type": "say",
+          "text": "Silence."
+        },
+        {
+          "type": "say",
+          "text": "She looks so shocked that I begin to fear the worst. But then..."
+        },
+        {
+          "type": "show",
+          "image_name": "sylvie green smile"
+        },
+        {
+          "type": "menu",
+          "items": [
+            {
+              "text": "It's a videogame.",
+              "condition": "True",
+              "block": [
+                {
+                  "type": "jump",
+                  "target": "game"
+                }
+              ]
+            },
+            {
+              "text": "It's an interactive book.",
+              "condition": "True",
+              "block": [
+                {
+                  "type": "jump",
+                  "target": "book"
+                }
+              ]
+            }
+          ],
+          "caption": "Sure, but what's a \"visual novel?\""
+        }
+      ]
+    },
+    {
+      "type": "label",
+      "name": "game",
+      "block": [
+        {
+          "type": "say",
+          "character": "m",
+          "text": "It's a kind of videogame you can play on your computer or a console."
+        },
+        {
+          "type": "say",
+          "character": "m",
+          "text": "Visual novels tell a story with pictures and music."
+        },
+        {
+          "type": "say",
+          "character": "m",
+          "text": "Sometimes, you also get to make choices that affect the outcome of the story."
+        },
+        {
+          "type": "say",
+          "character": "s",
+          "text": "So it's like those choose-your-adventure books?"
+        },
+        {
+          "type": "say",
+          "character": "m",
+          "text": "Exactly! I've got lots of different ideas that I think would work."
+        },
+        {
+          "type": "say",
+          "character": "m",
+          "text": "And I thought maybe you could help me...since I know how you like to draw."
+        },
+        {
+          "type": "say",
+          "character": "m",
+          "text": "It'd be hard for me to make a visual novel alone."
+        },
+        {
+          "type": "show",
+          "image_name": "sylvie green normal"
+        },
+        {
+          "type": "say",
+          "character": "s",
+          "text": "Well, sure! I can try. I just hope I don't disappoint you."
+        },
+        {
+          "type": "say",
+          "character": "m",
+          "text": "You know you could never disappoint me, Sylvie."
+        },
+        {
+          "type": "jump",
+          "target": "marry"
+        }
+      ]
+    },
+    {
+      "type": "label",
+      "name": "book",
+      "block": [
+        {
+          "type": "define",
+          "name": "book",
+          "expression": "True"
+        },
+        {
+          "type": "say",
+          "character": "m",
+          "text": "It's like an interactive book that you can read on a computer or a console."
+        },
+        {
+          "type": "show",
+          "image_name": "sylvie green surprised"
+        },
+        {
+          "type": "say",
+          "character": "s",
+          "text": "Interactive?"
+        },
+        {
+          "type": "say",
+          "character": "m",
+          "text": "You can make choices that lead to different events and endings in the story."
+        },
+        {
+          "type": "say",
+          "character": "s",
+          "text": "So where does the \"visual\" part come in?"
+        },
+        {
+          "type": "say",
+          "character": "m",
+          "text": "Visual novels have pictures and even music, sound effects, and sometimes voice acting to go along with the text."
+        },
+        {
+          "type": "show",
+          "image_name": "sylvie green smile"
+        },
+        {
+          "type": "say",
+          "character": "s",
+          "text": "I see! That certainly sounds like fun. I actually used to make webcomics way back when, so I've got lots of story ideas."
+        },
+        {
+          "type": "say",
+          "character": "m",
+          "text": "That's great! So...would you be interested in working with me as an artist?"
+        },
+        {
+          "type": "say",
+          "character": "s",
+          "text": "I'd love to!"
+        },
+        {
+          "type": "jump",
+          "target": "marry"
+        }
+      ]
+    },
+    {
+      "type": "label",
+      "name": "marry",
+      "block": [
+        {
+          "type": "scene",
+          "image_name": "black"
+        },
+        {
+          "type": "with",
+          "transition": "dissolve"
+        },
+        {
+          "type": "say",
+          "text": "And so, we become a visual novel creating duo."
+        },
+        {
+          "type": "scene",
+          "image_name": "bg club"
+        },
+        {
+          "type": "with",
+          "transition": "dissolve"
+        },
+        {
+          "type": "say",
+          "text": "Over the years, we make lots of games and have a lot of fun making them."
+        },
+        {
+          "type": "if",
+          "branches": [
+            {
+              "condition": "book",
+              "block": [
+                {
+                  "type": "say",
+                  "text": "Our first game is based on one of Sylvie's ideas, but afterwards I get to come up with stories of my own, too."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "say",
+          "text": "We take turns coming up with stories and characters and support each other to make some great games!"
+        },
+        {
+          "type": "say",
+          "text": "And one day..."
+        },
+        {
+          "type": "show",
+          "image_name": "sylvie blue normal"
+        },
+        {
+          "type": "with",
+          "transition": "dissolve"
+        },
+        {
+          "type": "say",
+          "character": "s",
+          "text": "Hey..."
+        },
+        {
+          "type": "say",
+          "character": "m",
+          "text": "Yes?"
+        },
+        {
+          "type": "show",
+          "image_name": "sylvie blue giggle"
+        },
+        {
+          "type": "say",
+          "character": "s",
+          "text": "Will you marry me?"
+        },
+        {
+          "type": "say",
+          "character": "m",
+          "text": "What? Where did this come from?"
+        },
+        {
+          "type": "show",
+          "image_name": "sylvie blue surprised"
+        },
+        {
+          "type": "say",
+          "character": "s",
+          "text": "Come on, how long have we been dating?"
+        },
+        {
+          "type": "say",
+          "character": "m",
+          "text": "A while..."
+        },
+        {
+          "type": "show",
+          "image_name": "sylvie blue smile"
+        },
+        {
+          "type": "say",
+          "character": "s",
+          "text": "These last few years we've been making visual novels together, spending time together, helping each other..."
+        },
+        {
+          "type": "say",
+          "character": "s",
+          "text": "I've gotten to know you and care about you better than anyone else. And I think the same goes for you, right?"
+        },
+        {
+          "type": "say",
+          "character": "m",
+          "text": "Sylvie..."
+        },
+        {
+          "type": "show",
+          "image_name": "sylvie blue giggle"
+        },
+        {
+          "type": "say",
+          "character": "s",
+          "text": "But I know you're the indecisive type. If I held back, who knows when you'd propose?"
+        },
+        {
+          "type": "show",
+          "image_name": "sylvie blue normal"
+        },
+        {
+          "type": "say",
+          "character": "s",
+          "text": "So will you marry me?"
+        },
+        {
+          "type": "say",
+          "character": "m",
+          "text": "Of course I will! I've actually been meaning to propose, honest!"
+        },
+        {
+          "type": "say",
+          "character": "s",
+          "text": "I know, I know."
+        },
+        {
+          "type": "say",
+          "character": "m",
+          "text": "I guess... I was too worried about timing. I wanted to ask the right question at the right time."
+        },
+        {
+          "type": "show",
+          "image_name": "sylvie blue giggle"
+        },
+        {
+          "type": "say",
+          "character": "s",
+          "text": "You worry too much. If only this were a visual novel and I could pick an option to give you more courage!"
+        },
+        {
+          "type": "scene",
+          "image_name": "black"
+        },
+        {
+          "type": "with",
+          "transition": "dissolve"
+        },
+        {
+          "type": "say",
+          "text": "We get married shortly after that."
+        },
+        {
+          "type": "say",
+          "text": "Our visual novel duo lives on even after we're married...and I try my best to be more decisive."
+        },
+        {
+          "type": "say",
+          "text": "Together, we live happily ever after even now."
+        },
+        {
+          "type": "say",
+          "text": "{b}Good Ending{/b}."
+        },
+        {
+          "type": "return"
+        }
+      ]
+    },
+    {
+      "type": "label",
+      "name": "later",
+      "block": [
+        {
+          "type": "say",
+          "text": "I can't get up the nerve to ask right now. With a gulp, I decide to ask her later."
+        },
+        {
+          "type": "scene",
+          "image_name": "black"
+        },
+        {
+          "type": "with",
+          "transition": "dissolve"
+        },
+        {
+          "type": "say",
+          "text": "But I'm an indecisive person."
+        },
+        {
+          "type": "say",
+          "text": "I couldn't ask her that day and I end up never being able to ask her."
+        },
+        {
+          "type": "say",
+          "text": "I guess I'll never know the answer to my question now..."
+        },
+        {
+          "type": "say",
+          "text": "{b}Bad Ending{/b}."
+        },
+        {
+          "type": "return"
+        }
+      ]
+    }
+  ]
+}

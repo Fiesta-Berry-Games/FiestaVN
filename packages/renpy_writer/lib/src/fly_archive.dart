@@ -7,9 +7,10 @@ import 'package:renpy_parser/renpy_parser.dart';
 import 'fly_codec.dart';
 import 'renpy_emitter.dart';
 
-/// Thrown when a `.fly.zip` archive is structurally invalid: not a zip,
-/// unsafe entry paths, no script, an ambiguous script, or a script that is
-/// not valid UTF-8 / does not parse.
+/// Thrown when a `.fly.zip` archive or a streamable game directory (see
+/// `FlyStreamManifest`) is structurally invalid: not a zip, unsafe entry
+/// paths, no script, an ambiguous script, or a script that is not valid
+/// UTF-8 / does not parse.
 class FlyArchiveException implements Exception {
   FlyArchiveException(this.message);
 
@@ -81,11 +82,11 @@ class FlyArchive {
     final files = <FlyArchiveFile>[];
     for (final entry in archive) {
       if (!entry.isFile) continue;
-      final path = _safePath(entry.name);
+      final path = safePath(entry.name);
       files.add(FlyArchiveFile(path, entry.readBytes() ?? Uint8List(0)));
     }
 
-    final selection = _selectScript([for (final f in files) f.path]);
+    final selection = selectScript([for (final f in files) f.path]);
     final script = files.firstWhere((f) => f.path == selection.path);
     final String scriptSource;
     try {
@@ -126,13 +127,13 @@ class FlyArchive {
     final archive = Archive();
     final paths = <String>{};
     for (final file in files) {
-      final path = _safePath(file.path);
+      final path = safePath(file.path);
       if (!paths.add(path)) {
         throw FlyArchiveException('duplicate entry path "$path"');
       }
       archive.add(ArchiveFile.bytes(path, file.bytes));
     }
-    _selectScript(paths);
+    selectScript(paths);
     return ZipEncoder().encodeBytes(archive);
   }
 
@@ -176,7 +177,11 @@ class FlyArchive {
   /// Normalizes [path] to forward slashes and rejects unsafe entries
   /// (zip-slip protection): absolute paths, drive-letter paths, and paths
   /// containing `..` segments.
-  static String _safePath(String path) {
+  ///
+  /// These are the entry-path rules shared by `.fly.zip` archives and
+  /// streamable game directories (`FlyStreamManifest`). Throws
+  /// [FlyArchiveException] on violation; returns the normalized path.
+  static String safePath(String path) {
     final normalized = path.replaceAll('\\', '/');
     if (normalized.isEmpty) {
       throw FlyArchiveException('empty entry path');
@@ -198,7 +203,10 @@ class FlyArchive {
   /// multiple candidates of the winning kind, `game/script.<ext>` is
   /// preferred. Throws [FlyArchiveException] when no script exists or the
   /// choice is ambiguous.
-  static _ScriptSelection _selectScript(Iterable<String> paths) {
+  ///
+  /// This is the selection rule shared by `.fly.zip` archives and streamable
+  /// game directories (`FlyStreamManifest`).
+  static FlyScriptSelection selectScript(Iterable<String> paths) {
     final fly = <String>[];
     final rpy = <String>[];
     for (final path in paths) {
@@ -243,15 +251,18 @@ class FlyArchive {
         for (final path in rpy..sort())
           'ignored $path because $chosen is present',
     ];
-    return _ScriptSelection(chosen, notes);
+    return FlyScriptSelection(chosen, notes);
   }
 }
 
-/// The outcome of the single-script rule: the chosen script [path] and any
-/// [notes] about ignored candidates.
-class _ScriptSelection {
-  _ScriptSelection(this.path, this.notes);
+/// The outcome of the single-script rule ([FlyArchive.selectScript]): the
+/// chosen script [path] and any [notes] about ignored candidates.
+class FlyScriptSelection {
+  FlyScriptSelection(this.path, this.notes);
 
+  /// The chosen script path, e.g. `game/script.fly`.
   final String path;
+
+  /// Human-readable remarks about ignored script candidates.
   final List<String> notes;
 }
