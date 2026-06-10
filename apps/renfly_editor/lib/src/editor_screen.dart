@@ -68,6 +68,10 @@ class _EditorScreenState extends State<EditorScreen> {
   /// changes within the same line don't reload the preview.
   int _previewCursorLine = 0;
 
+  /// True while the editor itself is (re)positioning the preview, so the
+  /// resulting burst of runner events doesn't bounce back into the cursor.
+  bool _syncingPreview = false;
+
   RenPyParseError? _parseError;
   List<String> _parseWarnings = const [];
   final List<String> _runDiagnostics = [];
@@ -83,7 +87,7 @@ class _EditorScreenState extends State<EditorScreen> {
       onDiagnostic: _onRunDiagnostic,
       snapshotStore: RenPyMemoryRunnerSnapshotStore(),
       slotStore: RenPyMemoryRunnerSnapshotSlotStore(),
-    );
+    )..addListener(_onPreviewAdvanced);
     _parseForDiagnostics(notify: false);
     // The preview is live from launch: start the script once the first frame
     // has mounted the player layers, then follow edits and the cursor.
@@ -100,8 +104,61 @@ class _EditorScreenState extends State<EditorScreen> {
     _followDebounce?.cancel();
     _editorScrollController.dispose();
     _scriptController.dispose();
-    _previewController.dispose();
+    _previewController
+      ..removeListener(_onPreviewAdvanced)
+      ..dispose();
     super.dispose();
+  }
+
+  // --- Preview-to-cursor sync -------------------------------------------
+
+  /// Mirrors preview navigation back into the editor: when the player
+  /// advances to a new beat, the cursor moves to that statement's line (and
+  /// the editor scrolls it into view). [_syncingPreview] keeps the burst of
+  /// events from a reload/fast-forward from bouncing back, and
+  /// [_previewCursorLine] keeps the cursor-follow path from reloading the
+  /// preview we just advanced.
+  void _onPreviewAdvanced() {
+    if (_syncingPreview || !_hasRun || !mounted) return;
+    final status = _previewController.value;
+    if (status is! RenPyDialogue && status is! RenPyMenu) return;
+    final line = _previewController.currentLine;
+    if (line == null || line == _previewCursorLine) return;
+    _moveCursorToLine(line);
+  }
+
+  /// Places the caret at the end of [line] (1-based) and scrolls it into
+  /// view, without marking the document dirty.
+  void _moveCursorToLine(int line) {
+    _previewCursorLine = line;
+    final text = _scriptController.text;
+    var offset = 0;
+    for (var current = 1; current < line && offset < text.length; current++) {
+      final next = text.indexOf('\n', offset);
+      if (next < 0) break;
+      offset = next + 1;
+    }
+    final lineEnd = text.indexOf('\n', offset);
+    _scriptController.selection = TextSelection.collapsed(
+      offset: lineEnd < 0 ? text.length : lineEnd,
+    );
+    _scrollEditorToLine(line);
+  }
+
+  /// Centers [line] in the editor viewport (best effort).
+  void _scrollEditorToLine(int line) {
+    if (!_editorScrollController.hasClients) return;
+    final lineHeight =
+        _editorTextStyle.fontSize! * (_editorTextStyle.height ?? 1.5);
+    final position = _editorScrollController.position;
+    final target = ((line - 1) * lineHeight + 8 -
+            position.viewportDimension / 2)
+        .clamp(0.0, position.maxScrollExtent);
+    _editorScrollController.animateTo(
+      target,
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeOut,
+    );
   }
 
   // --- Diagnostics -----------------------------------------------------
@@ -181,6 +238,7 @@ class _EditorScreenState extends State<EditorScreen> {
       setState(() => _runDiagnostics.clear());
     }
     _previewCursorLine = cursorLine ?? 0;
+    _syncingPreview = true;
     try {
       _previewController.load(
         _scriptController.text,
@@ -194,6 +252,8 @@ class _EditorScreenState extends State<EditorScreen> {
       }
     } catch (error) {
       _previewController.value = RenPyError(error.toString());
+    } finally {
+      _syncingPreview = false;
     }
   }
 

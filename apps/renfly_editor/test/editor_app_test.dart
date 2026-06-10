@@ -203,6 +203,45 @@ void main() {
     );
   });
 
+  testWidgets('advancing the preview moves the editor cursor forward', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('editor-script-field')),
+      'label start:\n    "Alpha"\n    "Beta"\n',
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+
+    // Park the cursor on the "Alpha" line; the preview follows it there.
+    final controller =
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('editor-script-field')))
+            .controller!;
+    controller.selection = const TextSelection.collapsed(offset: 17);
+    await tester.pump(const Duration(milliseconds: 500));
+    await pumpUntil(
+      tester,
+      () => find.textContaining('Alpha').evaluate().length >= 2,
+      description: 'preview at Alpha',
+    );
+
+    // Advance the preview by tapping the stage; the cursor should land on
+    // the "Beta" line (line 3).
+    await tester.tap(find.byKey(const ValueKey('renpy-player-stage')));
+    await tester.pump();
+    await pumpUntil(
+      tester,
+      () => find.textContaining('Beta').evaluate().length >= 2,
+      description: 'preview advanced to Beta',
+    );
+
+    final offset = controller.selection.baseOffset;
+    final line = '\n'.allMatches(controller.text.substring(0, offset)).length + 1;
+    expect(line, 3);
+  });
+
   test('starter template round-trips through FlyCodec', () {
     final script =
         RenPyParser().parse(starterTemplate, 'editor.rpy').script;
