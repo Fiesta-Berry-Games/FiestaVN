@@ -11,6 +11,7 @@ import 'package:renpy_writer/renpy_writer.dart';
 import 'file_saver.dart';
 import 'migration_report.dart';
 import 'starter_template.dart';
+import 'syntax_highlight.dart';
 
 /// How long typing is left to settle before the script is re-parsed for
 /// diagnostics.
@@ -42,6 +43,7 @@ class EditorScreen extends StatefulWidget {
 
 class _EditorScreenState extends State<EditorScreen> {
   late final TextEditingController _scriptController;
+  late final ScrollController _editorScrollController;
   late final RenPyFlutterController _previewController;
 
   /// Memory-only stores so editor preview runs never pollute persisted saves.
@@ -62,7 +64,8 @@ class _EditorScreenState extends State<EditorScreen> {
   @override
   void initState() {
     super.initState();
-    _scriptController = TextEditingController(text: starterTemplate)
+    _editorScrollController = ScrollController();
+    _scriptController = SyntaxHighlightController(text: starterTemplate)
       ..addListener(_onScriptChanged);
     _previewController = RenPyFlutterController(
       onDiagnostic: _onRunDiagnostic,
@@ -75,6 +78,7 @@ class _EditorScreenState extends State<EditorScreen> {
   @override
   void dispose() {
     _debounce?.cancel();
+    _editorScrollController.dispose();
     _scriptController.dispose();
     _previewController.dispose();
     super.dispose();
@@ -567,34 +571,52 @@ class _EditorScreenState extends State<EditorScreen> {
     );
   }
 
+  static const _editorTextStyle = TextStyle(
+    fontFamily: 'monospace',
+    fontFamilyFallback: ['Courier New', 'Courier'],
+    fontSize: 14,
+    height: 1.5,
+  );
+
   Widget _buildEditorPane(BuildContext context) {
     final issues = _issues;
+    final lineCount = '\n'.allMatches(_scriptController.text).length + 1;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Expanded(
           child: Container(
             color: const Color(0xFF161616),
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: TextField(
-              key: const ValueKey('editor-script-field'),
-              controller: _scriptController,
-              expands: true,
-              maxLines: null,
-              minLines: null,
-              keyboardType: TextInputType.multiline,
-              textAlignVertical: TextAlignVertical.top,
-              style: const TextStyle(
-                fontFamily: 'monospace',
-                fontFamilyFallback: ['Courier New', 'Courier'],
-                fontSize: 14,
-                height: 1.5,
-              ),
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                isCollapsed: false,
-                contentPadding: EdgeInsets.symmetric(vertical: 8),
-              ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _LineNumberGutter(
+                  lineCount: lineCount,
+                  scrollController: _editorScrollController,
+                  textStyle: _editorTextStyle,
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 4, right: 8),
+                    child: TextField(
+                      key: const ValueKey('editor-script-field'),
+                      controller: _scriptController,
+                      scrollController: _editorScrollController,
+                      expands: true,
+                      maxLines: null,
+                      minLines: null,
+                      keyboardType: TextInputType.multiline,
+                      textAlignVertical: TextAlignVertical.top,
+                      style: _editorTextStyle,
+                      decoration: const InputDecoration(
+                        border: InputBorder.none,
+                        isCollapsed: false,
+                        contentPadding: EdgeInsets.symmetric(vertical: 8),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -717,4 +739,119 @@ class _EditorScreenState extends State<EditorScreen> {
       onRestart: _run,
     );
   }
+}
+
+class _LineNumberGutter extends StatefulWidget {
+  const _LineNumberGutter({
+    required this.lineCount,
+    required this.scrollController,
+    required this.textStyle,
+  });
+
+  final int lineCount;
+  final ScrollController scrollController;
+  final TextStyle textStyle;
+
+  @override
+  State<_LineNumberGutter> createState() => _LineNumberGutterState();
+}
+
+class _LineNumberGutterState extends State<_LineNumberGutter> {
+  double _offset = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void didUpdateWidget(covariant _LineNumberGutter oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.scrollController != widget.scrollController) {
+      oldWidget.scrollController.removeListener(_onScroll);
+      widget.scrollController.addListener(_onScroll);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.scrollController.removeListener(_onScroll);
+    super.dispose();
+  }
+
+  void _onScroll() {
+    final pos = widget.scrollController.position;
+    if (pos.hasPixels && _offset != pos.pixels) {
+      setState(() => _offset = pos.pixels);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final digits = widget.lineCount.toString().length;
+    final charWidth = digits.clamp(2, 6);
+    final gutterWidth = 12.0 + charWidth * 8.6;
+    final lineHeight =
+        widget.textStyle.fontSize! * (widget.textStyle.height ?? 1.5);
+    return SizedBox(
+      width: gutterWidth,
+      child: ClipRect(
+        child: CustomPaint(
+          painter: _LineNumberPainter(
+            lineCount: widget.lineCount,
+            scrollOffset: _offset,
+            lineHeight: lineHeight,
+            gutterWidth: gutterWidth,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LineNumberPainter extends CustomPainter {
+  _LineNumberPainter({
+    required this.lineCount,
+    required this.scrollOffset,
+    required this.lineHeight,
+    required this.gutterWidth,
+  });
+
+  final int lineCount;
+  final double scrollOffset;
+  final double lineHeight;
+  final double gutterWidth;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const topPad = 8.0; // matches contentPadding vertical
+    final firstVisible = ((scrollOffset - topPad) / lineHeight).floor().clamp(0, lineCount - 1);
+    final lastVisible = ((scrollOffset - topPad + size.height) / lineHeight).ceil().clamp(0, lineCount);
+
+    final tp = TextPainter(textDirection: TextDirection.ltr);
+    for (var i = firstVisible; i < lastVisible; i++) {
+      tp.text = TextSpan(
+        text: '${i + 1}',
+        style: const TextStyle(
+          fontFamily: 'monospace',
+          fontFamilyFallback: ['Courier New', 'Courier'],
+          fontSize: 14,
+          height: 1.5,
+          color: Color(0xFF555555),
+        ),
+      );
+      tp.layout();
+      final y = topPad + i * lineHeight - scrollOffset;
+      tp.paint(canvas, Offset(gutterWidth - tp.width - 8, y));
+    }
+    tp.dispose();
+  }
+
+  @override
+  bool shouldRepaint(_LineNumberPainter oldDelegate) =>
+      lineCount != oldDelegate.lineCount ||
+      scrollOffset != oldDelegate.scrollOffset ||
+      lineHeight != oldDelegate.lineHeight ||
+      gutterWidth != oldDelegate.gutterWidth;
 }

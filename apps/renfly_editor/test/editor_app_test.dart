@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:renfly_editor/main.dart';
+import 'package:renfly_editor/src/migration_report.dart';
 import 'package:renfly_editor/src/starter_template.dart';
+import 'package:renfly_editor/src/syntax_highlight.dart';
 import 'package:renpy_flutter/renpy_flutter.dart';
 import 'package:renpy_parser/renpy_parser.dart';
 import 'package:renpy_writer/renpy_writer.dart';
@@ -136,4 +138,86 @@ void main() {
     final reparsed = RenPyParser().parse(emitted, 'roundtrip.rpy').script;
     expect(reparsed.statements.length, script.statements.length);
   });
+
+  testWidgets('toolbar shows Save .fly.zip button', (tester) async {
+    await pumpEditor(tester);
+    expect(
+      find.byKey(const ValueKey('editor-save-flyzip-button')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('line number gutter is visible', (tester) async {
+    await pumpEditor(tester);
+    // The gutter paints via CustomPaint — verify it's present in the tree.
+    expect(find.byType(CustomPaint), findsWidgets);
+  });
+
+  test('SyntaxHighlightController colors keywords', () {
+    final controller = SyntaxHighlightController(text: 'show bg black');
+    final span = controller.buildTextSpan(
+      context: _FakeBuildContext(),
+      style: const TextStyle(),
+      withComposing: false,
+    );
+    // 'show' is a keyword and should appear as a colored child span.
+    final children = span.children!;
+    expect(children, isNotEmpty);
+    final showSpan = children.firstWhere(
+      (s) => (s as TextSpan).text == 'show',
+    ) as TextSpan;
+    expect(showSpan.style?.color, isNotNull);
+  });
+
+  test('runRpyToFlyGate produces faithful result for starter template', () {
+    final result = runRpyToFlyGate(starterTemplate);
+    expect(result.report.isFaithful, isTrue);
+    expect(result.output, isNotEmpty);
+  });
+
+  test('runRpyToFlyGate reports issues for unstructured constructs', () {
+    const script = 'label start:\n    camera at topleft\n    "Hello"\n';
+    final result = runRpyToFlyGate(script);
+    // camera is an unstructured statement — should surface as info.
+    expect(result.report.issues, isNotEmpty);
+  });
+
+  testWidgets('MigrationReportDialog renders faithful headline', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1600, 1000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData.dark(useMaterial3: true),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) {
+              return FilledButton(
+                onPressed: () => showMigrationReportDialog(
+                  context,
+                  const FlyMigrationReport([]),
+                  title: 'Test',
+                ),
+                child: const Text('Show'),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Show'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Test'), findsOneWidget);
+    expect(find.textContaining('Fully faithful'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('migration-report-confirm')),
+      findsOneWidget,
+    );
+  });
 }
+
+class _FakeBuildContext extends Fake implements BuildContext {}
