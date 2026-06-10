@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:renpy_parser/renpy_parser.dart';
 import 'package:renpy_writer/renpy_writer.dart';
 
 import 'file_saver.dart';
+import 'migration_report.dart';
 import 'starter_template.dart';
 
 /// How long typing is left to settle before the script is re-parsed for
@@ -186,7 +188,7 @@ class _EditorScreenState extends State<EditorScreen> {
     try {
       result = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowedExtensions: const ['rpy', 'fly', 'txt'],
+        allowedExtensions: const ['rpy', 'fly', 'zip', 'txt'],
         withData: true,
       );
     } catch (error) {
@@ -202,6 +204,12 @@ class _EditorScreenState extends State<EditorScreen> {
       return;
     }
 
+    final name = file.name.toLowerCase();
+    if (name.endsWith('.fly.zip') || name.endsWith('.zip')) {
+      await _openFlyZip(file.name, bytes);
+      return;
+    }
+
     final String source;
     try {
       source = utf8.decode(bytes);
@@ -211,9 +219,9 @@ class _EditorScreenState extends State<EditorScreen> {
     }
 
     String text = source;
-    if (file.name.toLowerCase().endsWith('.fly')) {
-      // The editor's source of truth is .rpy text, so .fly documents are
-      // decoded to the AST and re-emitted as script text.
+    FlyMigrationReport? report;
+
+    if (name.endsWith('.fly')) {
       try {
         final script = const FlyCodec().decodeFromString(
           source,
@@ -227,26 +235,108 @@ class _EditorScreenState extends State<EditorScreen> {
         _showSnackBar('Could not read ${file.name}: $error');
         return;
       }
+    } else if (name.endsWith('.rpy')) {
+      // Run migration gate to surface what would be lost in a .fly round-trip.
+      try {
+        final gate = runRpyToFlyGate(source, filename: file.name);
+        report = gate.report;
+      } catch (_) {
+        // Parse failure — will show in the diagnostics strip instead.
+      }
     }
+
     _setScript(text);
+
+    if (report != null && report.issues.isNotEmpty && mounted) {
+      await showMigrationReportDialog(
+        context,
+        report,
+        title: 'Opened ${file.name}',
+        confirmLabel: 'OK',
+      );
+    }
+  }
+
+  Future<void> _openFlyZip(String filename, Uint8List bytes) async {
+    final FlyArchive archive;
+    try {
+      archive = FlyArchive.decode(bytes);
+    } on FlyArchiveException catch (error) {
+      _showSnackBar('Could not open $filename: ${error.message}');
+      return;
+    }
+
+    String text;
+    try {
+      text = archive.scriptAsRpy();
+    } on FlyFormatException catch (error) {
+      _showSnackBar('Could not read script in $filename: ${error.message}');
+      return;
+    }
+
+    _setScript(text);
+
+    if (archive.notes.isNotEmpty) {
+      _showSnackBar(archive.notes.join('; '));
+    }
   }
 
   Future<void> _saveFly() async {
-    final RenPyScript script;
+    final FlyMigrationResult gate;
     try {
-      script = RenPyParser().parse(_scriptController.text, 'editor.rpy').script;
+      gate = runRpyToFlyGate(_scriptController.text);
     } on RenPyParseError catch (error) {
       _showSnackBar('Cannot save: $error');
       return;
     }
-    final String encoded;
+
+    if (!gate.report.isFaithful && mounted) {
+      final proceed = await showMigrationReportDialog(
+        context,
+        gate.report,
+        title: 'Save .fly',
+        confirmLabel: 'Save Anyway',
+        cancelLabel: 'Cancel',
+      );
+      if (proceed != true) return;
+    }
+
+    await saveTextFile('story.fly', gate.output);
+    _dirty = false;
+  }
+
+  Future<void> _saveFlyZip() async {
+    final Uint8List zipBytes;
     try {
-      encoded = const FlyCodec().encodeToString(script);
-    } catch (error) {
-      _showSnackBar('Cannot save: $error');
+      zipBytes = FlyArchive.fromScript(
+        scriptSource: _scriptController.text,
+      );
+    } on FlyArchiveException catch (error) {
+      _showSnackBar('Cannot package: ${error.message}');
+      return;
+    } on RenPyParseError catch (error) {
+      _showSnackBar('Cannot package: $error');
       return;
     }
-    await saveTextFile('story.fly', encoded);
+
+    // Show migration fidelity before writing.
+    try {
+      final gate = runRpyToFlyGate(_scriptController.text);
+      if (!gate.report.isFaithful && mounted) {
+        final proceed = await showMigrationReportDialog(
+          context,
+          gate.report,
+          title: 'Save .fly.zip',
+          confirmLabel: 'Save Anyway',
+          cancelLabel: 'Cancel',
+        );
+        if (proceed != true) return;
+      }
+    } catch (_) {
+      // Gate already passed if fromScript succeeded; swallow.
+    }
+
+    await saveBinaryFile('story.fly.zip', zipBytes);
     _dirty = false;
   }
 
@@ -334,6 +424,12 @@ class _EditorScreenState extends State<EditorScreen> {
                     onPressed: _saveFly,
                     icon: const Icon(Icons.save_outlined, size: 18),
                     label: const Text('Save .fly'),
+                  ),
+                  TextButton.icon(
+                    key: const ValueKey('editor-save-flyzip-button'),
+                    onPressed: _saveFlyZip,
+                    icon: const Icon(Icons.archive_outlined, size: 18),
+                    label: const Text('Save .fly.zip'),
                   ),
                   TextButton.icon(
                     key: const ValueKey('editor-export-rpy-button'),

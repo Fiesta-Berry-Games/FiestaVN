@@ -221,6 +221,11 @@ final class _FakeProjectPicker implements RenPyProjectPicker {
   }
 
   @override
+  Future<PickedProject?> pickFile() async {
+    return PickedProject(project, sourcePath: sourcePath);
+  }
+
+  @override
   Future<RenPyGameProject?> reloadProject(String path) async {
     reloadedPaths.add(path);
     return project;

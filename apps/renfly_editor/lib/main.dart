@@ -15,13 +15,23 @@ class RenFlyEditorApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const accent = Color(0xFFFF5A6E); // strawberry coral, matching fiestavn.com
+    final colorScheme = ColorScheme.fromSeed(
+      seedColor: accent,
+      brightness: Brightness.dark,
+      surface: const Color(0xFF121212),
+    );
     final base = ThemeData.dark(useMaterial3: true);
     return MaterialApp(
       title: 'RenFly Editor',
       debugShowCheckedModeBanner: false,
       theme: base.copyWith(
+        colorScheme: colorScheme,
         scaffoldBackgroundColor: const Color(0xFF121212),
         canvasColor: const Color(0xFF121212),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(backgroundColor: accent),
+        ),
       ),
       home: EditorScreen(audioPlayback: audioPlayback),
     );

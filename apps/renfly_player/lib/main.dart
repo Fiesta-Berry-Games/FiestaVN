@@ -171,6 +171,31 @@ class _GameLibraryScreenState extends State<GameLibraryScreen> {
     }
   }
 
+  Future<void> _addFile() async {
+    final store = _store;
+    if (store == null) return;
+    try {
+      final picked = await widget.projectPicker.pickFile();
+      if (picked == null || !mounted) return;
+
+      final project = picked.project;
+      final entry = LibraryProject(
+        id: picked.sourcePath ?? project.gameRoot,
+        name: project.name,
+        sourcePath: picked.sourcePath,
+      );
+      final projects = await store.add(entry);
+      if (!mounted) return;
+      setState(() => _projects = _sortedByRecent(projects));
+      _launchExternalProject(entry, project);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to open file: $error')));
+    }
+  }
+
   Future<void> _removeProject(LibraryProject project) async {
     final store = _store;
     if (store == null) return;
@@ -280,7 +305,14 @@ class _GameLibraryScreenState extends State<GameLibraryScreen> {
                   ListTile(
                     leading: const Icon(Icons.folder_open),
                     title: const Text('Open Folder'),
+                    subtitle: const Text('Classic Ren\'Py project directory'),
                     onTap: _addProject,
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.file_open),
+                    title: const Text('Open File'),
+                    subtitle: const Text('.fly, .fly.zip, or .rpy'),
+                    onTap: _addFile,
                   ),
                 ],
               ),

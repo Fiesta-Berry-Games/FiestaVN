@@ -40,6 +40,8 @@ dependencies:
     path: ../../packages/renpy_core
   renpy_flutter:
     path: ../../packages/renpy_flutter
+  renpy_writer:
+    path: ../../packages/renpy_writer
   file_picker: ^11.0.2
   web: ^1.1.1
   shared_preferences: ^2.5.5

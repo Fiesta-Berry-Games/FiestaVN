@@ -426,6 +426,9 @@ final class _FakeProjectPicker implements RenPyProjectPicker {
   Future<PickedProject?> pickProject() async => PickedProject(project);
 
   @override
+  Future<PickedProject?> pickFile() async => PickedProject(project);
+
+  @override
   Future<RenPyGameProject?> reloadProject(String sourcePath) async => project;
 }
 
