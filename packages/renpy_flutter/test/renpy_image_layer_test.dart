@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:renpy_core/renpy_core.dart'
     show
         RenPyAtlProgram,
+        RenPyColorValue,
         RenPyParser,
         RenPyResolvedImage,
         RenPyTransformStatement;
@@ -1217,6 +1218,102 @@ transform slide:
     await tester.pump();
 
     expect(_assetNames(tester), ['assets/game/images/sylvie green normal.png']);
+  });
+
+  testWidgets('image layer clamps oversized sprites so heads stay visible', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+    final spriteImage = await _createTestImage(456, 700);
+    addTearDown(spriteImage.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 800,
+          height: 600,
+          child: RenPyImageLayer(
+            controller: controller,
+            imageProvider:
+                (_) => _FixedSizeImageProvider('sprite.png', spriteImage),
+          ),
+        ),
+      ),
+    );
+
+    // Bottom-anchored 700px-tall sprite on a 600px stage with no screen
+    // size: unclamped it would start at -100 and clip the head.
+    controller.value = RenPyImageChange(
+      show: 'sylvie green normal',
+      showAsset: 'assets/game/images/sylvie green normal.png',
+    );
+    await tester.pump();
+
+    final rect = _spriteImageRect(tester, 'sylvie');
+    expect(rect.top, moreOrLessEquals(0));
+    expect(rect.bottom, moreOrLessEquals(700));
+  });
+
+  testWidgets('image layer keeps fitting sprites bottom-anchored unclamped', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+    final spriteImage = await _createTestImage(300, 400);
+    addTearDown(spriteImage.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 800,
+          height: 600,
+          child: RenPyImageLayer(
+            controller: controller,
+            imageProvider:
+                (_) => _FixedSizeImageProvider('sprite.png', spriteImage),
+          ),
+        ),
+      ),
+    );
+
+    controller.value = RenPyImageChange(
+      show: 'sylvie green normal',
+      showAsset: 'assets/game/images/sylvie green normal.png',
+    );
+    await tester.pump();
+
+    final rect = _spriteImageRect(tester, 'sylvie');
+    expect(rect.top, moreOrLessEquals(200));
+    expect(rect.bottom, moreOrLessEquals(600));
+  });
+
+  testWidgets('image layer renders shown solid-color displayables', (
+    tester,
+  ) async {
+    final controller = RenPyFlutterController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: RenPyImageLayer(controller: controller)),
+    );
+
+    controller.value = RenPyImageChange(
+      show: 'red',
+      showAt: 'center',
+      showImage: const RenPyResolvedImage.solid(
+        RenPyColorValue(255, 0, 0, 255),
+      ),
+    );
+    await tester.pump();
+
+    final solid = tester.widget<ColoredBox>(
+      find.descendant(
+        of: find.byKey(const ValueKey('red')),
+        matching: find.byType(ColoredBox),
+      ),
+    );
+    expect(solid.color, const Color(0xFFFF0000));
   });
 }
 

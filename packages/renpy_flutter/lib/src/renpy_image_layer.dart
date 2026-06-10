@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:renpy_core/renpy_core.dart'
     show
@@ -178,6 +179,17 @@ class _RenPyImageLayerState extends State<RenPyImageLayer> {
               placement: placement,
               zOrder: status.showZOrder ?? 0,
               atl: atl,
+            ),
+            behind: status.showBehind,
+            layer: status.showOnLayer,
+          );
+        } else if (_colorForResolvedSolid(status.showImage) != null) {
+          _putSprite(
+            name,
+            _RenPySpriteState.solid(
+              solidColor: _colorForResolvedSolid(status.showImage)!,
+              placement: placement,
+              zOrder: status.showZOrder ?? 0,
             ),
             behind: status.showBehind,
             layer: status.showOnLayer,
@@ -818,17 +830,19 @@ class _RenPyDisplayableSpriteState extends State<_RenPyDisplayableSprite>
           content = _applyAtlEffects(atlState, content);
 
           final offset = _atlOffsetPixels(atlState, screenScale);
+          final stageTop = resolved.position.dy + offset.dy;
 
           return Stack(
             clipBehavior: Clip.none,
             children: [
               Positioned(
                 left: resolved.position.dx + offset.dx,
-                top: resolved.position.dy + offset.dy,
+                top: stageTop,
                 child: _positionDisplayable(
                   placement: placement,
                   resolved: resolved,
                   screenScale: screenScale,
+                  stageTop: stageTop,
                   child: content,
                 ),
               ),
@@ -999,11 +1013,16 @@ Widget _positionDisplayable({
   required RenPyImagePlacement placement,
   required _ResolvedSpritePlacement resolved,
   required double screenScale,
+  required double stageTop,
   required Widget child,
 }) {
-  final anchored = FractionalTranslation(
+  final yScale = screenScale * (placement.zoom ?? 1) * (placement.yzoom ?? 1);
+  final anchored = _RenPySpriteAnchor(
     translation: resolved.anchorTranslation,
-    child: Transform.translate(offset: resolved.anchorOffset, child: child),
+    pixelOffset: resolved.anchorOffset,
+    stageTop: stageTop,
+    scaleY: yScale,
+    child: child,
   );
 
   final scaled = _scaleDisplayable(placement, screenScale, anchored);
@@ -1044,6 +1063,125 @@ Widget _scaleDisplayable(
   );
 }
 
+/// Anchors a sprite like [FractionalTranslation] plus a pixel offset, but
+/// clamps the upward shift so the sprite's top never rises above the stage:
+/// a sprite taller than the space above its anchor point is pushed down
+/// (sacrificing feet) so the head stays visible. Real Ren'Py clips from the
+/// top instead, but embedded viewports are often much smaller than the game's
+/// design resolution and heads matter more than feet there.
+class _RenPySpriteAnchor extends SingleChildRenderObjectWidget {
+  const _RenPySpriteAnchor({
+    required this.translation,
+    required this.pixelOffset,
+    required this.stageTop,
+    required this.scaleY,
+    super.child,
+  });
+
+  /// Fractional anchor translation, in multiples of the child size.
+  final Offset translation;
+
+  /// Pixel-anchor translation applied on top of [translation].
+  final Offset pixelOffset;
+
+  /// Stage-pixel distance from the stage's top edge to the anchor point.
+  final double stageTop;
+
+  /// Vertical scale the enclosing transform applies to this widget's
+  /// coordinate space; the clamp must account for it because the shift is
+  /// expressed in pre-scale coordinates.
+  final double scaleY;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) {
+    return _RenderRenPySpriteAnchor(
+      translation: translation,
+      pixelOffset: pixelOffset,
+      stageTop: stageTop,
+      scaleY: scaleY,
+    );
+  }
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderRenPySpriteAnchor renderObject,
+  ) {
+    renderObject
+      ..translation = translation
+      ..pixelOffset = pixelOffset
+      ..stageTop = stageTop
+      ..scaleY = scaleY;
+  }
+}
+
+class _RenderRenPySpriteAnchor extends RenderShiftedBox {
+  _RenderRenPySpriteAnchor({
+    required Offset translation,
+    required Offset pixelOffset,
+    required double stageTop,
+    required double scaleY,
+  }) : _translation = translation,
+       _pixelOffset = pixelOffset,
+       _stageTop = stageTop,
+       _scaleY = scaleY,
+       super(null);
+
+  Offset _translation;
+  set translation(Offset value) {
+    if (_translation == value) return;
+    _translation = value;
+    markNeedsLayout();
+  }
+
+  Offset _pixelOffset;
+  set pixelOffset(Offset value) {
+    if (_pixelOffset == value) return;
+    _pixelOffset = value;
+    markNeedsLayout();
+  }
+
+  double _stageTop;
+  set stageTop(double value) {
+    if (_stageTop == value) return;
+    _stageTop = value;
+    markNeedsLayout();
+  }
+
+  double _scaleY;
+  set scaleY(double value) {
+    if (_scaleY == value) return;
+    _scaleY = value;
+    markNeedsLayout();
+  }
+
+  @override
+  void performLayout() {
+    final child = this.child;
+    if (child == null) {
+      size = constraints.smallest;
+      return;
+    }
+
+    child.layout(constraints, parentUsesSize: true);
+    size = constraints.constrain(child.size);
+
+    final dx = _translation.dx * child.size.width + _pixelOffset.dx;
+    var dy = _translation.dy * child.size.height + _pixelOffset.dy;
+    // Clamp so the sprite's effective stage top (stageTop + scaleY * dy)
+    // never goes negative.
+    if (_scaleY > 0) {
+      dy = math.max(dy, -_stageTop / _scaleY);
+    }
+    (child.parentData! as BoxParentData).offset = Offset(dx, dy);
+  }
+}
+
+/// The stage-pixels-per-design-pixel factor. A null [screenSize] means the
+/// host gave no design resolution, so sprites render at native pixel size;
+/// hosts that want proportional scaling should pass a size (players default
+/// to [RenPyScreenSize.fallback]). Oversized sprites are still kept visible
+/// by [_RenPySpriteAnchor]'s top clamp.
 double _screenScale(RenPyScreenSize? screenSize, Size stageSize) {
   if (screenSize == null || stageSize.width <= 0 || stageSize.height <= 0) {
     return 1;

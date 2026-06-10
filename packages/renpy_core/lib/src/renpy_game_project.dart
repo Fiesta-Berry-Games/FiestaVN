@@ -9,6 +9,14 @@ import 'renpy_rpa_archive.dart';
 final class RenPyScreenSize {
   const RenPyScreenSize({required this.width, required this.height});
 
+  /// Ren'Py 7+'s default screen size, used by players when a game declares
+  /// no `config.screen_width/height` or `gui.init()`. Kept out of script
+  /// extraction so "nothing declared" stays observable as null.
+  static const RenPyScreenSize fallback = RenPyScreenSize(
+    width: 1280,
+    height: 720,
+  );
+
   final int width;
   final int height;
 
@@ -711,7 +719,7 @@ RenPyScreenSize? _screenSizeFromSources(Iterable<String> sources) {
   }
 
   if (width == null || height == null || width <= 0 || height <= 0) {
-    return const RenPyScreenSize(width: 1280, height: 720);
+    return null;
   }
   return RenPyScreenSize(width: width, height: height);
 }

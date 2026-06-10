@@ -47,6 +47,40 @@ label start:
     },
   );
 
+  test('load honors startLabel and fastForwardToLine reaches the cursor', () {
+    final controller = RenPyFlutterController(
+      snapshotStore: RenPyMemoryRunnerSnapshotStore(),
+    );
+    addTearDown(controller.dispose);
+    const script = '''
+label start:
+    "Alpha"
+    "Beta"
+
+label chapter_two:
+    "Gamma"
+    "Delta"
+''';
+
+    controller.load(script, startLabel: 'chapter_two');
+    expect((controller.value as RenPyDialogue).text, 'Gamma');
+    expect(controller.currentLine, 6);
+
+    // Fast-forward within a label skips intermediate dialogue.
+    controller.load(script);
+    controller.fastForwardToLine(3);
+    expect((controller.value as RenPyDialogue).text, 'Beta');
+
+    // A target past the end settles on the last beat, not completion.
+    controller.load(script);
+    controller.fastForwardToLine(999);
+    expect((controller.value as RenPyDialogue).text, 'Delta');
+
+    // An unknown startLabel falls back to start.
+    controller.load(script, startLabel: 'missing');
+    expect((controller.value as RenPyDialogue).text, 'Alpha');
+  });
+
   test(
     'controller restores persistent values from shared preferences',
     () async {

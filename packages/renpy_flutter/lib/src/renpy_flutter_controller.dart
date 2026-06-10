@@ -359,12 +359,16 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
 
   /// Loads a `.rpy` script and immediately jumps to `start` when present.
   ///
+  /// When [startLabel] is given and exists, execution begins there instead of
+  /// at `start` — used by editors to preview a specific part of a script.
+  ///
   /// Calling [load] again cleanly restarts the controller with the new script.
   void load(
     String source, {
     String filename = '<memory>',
     String? gameRoot,
     Set<String> availableAssets = const {},
+    String? startLabel,
   }) {
     debugPrint('Loading RenPy script...');
     _ticker?.cancel();
@@ -398,9 +402,13 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
           ..onScreenLayerChanged = _onScreenLayerChanged;
     _runner = runner;
 
-    if (result.script.findLabel('start') != null) {
-      debugPrint('Found start label, jumping to it');
-      runner.jumpToLabel('start');
+    final entryLabel =
+        startLabel != null && result.script.findLabel(startLabel) != null
+            ? startLabel
+            : 'start';
+    if (result.script.findLabel(entryLabel) != null) {
+      debugPrint('Jumping to label $entryLabel');
+      runner.jumpToLabel(entryLabel);
     } else {
       debugPrint('No start label found');
     }
@@ -408,6 +416,32 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     _startTicker();
     debugPrint('Starting initial execution...');
     runner.run();
+  }
+
+  /// The source line (1-based) of the most recently executed statement, or
+  /// null before any script runs.
+  int? get currentLine => _runner?.currentLine;
+
+  /// Advances dialogue and input pauses until execution reaches [line]
+  /// (1-based in the loaded file), a menu or other non-advanceable state, or
+  /// [maxSteps] advances — whichever comes first. Used by editors to bring a
+  /// freshly loaded preview to the beat at the cursor. A [line] past the end
+  /// of the script settles on the script's last beat instead of its
+  /// completion state.
+  void fastForwardToLine(int line, {int maxSteps = 1000}) {
+    for (var step = 0; step < maxSteps; step++) {
+      final runner = _runner;
+      if (runner == null) return;
+      if (runner.state != RenPyRunnerState.waitingForInput) return;
+      final current = runner.currentLine;
+      if (current == null || current >= line) return;
+      if (value is! RenPyDialogue && value is! RenPyPause) return;
+      continueGame();
+      if (_runner?.state == RenPyRunnerState.complete) {
+        rollback();
+        return;
+      }
+    }
   }
 
   /// Player pressed "next".

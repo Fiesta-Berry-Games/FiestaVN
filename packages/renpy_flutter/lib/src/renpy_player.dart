@@ -60,6 +60,12 @@ class RenPyPlayer extends StatelessWidget {
   /// Resolves screen-layer image assets (`add`/`imagebutton`) to providers.
   final RenPyImageProviderFactory? screenImageProvider;
 
+  /// The screen size used for rendering: the declared [screenSize] when the
+  /// game provides one, otherwise [RenPyScreenSize.fallback] so sprites still
+  /// scale proportionally with the stage.
+  RenPyScreenSize get effectiveScreenSize =>
+      screenSize ?? RenPyScreenSize.fallback;
+
   Future<void> _saveGame(BuildContext context) async {
     final saved = await controller.saveGame();
     if (!context.mounted) return;
@@ -110,15 +116,10 @@ class RenPyPlayer extends StatelessWidget {
 
   Widget _buildStageBox(Widget child) {
     const stageKey = ValueKey('renpy-player-stage');
-    final size = screenSize;
-    if (size == null) {
-      return SizedBox.expand(key: stageKey, child: child);
-    }
-
     return Center(
       child: AspectRatio(
         key: stageKey,
-        aspectRatio: size.aspectRatio,
+        aspectRatio: effectiveScreenSize.aspectRatio,
         child: child,
       ),
     );
@@ -141,7 +142,7 @@ class RenPyPlayer extends StatelessWidget {
         else
           RenPyImageLayer(
             controller: controller,
-            screenSize: screenSize,
+            screenSize: effectiveScreenSize,
             layerOrder: layerOrder,
             atlResolver: controller.resolveAtl,
           ),
@@ -155,7 +156,7 @@ class RenPyPlayer extends StatelessWidget {
         RenPyDialogueView(
           controller: controller,
           dialogueStyle: dialogueStyle,
-          screenSize: screenSize,
+          screenSize: effectiveScreenSize,
           gui: gui,
           imageProvider: dialogueImageProvider,
           imageResolver: dialogueImageResolver,
@@ -1056,7 +1057,8 @@ class _RenPyProjectPlayerState extends State<RenPyProjectPlayer> {
             return RenPyImageLayer(
               controller: controller,
               imageProvider: _imageProvider,
-              screenSize: widget.project.screenSize,
+              screenSize:
+                  widget.project.screenSize ?? RenPyScreenSize.fallback,
               layerOrder: widget.project.visualLayers,
             );
           },

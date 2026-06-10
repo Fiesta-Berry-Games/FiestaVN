@@ -363,6 +363,12 @@ class RenPyRunner {
   String? _currentLabel;
   String? get currentLabel => _currentLabel;
 
+  /// The source line (1-based) of the most recently executed statement, or
+  /// null before execution starts. Lets hosts correlate runtime position with
+  /// the script text, e.g. an editor fast-forwarding a preview to its cursor.
+  int? _currentLine;
+  int? get currentLine => _currentLine;
+
   /// The number of active `call` return frames on the execution stack.
   ///
   /// Each label `call` (script `call` statement, a Call screen action, or a
@@ -1906,6 +1912,7 @@ class RenPyRunner {
         }
 
         final stmt = _currentBlock[_position];
+        _currentLine = stmt.linenumber;
         try {
           _executeStatement(stmt);
         } catch (e) {
