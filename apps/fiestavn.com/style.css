@@ -99,23 +99,46 @@ a:hover {
   margin: 0 auto 2rem;
 }
 
-/* PLAY button — primary CTA, links out to renfly.org */
+/* Twin CTAs — Play (renfly.org) and Edit (/edit/) */
 
-.play-button {
+.cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1rem;
+}
+
+.play-button,
+.edit-button {
   display: inline-block;
   padding: 1rem 3rem;
   font-size: 1.35rem;
   font-weight: 700;
   letter-spacing: 0.06em;
+  border-radius: 10px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.play-button {
   color: #fff;
   background: var(--accent);
-  border-radius: 10px;
-  transition: background 0.15s ease;
 }
 
 .play-button:hover {
   color: #fff;
   background: var(--accent-hover);
+}
+
+.edit-button {
+  color: var(--accent);
+  background: transparent;
+  border: 2px solid var(--accent);
+  padding: calc(1rem - 2px) calc(3rem - 2px);
+}
+
+.edit-button:hover {
+  color: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 /* App cards */

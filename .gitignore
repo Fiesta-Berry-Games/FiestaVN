@@ -17,3 +17,6 @@ pubspec_overrides.yaml
 
 # renfly.org deploy output (RenFly Player web build is copied here at deploy time)
 apps/renfly.org/play/
+
+# fiestavn.com deploy output (RenFly Editor web build is copied here at deploy time)
+apps/fiestavn.com/edit/

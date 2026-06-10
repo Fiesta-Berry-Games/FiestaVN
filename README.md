@@ -10,9 +10,11 @@ fiestavn/                     # FiestaVN Melos monorepo with only Dart and Flutt
 +-- packages/
 |   +-- renpy_parser/         # RenPy script parser in Dart.
 |   +-- renpy_core/           # Core engine logic in Dart.
+|   +-- renpy_writer/         # .rpy emitter, .fly codec, migration fidelity, .fly.zip.
 +-- apps/
-|   +-- fiestavn.com/         # Static landing page for the FiestaVN project.
+|   +-- fiestavn.com/         # Static landing page for the FiestaVN project; serves the editor at /edit/.
 |   +-- renfly.org/           # Static product site for RenFly; serves the player at /play/.
+|   +-- renfly_editor/        # RenFly Editor Flutter application (write, preview, package).
 |   +-- renfly_player/        # RenFly player Flutter application.
     +-- renspine/             # Example Flutter application with Spine asset integration.
 ```
