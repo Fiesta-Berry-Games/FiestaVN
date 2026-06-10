@@ -12,3 +12,64 @@ scripts:
     exec: dart format .
   test:
     exec: dart test
+
+  test:flutter:
+    run: |
+      cd "$MELOS_ROOT_PATH/apps/renfly_player" && flutter test
+      cd "$MELOS_ROOT_PATH/apps/renfly_editor" && flutter test
+    description: Run flutter test in all Flutter app packages.
+
+  build:player:
+    run: |
+      cd "$MELOS_ROOT_PATH/apps/renfly_player" && flutter build web --base-href /play/
+      rm -rf "$MELOS_ROOT_PATH/apps/renfly.org/play"
+      cp -r "$MELOS_ROOT_PATH/apps/renfly_player/build/web" "$MELOS_ROOT_PATH/apps/renfly.org/play"
+    description: Build renfly_player for web and copy output to apps/renfly.org/play/.
+
+  build:editor:
+    run: |
+      cd "$MELOS_ROOT_PATH/apps/renfly_editor" && flutter build web --base-href /edit/
+      rm -rf "$MELOS_ROOT_PATH/apps/fiestavn.com/edit"
+      cp -r "$MELOS_ROOT_PATH/apps/renfly_editor/build/web" "$MELOS_ROOT_PATH/apps/fiestavn.com/edit"
+    description: Build renfly_editor for web and copy output to apps/fiestavn.com/edit/.
+
+  build:web:
+    run: |
+      melos run build:player
+      melos run build:editor
+    description: Build both player and editor web targets.
+
+  build:sites:
+    run: |
+      melos run build:web
+    description: Build web targets and assemble static sites for deployment.
+
+  serve:fiestavn:
+    run: |
+      echo "Serving apps/fiestavn.com on http://localhost:8741"
+      cd "$MELOS_ROOT_PATH/apps/fiestavn.com" && python3 -m http.server 8741
+    description: Serve apps/fiestavn.com on port 8741.
+
+  serve:renfly:
+    run: |
+      echo "Serving apps/renfly.org on http://localhost:8742"
+      cd "$MELOS_ROOT_PATH/apps/renfly.org" && python3 -m http.server 8742
+    description: Serve apps/renfly.org on port 8742.
+
+  serve:sites:
+    run: |
+      echo "fiestavn.com -> http://localhost:8741"
+      echo "renfly.org   -> http://localhost:8742"
+      cd "$MELOS_ROOT_PATH/apps/fiestavn.com" && python3 -m http.server 8741 &
+      cd "$MELOS_ROOT_PATH/apps/renfly.org" && python3 -m http.server 8742
+    description: Serve both static sites in parallel.
+
+  serve:editor:
+    run: |
+      cd "$MELOS_ROOT_PATH/apps/renfly_editor" && flutter run -d chrome
+    description: Run the editor in dev mode with flutter run.
+
+  serve:player:
+    run: |
+      cd "$MELOS_ROOT_PATH/apps/renfly_player" && flutter run -d chrome
+    description: Run the player in dev mode with flutter run.
