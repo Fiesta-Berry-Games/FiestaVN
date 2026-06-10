@@ -10,7 +10,7 @@ void main() {
     setUpAll(() async {
       source =
           await File(
-            '../../apps/renfly/assets/games/the_question/game/script.rpy',
+            '../../apps/renfly_player/assets/games/the_question/game/script.rpy',
           ).readAsString();
     });
 

@@ -14,7 +14,7 @@ void main() => runApp(const RenPyFlutterExampleApp());
 ///    engine against actual content.
 ///
 /// It is intentionally unopinionated - for a fuller, styled player see the
-/// RenFly app in `apps/renfly`.
+/// RenFly app in `apps/renfly_player`.
 class RenPyFlutterExampleApp extends StatelessWidget {
   const RenPyFlutterExampleApp({super.key, this.projectPicker});
 

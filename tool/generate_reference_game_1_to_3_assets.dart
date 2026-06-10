@@ -4,104 +4,104 @@ import 'dart:typed_data';
 void main() {
   final assets = <_SolidPngAsset>[
     _SolidPngAsset(
-      'apps/renfly/assets/games/1/game/images/whitehouse.jpg',
+      'apps/renfly_player/assets/games/1/game/images/whitehouse.jpg',
       800,
       600,
       const _Rgba(32, 72, 128),
     ),
     _SolidPngAsset(
-      'apps/renfly/assets/games/1/game/images/eileen_happy.png',
+      'apps/renfly_player/assets/games/1/game/images/eileen_happy.png',
       220,
       520,
       const _Rgba(232, 64, 80),
     ),
     _SolidPngAsset(
-      'apps/renfly/assets/games/1/game/images/eileen_upset.png',
+      'apps/renfly_player/assets/games/1/game/images/eileen_upset.png',
       220,
       520,
       const _Rgba(184, 32, 112),
     ),
     for (final name in ['S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'LR5'])
       _SolidPngAsset(
-        'apps/renfly/assets/games/2/game/images/$name.png',
+        'apps/renfly_player/assets/games/2/game/images/$name.png',
         800,
         600,
         _game2Color(name),
       ),
     _SolidPngAsset(
-      'apps/renfly/assets/games/3/game/images/mainmenu.jpg',
+      'apps/renfly_player/assets/games/3/game/images/mainmenu.jpg',
       800,
       600,
       const _Rgba(24, 48, 96),
     ),
     _SolidPngAsset(
-      'apps/renfly/assets/games/3/game/images/gamemenu.jpg',
+      'apps/renfly_player/assets/games/3/game/images/gamemenu.jpg',
       800,
       600,
       const _Rgba(48, 24, 96),
     ),
     _SolidPngAsset(
-      'apps/renfly/assets/games/3/game/images/frame.png',
+      'apps/renfly_player/assets/games/3/game/images/frame.png',
       320,
       96,
       const _Rgba(16, 16, 16, 220),
     ),
     _SolidPngAsset(
-      'apps/renfly/assets/games/3/game/images/button.png',
+      'apps/renfly_player/assets/games/3/game/images/button.png',
       260,
       64,
       const _Rgba(40, 88, 160),
     ),
     _SolidPngAsset(
-      'apps/renfly/assets/games/3/game/images/button_checked.png',
+      'apps/renfly_player/assets/games/3/game/images/button_checked.png',
       260,
       64,
       const _Rgba(64, 132, 200),
     ),
     _SolidPngAsset(
-      'apps/renfly/assets/games/3/game/images/carillon.jpg',
+      'apps/renfly_player/assets/games/3/game/images/carillon.jpg',
       800,
       600,
       const _Rgba(32, 96, 96),
     ),
     _SolidPngAsset(
-      'apps/renfly/assets/games/3/game/images/whitehouse.jpg',
+      'apps/renfly_player/assets/games/3/game/images/whitehouse.jpg',
       800,
       600,
       const _Rgba(40, 72, 128),
     ),
     _SolidPngAsset(
-      'apps/renfly/assets/games/3/game/images/washington.jpg',
+      'apps/renfly_player/assets/games/3/game/images/washington.jpg',
       800,
       600,
       const _Rgba(64, 96, 144),
     ),
     _SolidPngAsset(
-      'apps/renfly/assets/games/3/game/images/9a_happy.png',
+      'apps/renfly_player/assets/games/3/game/images/9a_happy.png',
       220,
       520,
       const _Rgba(232, 64, 80),
     ),
     _SolidPngAsset(
-      'apps/renfly/assets/games/3/game/images/9a_vhappy.png',
+      'apps/renfly_player/assets/games/3/game/images/9a_vhappy.png',
       220,
       520,
       const _Rgba(255, 96, 96),
     ),
     _SolidPngAsset(
-      'apps/renfly/assets/games/3/game/images/9a_concerned.png',
+      'apps/renfly_player/assets/games/3/game/images/9a_concerned.png',
       220,
       520,
       const _Rgba(184, 32, 112),
     ),
     _SolidPngAsset(
-      'apps/renfly/assets/games/3/game/images/ground.png',
+      'apps/renfly_player/assets/games/3/game/images/ground.png',
       800,
       600,
       const _Rgba(24, 88, 56),
     ),
     _SolidPngAsset(
-      'apps/renfly/assets/games/3/game/images/selected.png',
+      'apps/renfly_player/assets/games/3/game/images/selected.png',
       800,
       600,
       const _Rgba(48, 128, 80),
@@ -112,7 +112,7 @@ void main() {
     asset.write();
   }
 
-  File('apps/renfly/assets/games/3/game/sun-flower-slow-drag.mid')
+  File('apps/renfly_player/assets/games/3/game/sun-flower-slow-drag.mid')
     ..parent.createSync(recursive: true)
     ..writeAsBytesSync(_emptyMidi());
 }

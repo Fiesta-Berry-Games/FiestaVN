@@ -3,6 +3,7 @@ name: fiestavn
 packages:
   - packages/**
   - examples/**
+  - apps/**
 
 scripts:
   analyze:

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="RenFly — play Ren'Py visual novels in your browser. An open-source player for web, desktop, and mobile from the FiestaVN project.">
+  <title>RenFly — Play Ren'Py games in your browser</title>
+  <link rel="icon" type="image/png" href="/assets/favicon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <nav class="nav">
+    <a class="brand" href="/">
+      <img class="brand-logo" src="/assets/logo.png" alt="Fiesta Berry Games logo" width="36" height="33">
+      <span class="brand-name">RENFLY</span>
+    </a>
+    <div class="nav-links">
+      <a href="#about">About</a>
+      <a href="https://github.com/FiestaBerry/fiestavn" target="_blank" rel="noopener">GitHub</a>
+      <a href="#downloads">Downloads</a>
+    </div>
+  </nav>
+
+  <main>
+    <section class="hero">
+      <h1>Play Ren'Py games in your browser.</h1>
+      <p class="subtitle">RenFly is a Ren'Py visual novel player that runs natively on web, desktop, and mobile.</p>
+
+      <div class="player-embed">
+        <iframe src="/play/" title="RenFly Player" loading="lazy" allowfullscreen></iframe>
+        <a class="maximize" href="/play/" target="_blank" rel="noopener" title="Open fullscreen" aria-label="Open RenFly fullscreen">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="15 3 21 3 21 9"></polyline>
+            <polyline points="9 21 3 21 3 15"></polyline>
+            <line x1="21" y1="3" x2="14" y2="10"></line>
+            <line x1="3" y1="21" x2="10" y2="14"></line>
+          </svg>
+        </a>
+      </div>
+
+      <a class="play-button" href="/play/">▶ PLAY</a>
+    </section>
+
+    <section class="about" id="about">
+      <h2>About</h2>
+      <p>
+        RenFly is the player app of <a href="https://fiestavn.com">FiestaVN</a>, an open-source
+        project for playing Ren'Py visual novels on any platform. It loads Ren'Py games and runs
+        them natively in the browser, on the desktop, and on mobile — no engine port required.
+      </p>
+    </section>
+
+    <section class="downloads" id="downloads">
+      <h2>Downloads</h2>
+      <div class="badges">
+        <a class="badge" href="#"><span class="badge-platform">Android</span><span class="badge-status">Coming Soon</span></a>
+        <a class="badge" href="#"><span class="badge-platform">iOS</span><span class="badge-status">Coming Soon</span></a>
+        <a class="badge" href="#"><span class="badge-platform">Windows</span><span class="badge-status">Coming Soon</span></a>
+        <a class="badge" href="#"><span class="badge-platform">macOS</span><span class="badge-status">Coming Soon</span></a>
+        <a class="badge" href="#"><span class="badge-platform">Linux</span><span class="badge-status">Coming Soon</span></a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>© 2026 FiestaBerry</span>
+    <div class="footer-links">
+      <a href="https://fiestavn.com">FiestaVN</a>
+      <a href="https://github.com/FiestaBerry/fiestavn" target="_blank" rel="noopener">GitHub</a>
+      <a href="#">License</a>
+    </div>
+  </footer>
+
+</body>
+</html>

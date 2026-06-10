@@ -11,7 +11,9 @@ fiestavn/                     # FiestaVN Melos monorepo with only Dart and Flutt
 |   +-- renpy_parser/         # RenPy script parser in Dart.
 |   +-- renpy_core/           # Core engine logic in Dart.
 +-- apps/
-|   +-- renfly/               # Example Flutter application.
+|   +-- fiestavn.com/         # Static landing page for the FiestaVN project.
+|   +-- renfly.org/           # Static product site for RenFly; serves the player at /play/.
+|   +-- renfly_player/        # RenFly player Flutter application.
     +-- renspine/             # Example Flutter application with Spine asset integration.
 ```
 
@@ -54,7 +56,7 @@ the browser runtime instead of native Linux libraries.
 
 ## Usage
 
-Check out the example project in `apps/renfly` to see how to use FiestaVN in a Flutter application.
+Check out the RenFly player in `apps/renfly_player` to see how to use FiestaVN in a Flutter application.
 
 ## License
 

@@ -4,8 +4,8 @@
 build/
 
 apps/renspine/assets/chibi-stickers/source/
-apps/renfly/assets/games/Confession-1.03-pc/
-apps/renfly/assets/games/Confession-1.03-pc.zip
+apps/renfly_player/assets/games/Confession-1.03-pc/
+apps/renfly_player/assets/games/Confession-1.03-pc.zip
 
 # Melos-generated files
 *.iml
@@ -14,3 +14,6 @@ pubspec_overrides.yaml
 # Flutter / tool noise
 *.log
 **/.flutter-plugins-dependencies
+
+# renfly.org deploy output (RenFly Player web build is copied here at deploy time)
+apps/renfly.org/play/
