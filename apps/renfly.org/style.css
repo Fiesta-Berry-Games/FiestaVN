@@ -1,4 +1,4 @@
-/* FiestaVN landing page — dark theme, mobile-first, no JS */
+/* RenFly product site — dark theme, mobile-first, no JS */
 
 :root {
   --bg: #121212;
@@ -105,7 +105,7 @@ a:hover {
   display: none; /* hidden on mobile; PLAY button is the primary CTA */
   position: relative;
   width: 100%;
-  max-width: 900px;
+  max-width: 1060px;
   aspect-ratio: 16 / 9;
   margin: 0 auto 1.5rem;
   background: var(--surface);

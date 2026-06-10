@@ -17,30 +17,23 @@ void main() {
     await _pumpFreshApp(tester);
 
     expect(find.text('Choose a demo game'), findsOneWidget);
-    expect(find.text('Reference Game 3'), findsOneWidget);
     expect(find.text('The Question'), findsOneWidget);
-    expect(find.text('Reference Game 4'), findsOneWidget);
   });
 
-  testWidgets('launcher can auto-play Reference Game 3 to completion', (
+  testWidgets('auto-play Reference Game 3 to completion', (
     tester,
   ) async {
     final driver = _ReferenceGame3AutoPlayer();
     final playback = _RecordingAudioPlayback();
     addTearDown(playback.dispose);
 
-    await _pumpFreshApp(
+    await _pumpGameScreen(
       tester,
+      title: 'Reference Game 3',
+      assetPath: 'assets/games/3/game/script.rpy',
       audioPlayback: playback,
-      onGameControllerCreated: driver.attach,
+      onControllerCreated: driver.attach,
     );
-
-    final referenceGame3 = find.byKey(
-      const ValueKey('demo_game_Reference Game 3'),
-    );
-    expect(referenceGame3, findsOneWidget);
-
-    await tester.tap(referenceGame3);
     await _pumpUntil(
       tester,
       () => driver.dialogue.isNotEmpty,
@@ -99,7 +92,7 @@ void main() {
     );
   });
 
-  testWidgets('launcher can auto-play Reference Game 4 to completion', (
+  testWidgets('auto-play Reference Game 4 to completion', (
     tester,
   ) async {
     final driver = _ReferenceGame4AutoPlayer();
@@ -107,18 +100,13 @@ void main() {
     addTearDown(driver.dispose);
     addTearDown(playback.dispose);
 
-    await _pumpFreshApp(
+    await _pumpGameScreen(
       tester,
+      title: 'Reference Game 4',
+      assetPath: 'assets/games/4/game/script.rpy',
       audioPlayback: playback,
-      onGameControllerCreated: driver.attach,
+      onControllerCreated: driver.attach,
     );
-
-    final referenceGame4 = find.byKey(
-      const ValueKey('demo_game_Reference Game 4'),
-    );
-    expect(referenceGame4, findsOneWidget);
-
-    await tester.tap(referenceGame4);
     await _pumpUntil(
       tester,
       () => driver.complete,
@@ -353,6 +341,33 @@ label start:
     },
     skip: confessionFixtureMissing,
   );
+}
+
+Future<void> _pumpGameScreen(
+  WidgetTester tester, {
+  required String title,
+  required String assetPath,
+  RenPyAudioPlayback audioPlayback = const RenPyNoOpAudioPlayback(),
+  ValueChanged<RenPyFlutterController>? onControllerCreated,
+}) async {
+  SharedPreferences.setMockInitialValues({});
+  await tester.pumpWidget(const SizedBox.shrink());
+  await tester.pumpAndSettle();
+  addTearDown(() async {
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+  await tester.pumpWidget(
+    MaterialApp(
+      home: GameScreen(
+        title: title,
+        assetPath: assetPath,
+        audioPlayback: audioPlayback,
+        onControllerCreated: onControllerCreated,
+      ),
+    ),
+  );
+  await tester.pump();
 }
 
 Future<void> _pumpFreshApp(

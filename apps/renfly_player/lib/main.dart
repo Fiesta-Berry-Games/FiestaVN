@@ -48,26 +48,6 @@ final class _BundledGame {
 
 const List<_BundledGame> _bundledGames = [
   _BundledGame(
-    'Reference Game 1',
-    'assets/games/1/game/script.rpy',
-    Icons.looks_one,
-  ),
-  _BundledGame(
-    'Reference Game 2',
-    'assets/games/2/game/script.rpy',
-    Icons.looks_two,
-  ),
-  _BundledGame(
-    'Reference Game 3',
-    'assets/games/3/game/script.rpy',
-    Icons.looks_3,
-  ),
-  _BundledGame(
-    'Reference Game 4',
-    'assets/games/4/game/script.rpy',
-    Icons.looks_4,
-  ),
-  _BundledGame(
     'The Question',
     'assets/games/the_question/game/script.rpy',
     Icons.question_answer,
@@ -269,7 +249,7 @@ class _GameLibraryScreenState extends State<GameLibraryScreen> {
               ? const Center(child: CircularProgressIndicator())
               : ListView(
                 children: [
-                  const _LibrarySectionHeader('Reference games'),
+                  const _LibrarySectionHeader('Demo games'),
                   for (final game in _bundledGames)
                     ListTile(
                       key: ValueKey('demo_game_${game.title}'),

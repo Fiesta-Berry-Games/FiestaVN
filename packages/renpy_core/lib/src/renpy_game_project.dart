@@ -710,7 +710,9 @@ RenPyScreenSize? _screenSizeFromSources(Iterable<String> sources) {
     }
   }
 
-  if (width == null || height == null || width <= 0 || height <= 0) return null;
+  if (width == null || height == null || width <= 0 || height <= 0) {
+    return const RenPyScreenSize(width: 1280, height: 720);
+  }
   return RenPyScreenSize(width: width, height: height);
 }
 

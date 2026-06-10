@@ -82,7 +82,6 @@ void main() {
       await _pumpLibrary(tester, store: store, picker: _FakeProjectPicker());
 
       expect(find.text('Choose a demo game'), findsOneWidget);
-      expect(find.text('Reference Game 1'), findsOneWidget);
       expect(find.text('The Question'), findsOneWidget);
       expect(find.text('Saved Project'), findsOneWidget);
     });
