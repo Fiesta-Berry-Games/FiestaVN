@@ -40,6 +40,7 @@ dependencies:
     path: ../../packages/renpy_core
   renpy_flutter:
     path: ../../packages/renpy_flutter
+  sound_flutter: ^0.0.1
 
   # Spine 2D runtime.
   spine_flutter: ^4.2.36

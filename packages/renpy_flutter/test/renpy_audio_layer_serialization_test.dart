@@ -1,20 +1,19 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:audioplayers_platform_interface/audioplayers_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:renpy_flutter/renpy_flutter.dart';
+import 'package:sound_dart/sound_dart.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  late _FakeAudioplayersPlatform platform;
+  late _FakeSoundBackend backend;
 
-  setUp(() {
-    platform = _FakeAudioplayersPlatform();
-    AudioplayersPlatformInterface.instance = platform;
-    GlobalAudioplayersPlatformInterface.instance =
-        _FakeGlobalAudioplayersPlatform();
+  setUp(() async {
+    await Sound.reset();
+    backend = _FakeSoundBackend();
+    Sound.registerBackend(backend, makeActive: true);
   });
 
   group('per-channel serialization', () {
@@ -29,8 +28,8 @@ void main() {
 
         // Start the first track with a fade in, then immediately fire a second
         // operation on the same channel without awaiting the first. Without
-        // per-channel serialization the stop would dispose the player while the
-        // play sequence is still driving it.
+        // per-channel serialization the stop would dispose the playback while
+        // the play sequence is still driving it.
         final play = playback.play(
           channel: 'music',
           asset: 'theme.ogg',
@@ -41,17 +40,18 @@ void main() {
 
         await expectLater(Future.wait([play, stop]), completes);
 
-        // The channel must be fully stopped: its player has been disposed and no
-        // dangling player remains registered.
-        expect(platform.alivePlayerCount, 0);
+        // The channel must be fully stopped: its playback has been disposed
+        // and no dangling playback remains registered.
+        expect(backend.alivePlaybackCount, 0);
 
-        // A later play on the same channel must still work on a fresh player.
+        // A later play on the same channel must still work on a fresh
+        // playback.
         await playback.play(
           channel: 'music',
           asset: 'other.ogg',
           assetSourcePath: 'music/other.ogg',
         );
-        expect(platform.alivePlayerCount, 1);
+        expect(backend.alivePlaybackCount, 1);
       },
     );
 
@@ -81,15 +81,15 @@ void main() {
 
         await expectLater(Future.wait([first, second]), completes);
 
-        // Exactly one player remains for the channel and the last source set on
-        // it is the second track.
-        expect(platform.alivePlayerCount, 1);
-        expect(platform.lastSourceBytes, Uint8List.fromList(const [2]));
+        // Exactly one playback remains for the channel and the last source
+        // loaded is the second track.
+        expect(backend.alivePlaybackCount, 1);
+        expect(backend.lastSourceBytes, Uint8List.fromList(const [2]));
       },
     );
 
     test(
-      'dispose during an in-flight fade does not drive a disposed player',
+      'dispose during an in-flight fade does not drive a disposed playback',
       () async {
         final playback = RenPyBytesAudioPlayback({
           'music/theme.ogg': Uint8List.fromList(const [1, 2, 3]),
@@ -104,7 +104,7 @@ void main() {
 
         await playback.dispose();
         await expectLater(play, completes);
-        expect(platform.alivePlayerCount, 0);
+        expect(backend.alivePlaybackCount, 0);
       },
     );
   });
@@ -131,15 +131,15 @@ void main() {
       );
 
       // The first track is still playing; the queued track has not started.
-      expect(platform.lastSourceBytes, Uint8List.fromList(const [1]));
+      expect(backend.lastSourceBytes, Uint8List.fromList(const [1]));
 
       // Simulate the current track finishing; the queued track takes over.
-      platform.emitCompleteForAll();
+      backend.emitCompleteForAll();
       await Future<void>.delayed(Duration.zero);
       await Future<void>.delayed(Duration.zero);
 
-      expect(platform.lastSourceBytes, Uint8List.fromList(const [2]));
-      expect(platform.alivePlayerCount, 1);
+      expect(backend.lastSourceBytes, Uint8List.fromList(const [2]));
+      expect(backend.alivePlaybackCount, 1);
     });
 
     test('queue on an idle channel starts immediately', () async {
@@ -155,8 +155,8 @@ void main() {
         loop: false,
       );
 
-      expect(platform.lastSourceBytes, Uint8List.fromList(const [9]));
-      expect(platform.alivePlayerCount, 1);
+      expect(backend.lastSourceBytes, Uint8List.fromList(const [9]));
+      expect(backend.alivePlaybackCount, 1);
     });
 
     testWidgets('voice plays non-looping through the audio layer', (
@@ -313,139 +313,125 @@ class _RecordingAudioPlayback implements RenPyAudioPlayback {
   Future<void> dispose() async {}
 }
 
-/// Minimal fake of the audioplayers platform so the real audio backends run
-/// their player lifecycle without a native plugin.
-class _FakeAudioplayersPlatform extends AudioplayersPlatformInterface {
-  final Set<String> _alivePlayers = {};
-  final Map<String, StreamController<AudioEvent>> _eventStreams = {};
+/// Minimal fake `sound_dart` backend so the real audio playback bases run
+/// without any native audio, while the test observes loads, live playbacks,
+/// and natural completions.
+class _FakeSoundBackend extends SoundBackend {
+  final List<_FakePlayback> playbacks = [];
+
   Uint8List? lastSourceBytes;
 
-  int get alivePlayerCount => _alivePlayers.length;
+  int get alivePlaybackCount =>
+      playbacks.where((p) => p.state != PlaybackState.disposed).length;
 
-  /// Emits a completion event on every alive player so queued tracks advance.
+  /// Simulates every live playback reaching its natural end.
   void emitCompleteForAll() {
-    for (final stream in _eventStreams.values) {
-      stream.add(const AudioEvent(eventType: AudioEventType.complete));
-    }
-  }
-
-  void _requireAlive(String playerId, String method) {
-    if (!_alivePlayers.contains(playerId)) {
-      throw StateError('$method called on disposed player $playerId');
+    for (final playback in List.of(playbacks)) {
+      playback.emitComplete();
     }
   }
 
   @override
-  Future<void> create(String playerId) async {
-    _alivePlayers.add(playerId);
-    _eventStreams[playerId] = StreamController<AudioEvent>.broadcast();
-  }
+  String get name => 'fake';
 
   @override
-  Future<void> dispose(String playerId) async {
-    _alivePlayers.remove(playerId);
-    await _eventStreams.remove(playerId)?.close();
-  }
+  bool get isAvailable => true;
 
   @override
-  Future<void> setSourceBytes(
-    String playerId,
-    Uint8List bytes, {
-    String? mimeType,
+  int get priority => 1000000;
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<Playback> load(
+    SoundSource source, {
+    double volume = 1.0,
+    bool loop = false,
   }) async {
-    _requireAlive(playerId, 'setSourceBytes');
-    lastSourceBytes = bytes;
-    _eventStreams[playerId]?.add(
-      const AudioEvent(eventType: AudioEventType.prepared, isPrepared: true),
-    );
+    lastSourceBytes = switch (source) {
+      BytesSource(:final bytes) => bytes,
+      FileSource() => null,
+    };
+    final playback = _FakePlayback(volume: volume, loop: loop);
+    playbacks.add(playback);
+    return playback;
   }
 
   @override
-  Future<void> setSourceUrl(
-    String playerId,
-    String url, {
-    bool? isLocal,
-    String? mimeType,
-  }) async {
-    _requireAlive(playerId, 'setSourceUrl');
-    _eventStreams[playerId]?.add(
-      const AudioEvent(eventType: AudioEventType.prepared, isPrepared: true),
-    );
+  Future<void> dispose() async {
+    for (final playback in List.of(playbacks)) {
+      await playback.dispose();
+    }
   }
-
-  @override
-  Stream<AudioEvent> getEventStream(String playerId) =>
-      _eventStreams[playerId]!.stream;
-
-  @override
-  Future<int?> getCurrentPosition(String playerId) async => 0;
-
-  @override
-  Future<int?> getDuration(String playerId) async => 0;
-
-  @override
-  Future<void> pause(String playerId) async {}
-
-  @override
-  Future<void> release(String playerId) async {}
-
-  @override
-  Future<void> resume(String playerId) async {
-    _requireAlive(playerId, 'resume');
-  }
-
-  @override
-  Future<void> seek(String playerId, Duration position) async {}
-
-  @override
-  Future<void> setAudioContext(String playerId, AudioContext context) async {}
-
-  @override
-  Future<void> setBalance(String playerId, double balance) async {}
-
-  @override
-  Future<void> setPlaybackRate(String playerId, double playbackRate) async {}
-
-  @override
-  Future<void> setPlayerMode(String playerId, PlayerMode playerMode) async {}
-
-  @override
-  Future<void> setReleaseMode(String playerId, ReleaseMode releaseMode) async {
-    _requireAlive(playerId, 'setReleaseMode');
-  }
-
-  @override
-  Future<void> setVolume(String playerId, double volume) async {
-    _requireAlive(playerId, 'setVolume');
-  }
-
-  @override
-  Future<void> stop(String playerId) async {}
-
-  @override
-  Future<void> emitError(String playerId, String code, String message) async {}
-
-  @override
-  Future<void> emitLog(String playerId, String message) async {}
 }
 
-class _FakeGlobalAudioplayersPlatform
-    extends GlobalAudioplayersPlatformInterface {
-  final StreamController<GlobalAudioEvent> _events =
-      StreamController<GlobalAudioEvent>.broadcast();
+class _FakePlayback implements Playback {
+  _FakePlayback({required this.volume, required bool loop}) : looping = loop;
+
+  double volume;
+  bool looping;
+  PlaybackState _state = PlaybackState.idle;
+  final Completer<void> _completer = Completer<void>();
+
+  void emitComplete() {
+    if (_state == PlaybackState.disposed) return;
+    _state = PlaybackState.completed;
+    if (!_completer.isCompleted) _completer.complete();
+  }
 
   @override
-  Future<void> init() async {}
+  PlaybackState get state => _state;
 
   @override
-  Future<void> setGlobalAudioContext(AudioContext context) async {}
+  bool get isPlaying => _state == PlaybackState.playing;
 
   @override
-  Future<void> emitGlobalLog(String message) async {}
+  Future<void> get onComplete => _completer.future;
 
   @override
-  Future<void> emitGlobalError(String code, String message) async {}
+  Future<void> play() async {
+    if (_state == PlaybackState.disposed) return;
+    _state = PlaybackState.playing;
+  }
 
   @override
-  Stream<GlobalAudioEvent> getGlobalEventStream() => _events.stream;
+  Future<void> stop() async {
+    if (_state == PlaybackState.playing) _state = PlaybackState.stopped;
+  }
+
+  @override
+  Future<void> pause() async {
+    if (_state == PlaybackState.playing) _state = PlaybackState.paused;
+  }
+
+  @override
+  Future<void> resume() async {
+    if (_state == PlaybackState.paused) _state = PlaybackState.playing;
+  }
+
+  @override
+  Future<void> setVolume(double value) async {
+    volume = value;
+  }
+
+  @override
+  Future<void> setLooping(bool value) async {
+    looping = value;
+  }
+
+  @override
+  Future<void> seek(Duration position) async {}
+
+  @override
+  Duration get position => Duration.zero;
+
+  @override
+  Duration? get duration => null;
+
+  @override
+  Future<void> dispose() async {
+    _state = PlaybackState.disposed;
+    if (!_completer.isCompleted) _completer.complete();
+  }
 }

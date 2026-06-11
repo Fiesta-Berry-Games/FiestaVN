@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:audioplayers/audioplayers.dart' as audio;
+import 'package:flutter/services.dart' show AssetBundle, rootBundle;
 import 'package:flutter/widgets.dart';
+import 'package:http/http.dart' as http;
 import 'package:renpy_core/renpy_core.dart' show RenPyAudioAction;
+import 'package:sound_dart/sound_dart.dart';
 
 import 'renpy_flutter_controller.dart';
 import 'renpy_preference_store.dart';
@@ -37,7 +39,7 @@ class _RenPyAudioLayerState extends State<RenPyAudioLayer> {
   @override
   void initState() {
     super.initState();
-    _playback = widget.playback ?? AudioplayersRenPyAudioPlayback();
+    _playback = widget.playback ?? SoundRenPyAudioPlayback();
     _ownsPlayback = widget.playback == null;
     _applyPreferences();
     widget.controller.addListener(_onControllerChanged);
@@ -55,7 +57,7 @@ class _RenPyAudioLayerState extends State<RenPyAudioLayer> {
       if (_ownsPlayback) {
         _playback.dispose();
       }
-      _playback = widget.playback ?? AudioplayersRenPyAudioPlayback();
+      _playback = widget.playback ?? SoundRenPyAudioPlayback();
       _ownsPlayback = widget.playback == null;
       // The new backend starts with no playing tracks, so the ifChanged dedup
       // cache from the previous backend must not suppress replaying them.
@@ -168,7 +170,7 @@ class _RenPyAudioLayerState extends State<RenPyAudioLayer> {
   Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
-/// Resolves RenPy audio filenames into paths accepted by audioplayers.
+/// Resolves RenPy audio filenames into game-root-relative source paths.
 final class RenPyAudioAssetResolver {
   const RenPyAudioAssetResolver._();
 
@@ -235,29 +237,28 @@ abstract interface class RenPyAudioPlayback {
   Future<void> dispose();
 }
 
-/// Shared mixer, fade, and per-channel serialization logic for the audio
-/// backends that drive real [audio.AudioPlayer]s.
-abstract class _AudioPlayersRenPyAudioPlaybackBase
-    implements RenPyAudioPlayback {
-  final Map<String, audio.AudioPlayer> _players = {};
+/// Shared mixer, fade, queue, and per-channel serialization logic for the
+/// audio backends that drive `sound_dart` [Playback]s.
+abstract class _SoundRenPyAudioPlaybackBase implements RenPyAudioPlayback {
+  // The currently playing track per channel. Entries are always removed from
+  // this map BEFORE being disposed, so completion callbacks can tell a
+  // natural finish (still registered) from a replacement (already gone).
+  final Map<String, Playback> _playbacks = {};
   final Map<String, bool> _muted = {};
   final Map<String, _AudioMixerState> _mixers = {};
   final Map<String, String> _channelMixers = {};
   final Map<String, double> _channelVolumes = {};
   // Serializes play/stop on a per-channel basis so a rapid second operation
-  // cannot drive a player that an earlier sequence is still disposing.
+  // cannot drive a playback that an earlier sequence is still disposing.
   final Map<String, Future<void>> _channelLocks = {};
   // Tracks queued via `queue`, keyed by channel, played in order as each
   // current track completes.
   final Map<String, List<_QueuedTrack>> _queuedTracks = {};
-  // Per-channel subscription to the current player's completion stream, used to
-  // advance the channel's queue.
-  final Map<String, StreamSubscription<void>> _completionSubs = {};
   bool _disposed = false;
 
-  /// Resolves the audioplayers source for the requested asset, or null when the
+  /// Resolves the sound source for the requested asset, or null when the
   /// asset cannot be located.
-  audio.Source? _sourceFor({
+  Future<SoundSource?> _resolveSource({
     required String asset,
     required String assetSourcePath,
   });
@@ -322,7 +323,7 @@ abstract class _AudioPlayersRenPyAudioPlaybackBase
     return _serialize(channel, () async {
       if (_disposed) return;
       // Nothing playing on the channel: a queued track starts immediately.
-      if (_players[channel] == null) {
+      if (_playbacks[channel] == null) {
         await _startTrack(
           channel: channel,
           asset: track.asset,
@@ -339,8 +340,9 @@ abstract class _AudioPlayersRenPyAudioPlaybackBase
     });
   }
 
-  /// Starts [asset] on [channel]'s player, replacing the current track. Wires a
-  /// completion listener so a queued track (if any) starts when this one ends.
+  /// Starts [asset] on [channel], replacing the current track. Watches the
+  /// new playback's completion so a queued track (if any) starts when this
+  /// one ends.
   Future<void> _startTrack({
     required String channel,
     required String asset,
@@ -352,53 +354,69 @@ abstract class _AudioPlayersRenPyAudioPlaybackBase
     bool? loop,
   }) async {
     if (_disposed) return;
-    final source = _sourceFor(asset: asset, assetSourcePath: assetSourcePath);
-    if (source == null) return;
+    final source = await _resolveSource(
+      asset: asset,
+      assetSourcePath: assetSourcePath,
+    );
+    if (source == null || _disposed) return;
 
     if (mixer != null) _channelMixers[channel] = mixer;
-    final existingPlayer = _players[channel];
-    final player = existingPlayer ?? audio.AudioPlayer();
-    _players[channel] = player;
-    final fadeoutSeconds = double.tryParse(fadeout ?? '');
-    if (existingPlayer != null &&
-        fadeoutSeconds != null &&
-        fadeoutSeconds > 0) {
-      await _fadeOut(player, _effectiveVolume(channel), fadeoutSeconds);
-      if (!_isCurrentPlayer(channel, player)) return;
+    final existing = _playbacks.remove(channel);
+    if (existing != null) {
+      final fadeoutSeconds = double.tryParse(fadeout ?? '');
+      if (fadeoutSeconds != null && fadeoutSeconds > 0) {
+        await existing.fade(
+          _effectiveVolume(channel),
+          0,
+          _fadeDuration(fadeoutSeconds),
+        );
+      }
+      await existing.stop();
+      await existing.dispose();
     }
-    if (existingPlayer != null) {
-      await existingPlayer.stop();
-      if (!_isCurrentPlayer(channel, player)) return;
-    }
+    if (_disposed) return;
+
     _channelVolumes[channel] = _trackVolume(volume);
     final effectiveVolume = _effectiveVolume(channel);
     final fadeinSeconds = double.tryParse(fadein ?? '');
-    await player.setVolume(
-      fadeinSeconds != null && fadeinSeconds > 0 ? 0 : effectiveVolume,
+    final playback = await Sound.load(
+      source,
+      volume:
+          fadeinSeconds != null && fadeinSeconds > 0 ? 0 : effectiveVolume,
+      loop: loop ?? channel == 'music',
     );
-    if (!_isCurrentPlayer(channel, player)) return;
-    final looping = loop ?? channel == 'music';
-    await player.setReleaseMode(
-      looping ? audio.ReleaseMode.loop : audio.ReleaseMode.release,
-    );
-    if (!_isCurrentPlayer(channel, player)) return;
-    _listenForCompletion(channel, player);
-    await player.play(source);
+    if (_disposed) {
+      await playback.dispose();
+      return;
+    }
+    _playbacks[channel] = playback;
+    _watchCompletion(channel, playback);
+    await playback.play();
     if (fadeinSeconds != null && fadeinSeconds > 0) {
-      if (!_isCurrentPlayer(channel, player)) return;
-      await _fadeIn(player, effectiveVolume, fadeinSeconds);
+      if (!_isCurrentPlayback(channel, playback)) return;
+      await playback.fade(0, effectiveVolume, _fadeDuration(fadeinSeconds));
     }
   }
 
-  /// Subscribes to [player]'s completion so the next queued track on [channel]
-  /// starts when the current one finishes. A looping track never completes, so
-  /// it simply holds the queue until replaced.
-  void _listenForCompletion(String channel, audio.AudioPlayer player) {
-    _completionSubs.remove(channel)?.cancel();
-    _completionSubs[channel] = player.onPlayerComplete.listen((_) {
-      if (_disposed || !_isCurrentPlayer(channel, player)) return;
-      _advanceQueue(channel);
-    });
+  /// Watches [playback]'s completion so the next queued track on [channel]
+  /// starts when the current one finishes. A looping track never completes,
+  /// so it simply holds the queue until replaced. Backends complete the
+  /// future on dispose too; the identity check filters those out because
+  /// replaced playbacks leave [_playbacks] before they are disposed.
+  void _watchCompletion(String channel, Playback playback) {
+    unawaited(
+      playback.onComplete.then((_) {
+        if (_disposed || !_isCurrentPlayback(channel, playback)) return;
+        if (playback.state != PlaybackState.completed) return;
+        unawaited(_advanceQueue(channel));
+      }),
+    );
+  }
+
+  Duration _fadeDuration(double seconds) {
+    return Duration(
+      milliseconds: (seconds * Duration.millisecondsPerSecond).round(),
+    );
   }
 
   /// Starts the next queued track on [channel], if any, after the current track
@@ -427,29 +445,29 @@ abstract class _AudioPlayersRenPyAudioPlaybackBase
   Future<void> stop({required String channel, String? fadeout}) {
     _queuedTracks.remove(channel);
     return _serialize(channel, () async {
-      final player = _players[channel];
-      if (player == null) return;
+      final playback = _playbacks.remove(channel);
+      if (playback == null) return;
 
       final fadeoutSeconds = double.tryParse(fadeout ?? '');
       if (fadeoutSeconds != null && fadeoutSeconds > 0) {
-        await _fadeOut(player, _effectiveVolume(channel), fadeoutSeconds);
-        if (!_isCurrentPlayer(channel, player)) return;
+        await playback.fade(
+          _effectiveVolume(channel),
+          0,
+          _fadeDuration(fadeoutSeconds),
+        );
       }
 
-      await player.stop();
-      if (!_isCurrentPlayer(channel, player)) return;
-      await _completionSubs.remove(channel)?.cancel();
-      _players.remove(channel);
       _channelMixers.remove(channel);
       _channelVolumes.remove(channel);
-      await player.dispose();
+      await playback.stop();
+      await playback.dispose();
     });
   }
 
-  /// Whether [player] is still the player registered for [channel]; once a
+  /// Whether [playback] is still the track registered for [channel]; once a
   /// later operation replaced or removed it we must not keep driving it.
-  bool _isCurrentPlayer(String channel, audio.AudioPlayer player) {
-    return !_disposed && identical(_players[channel], player);
+  bool _isCurrentPlayback(String channel, Playback playback) {
+    return !_disposed && identical(_playbacks[channel], playback);
   }
 
   @override
@@ -474,7 +492,7 @@ abstract class _AudioPlayersRenPyAudioPlaybackBase
 
   Future<void> _applyMixerToPlayers(String mixer) async {
     final futures = <Future<void>>[];
-    for (final entry in _players.entries) {
+    for (final entry in _playbacks.entries) {
       if (mixer == RenPyPlayerPreferences.mainMixer ||
           _mixerForChannel(entry.key) == mixer) {
         futures.add(entry.value.setVolume(_effectiveVolume(entry.key)));
@@ -503,49 +521,13 @@ abstract class _AudioPlayersRenPyAudioPlaybackBase
     };
   }
 
-  Future<void> _fadeOut(
-    audio.AudioPlayer player,
-    double volume,
-    double seconds,
-  ) async {
-    const steps = 10;
-    final stepDuration = Duration(
-      milliseconds: (seconds * Duration.millisecondsPerSecond / steps).round(),
-    );
-
-    for (var step = steps - 1; step >= 0; step -= 1) {
-      if (_disposed) return;
-      await player.setVolume(volume * step / steps);
-      await Future<void>.delayed(stepDuration);
-    }
-  }
-
-  Future<void> _fadeIn(
-    audio.AudioPlayer player,
-    double targetVolume,
-    double seconds,
-  ) async {
-    const steps = 10;
-    final stepDuration = Duration(
-      milliseconds: (seconds * Duration.millisecondsPerSecond / steps).round(),
-    );
-    for (var step = 1; step <= steps; step += 1) {
-      if (_disposed) return;
-      await player.setVolume(targetVolume * step / steps);
-      await Future<void>.delayed(stepDuration);
-    }
-  }
-
   @override
   Future<void> dispose() async {
     _disposed = true;
     _queuedTracks.clear();
-    final subs = _completionSubs.values.toList();
-    _completionSubs.clear();
-    await Future.wait(subs.map((sub) => sub.cancel()));
-    final players = _players.values.toList();
-    _players.clear();
-    await Future.wait(players.map((player) => player.dispose()));
+    final playbacks = _playbacks.values.toList();
+    _playbacks.clear();
+    await Future.wait(playbacks.map((playback) => playback.dispose()));
   }
 }
 
@@ -570,20 +552,34 @@ final class _QueuedTrack {
   final bool? loop;
 }
 
-/// Production audio backend backed by the web-compatible audioplayers plugin.
-class AudioplayersRenPyAudioPlayback
-    extends _AudioPlayersRenPyAudioPlaybackBase {
+/// Production audio backend playing bundled Flutter assets via `sound_dart`
+/// (Rust/FFI on native platforms — bundle the `sound_flutter` plugin in the
+/// app for the native library — and WebAudio on the web).
+class SoundRenPyAudioPlayback extends _SoundRenPyAudioPlaybackBase {
+  SoundRenPyAudioPlayback({AssetBundle? bundle}) : _bundle = bundle;
+
+  final AssetBundle? _bundle;
+
   @override
-  audio.Source? _sourceFor({
+  Future<SoundSource?> _resolveSource({
     required String asset,
     required String assetSourcePath,
-  }) {
-    return audio.AssetSource(assetSourcePath);
+  }) async {
+    final ByteData data;
+    try {
+      data = await (_bundle ?? rootBundle).load('assets/$assetSourcePath');
+    } on FlutterError {
+      return null;
+    }
+    return SoundSource.bytes(
+      data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+      format: _audioFormatOf(assetSourcePath),
+    );
   }
 }
 
 /// Audio backend for externally loaded project files held in memory.
-class RenPyBytesAudioPlayback extends _AudioPlayersRenPyAudioPlaybackBase {
+class RenPyBytesAudioPlayback extends _SoundRenPyAudioPlaybackBase {
   RenPyBytesAudioPlayback(
     Map<String, Uint8List> assets, {
     Uint8List? Function(String assetPath)? readAsset,
@@ -594,36 +590,58 @@ class RenPyBytesAudioPlayback extends _AudioPlayersRenPyAudioPlaybackBase {
   final Uint8List? Function(String assetPath)? _readAsset;
 
   @override
-  audio.Source? _sourceFor({
+  Future<SoundSource?> _resolveSource({
     required String asset,
     required String assetSourcePath,
-  }) {
+  }) async {
     final bytes =
         _assets[assetSourcePath] ??
         _assets[asset] ??
         _readAsset?.call(assetSourcePath) ??
         _readAsset?.call(asset);
     if (bytes == null) return null;
-    return audio.BytesSource(bytes);
+    return SoundSource.bytes(bytes, format: _audioFormatOf(assetSourcePath));
   }
 }
 
 /// Audio backend that streams tracks over HTTP from a base URL, for games
 /// whose assets are served remotely instead of bundled (the URL is the base
 /// joined with the game-root-relative track path).
-class RenPyUrlAudioPlayback extends _AudioPlayersRenPyAudioPlaybackBase {
-  RenPyUrlAudioPlayback({required String baseUrl})
-    : _baseUrl = baseUrl.endsWith('/') ? baseUrl : '$baseUrl/';
+class RenPyUrlAudioPlayback extends _SoundRenPyAudioPlaybackBase {
+  RenPyUrlAudioPlayback({required String baseUrl, http.Client? httpClient})
+    : _baseUrl = baseUrl.endsWith('/') ? baseUrl : '$baseUrl/',
+      _httpClient = httpClient;
 
   final String _baseUrl;
+  final http.Client? _httpClient;
 
   @override
-  audio.Source? _sourceFor({
+  Future<SoundSource?> _resolveSource({
     required String asset,
     required String assetSourcePath,
-  }) {
-    return audio.UrlSource('$_baseUrl$assetSourcePath');
+  }) async {
+    final uri = Uri.parse('$_baseUrl$assetSourcePath');
+    try {
+      final client = _httpClient;
+      final response =
+          client == null ? await http.get(uri) : await client.get(uri);
+      if (response.statusCode != 200) return null;
+      return SoundSource.bytes(
+        response.bodyBytes,
+        format: _audioFormatOf(assetSourcePath),
+      );
+    } on Object {
+      return null;
+    }
   }
+}
+
+/// The lowercase file extension of [path] as a format hint, or null.
+String? _audioFormatOf(String path) {
+  final dot = path.lastIndexOf('.');
+  final slash = path.lastIndexOf('/');
+  if (dot < 0 || dot < slash || dot == path.length - 1) return null;
+  return path.substring(dot + 1).toLowerCase();
 }
 
 /// Audio backend for tests and callers that intentionally disable audio.

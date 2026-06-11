@@ -14,6 +14,7 @@ dependencies:
     path: ../../packages/renpy_core
   renpy_flutter:
     path: ../../packages/renpy_flutter
+  sound_flutter: ^0.0.1
   renpy_parser:
     path: ../../packages/renpy_parser
   renpy_writer:

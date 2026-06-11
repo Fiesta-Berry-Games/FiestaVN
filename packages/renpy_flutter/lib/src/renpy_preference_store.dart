@@ -56,6 +56,22 @@ class RenPyMixerPreference {
   static double _clampVolume(double value) => value.clamp(0, 1).toDouble();
 }
 
+/// How the virtual game stage maps onto the available viewport.
+enum RenPyStageFit {
+  /// Pick automatically: [fill] when the viewport is much narrower than the
+  /// stage (portrait phones), [fit] otherwise.
+  auto,
+
+  /// Letterbox the whole stage into the viewport, shrinking everything
+  /// uniformly (the classic zoomed-out view).
+  fit,
+
+  /// Scale the visuals to cover the viewport, cropping the overflow, while
+  /// dialogue and controls lay out on the real viewport. On a portrait phone
+  /// this shows full-height characters instead of a thin letterboxed band.
+  fill,
+}
+
 /// Mutable Ren'Py-style preferences understood by the Flutter player.
 class RenPyPlayerPreferences {
   const RenPyPlayerPreferences({Map<String, RenPyMixerPreference>? mixers})
@@ -63,7 +79,8 @@ class RenPyPlayerPreferences {
       textCps = defaultTextCps,
       autoDelay = defaultAutoDelay,
       autoForward = false,
-      skip = false;
+      skip = false,
+      stageFit = RenPyStageFit.auto;
 
   const RenPyPlayerPreferences._({
     Map<String, RenPyMixerPreference>? mixers,
@@ -71,6 +88,7 @@ class RenPyPlayerPreferences {
     this.autoDelay = defaultAutoDelay,
     this.autoForward = false,
     this.skip = false,
+    this.stageFit = RenPyStageFit.auto,
   }) : _mixers = mixers;
 
   static const musicMutedKey = 'musicMuted';
@@ -79,6 +97,7 @@ class RenPyPlayerPreferences {
   static const autoDelayKey = 'autoDelay';
   static const autoForwardKey = 'autoForward';
   static const skipKey = 'skip';
+  static const stageFitKey = 'stageFit';
 
   static const mainMixer = 'main';
   static const musicMixer = 'music';
@@ -118,6 +137,9 @@ class RenPyPlayerPreferences {
 
   /// Whether skip fast-forwards dialogue until a menu or user input.
   final bool skip;
+
+  /// How the game stage maps onto the viewport (letterbox vs cover).
+  final RenPyStageFit stageFit;
 
   bool get musicMuted => isMixerMuted(musicMixer);
 
@@ -167,6 +189,10 @@ class RenPyPlayerPreferences {
     return _copyWith(skip: enabled);
   }
 
+  RenPyPlayerPreferences setStageFit(RenPyStageFit fit) {
+    return _copyWith(stageFit: fit);
+  }
+
   RenPyPlayerPreferences copyWith({bool? musicMuted}) {
     if (musicMuted == null) return this;
     return setMixerMuted(musicMixer, musicMuted);
@@ -178,6 +204,7 @@ class RenPyPlayerPreferences {
     double? autoDelay,
     bool? autoForward,
     bool? skip,
+    RenPyStageFit? stageFit,
   }) {
     return RenPyPlayerPreferences._(
       mixers: mixers ?? _mixers,
@@ -185,6 +212,7 @@ class RenPyPlayerPreferences {
       autoDelay: autoDelay ?? this.autoDelay,
       autoForward: autoForward ?? this.autoForward,
       skip: skip ?? this.skip,
+      stageFit: stageFit ?? this.stageFit,
     );
   }
 
@@ -197,6 +225,7 @@ class RenPyPlayerPreferences {
       autoDelayKey: autoDelay,
       autoForwardKey: autoForward,
       skipKey: skip,
+      stageFitKey: stageFit.name,
     };
   }
 
@@ -222,7 +251,15 @@ class RenPyPlayerPreferences {
       autoDelay: _readAutoDelay(json[autoDelayKey]),
       autoForward: json[autoForwardKey] == true,
       skip: json[skipKey] == true,
+      stageFit: _readStageFit(json[stageFitKey]),
     );
+  }
+
+  static RenPyStageFit _readStageFit(Object? value) {
+    for (final fit in RenPyStageFit.values) {
+      if (fit.name == value) return fit;
+    }
+    return RenPyStageFit.auto;
   }
 
   static double _readTextCps(Object? value) {

@@ -114,22 +114,101 @@ class RenPyPlayer extends StatelessWidget {
     messenger.showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Widget _buildStageBox(Widget child) {
+  /// Whether the stage visuals should cover the viewport (cropping overflow)
+  /// instead of letterboxing, given the preference and viewport shape.
+  bool _resolveStageFill(RenPyStageFit fit, Size viewport) {
+    switch (fit) {
+      case RenPyStageFit.fit:
+        return false;
+      case RenPyStageFit.fill:
+        return true;
+      case RenPyStageFit.auto:
+        if (viewport.width <= 0 || viewport.height <= 0) return false;
+        // Cover only when the viewport is much narrower than the stage
+        // (portrait phones and tablets); mild mismatches keep the classic
+        // letterbox.
+        return viewport.aspectRatio < effectiveScreenSize.aspectRatio * 0.75;
+    }
+  }
+
+  /// Whether toggling fit/fill produces a visible difference for [viewport].
+  bool _stageFitToggleVisible(Size viewport) {
+    if (viewport.width <= 0 || viewport.height <= 0) return false;
+    final ratio = viewport.aspectRatio / effectiveScreenSize.aspectRatio;
+    return (ratio - 1).abs() > 0.1;
+  }
+
+  Widget _buildStage(
+    BuildContext context,
+    RenPyPlayerPreferences preferences,
+    VoidCallback onOpenBacklog, {
+    required Size viewport,
+    required ValueChanged<RenPyStageFit> setStageFit,
+  }) {
     const stageKey = ValueKey('renpy-player-stage');
-    return Center(
-      child: AspectRatio(
-        key: stageKey,
-        aspectRatio: effectiveScreenSize.aspectRatio,
-        child: child,
-      ),
+    final fill = _resolveStageFill(preferences.stageFit, viewport);
+    final world =
+        imageLayerBuilder != null
+            ? imageLayerBuilder!(context, controller)
+            : RenPyImageLayer(
+              controller: controller,
+              screenSize: effectiveScreenSize,
+              layerOrder: layerOrder,
+              atlResolver: controller.resolveAtl,
+            );
+    final chrome = _buildChrome(
+      context,
+      preferences,
+      onOpenBacklog,
+      fill: fill,
+      setStageFit: _stageFitToggleVisible(viewport) ? setStageFit : null,
+    );
+
+    if (!fill) {
+      // Classic zoomed-out view: everything letterboxed inside the stage.
+      return Center(
+        child: AspectRatio(
+          key: stageKey,
+          aspectRatio: effectiveScreenSize.aspectRatio,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [world, chrome],
+          ),
+        ),
+      );
+    }
+
+    // Cover view: the visuals scale to fill the viewport (cropping the
+    // overflow, anchored at the bottom where characters and dialogue live)
+    // while the chrome lays out on the real viewport so text stays readable.
+    return Stack(
+      key: stageKey,
+      fit: StackFit.expand,
+      children: [
+        ClipRect(
+          child: FittedBox(
+            fit: BoxFit.cover,
+            clipBehavior: Clip.hardEdge,
+            alignment: Alignment.bottomCenter,
+            child: SizedBox(
+              width: effectiveScreenSize.width.toDouble(),
+              height: effectiveScreenSize.height.toDouble(),
+              child: world,
+            ),
+          ),
+        ),
+        chrome,
+      ],
     );
   }
 
-  Widget _buildGameStage(
+  Widget _buildChrome(
     BuildContext context,
     RenPyPlayerPreferences preferences,
-    VoidCallback onOpenBacklog,
-  ) {
+    VoidCallback onOpenBacklog, {
+    required bool fill,
+    ValueChanged<RenPyStageFit>? setStageFit,
+  }) {
     controller
       ..autoDelay = preferences.autoDelay
       ..skipEnabled = preferences.skip
@@ -137,15 +216,6 @@ class RenPyPlayer extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        if (imageLayerBuilder != null)
-          imageLayerBuilder!(context, controller)
-        else
-          RenPyImageLayer(
-            controller: controller,
-            screenSize: effectiveScreenSize,
-            layerOrder: layerOrder,
-            atlResolver: controller.resolveAtl,
-          ),
         RenPyAudioLayer(
           controller: controller,
           gameRoot: gameRoot,
@@ -185,6 +255,21 @@ class RenPyPlayer extends StatelessWidget {
                     onPressed: onOpenBacklog,
                     child: const Icon(Icons.history),
                   ),
+                  if (setStageFit != null) ...[
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      key: const ValueKey('renpy-stage-fit-toggle'),
+                      tooltip: fill ? 'Show whole scene' : 'Fill screen',
+                      heroTag: null,
+                      onPressed:
+                          () => setStageFit(
+                            fill ? RenPyStageFit.fit : RenPyStageFit.fill,
+                          ),
+                      child: Icon(
+                        fill ? Icons.zoom_out_map : Icons.zoom_in_map,
+                      ),
+                    ),
+                  ],
                   if (controller.canRollback) ...[
                     const SizedBox(height: 8),
                     FloatingActionButton.small(
@@ -271,13 +356,23 @@ class RenPyPlayer extends StatelessWidget {
       },
       onKeyEvent: (event) => _handleKeyEvent(context, event),
       onPointerSignal: (event) => _handlePointerSignal(context, event),
-      childBuilder: (preferences, openBacklog) {
-        return Stack(
-          fit: StackFit.expand,
-          children: [
-            ColoredBox(color: backgroundColor),
-            _buildStageBox(_buildGameStage(context, preferences, openBacklog)),
-          ],
+      childBuilder: (preferences, openBacklog, setStageFit) {
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                ColoredBox(color: backgroundColor),
+                _buildStage(
+                  context,
+                  preferences,
+                  openBacklog,
+                  viewport: constraints.biggest,
+                  setStageFit: setStageFit,
+                ),
+              ],
+            );
+          },
         );
       },
     );
@@ -315,6 +410,7 @@ class _RenPyInputSurface extends StatefulWidget {
   final Widget Function(
     RenPyPlayerPreferences preferences,
     VoidCallback openBacklog,
+    ValueChanged<RenPyStageFit> setStageFit,
   )
   childBuilder;
   final Widget Function(
@@ -441,6 +537,12 @@ class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
     _savePreferences();
   }
 
+  void _setStageFit(RenPyStageFit fit) {
+    if (_preferences.stageFit == fit) return;
+    setState(() => _preferences = _preferences.setStageFit(fit));
+    _savePreferences();
+  }
+
   _RenPyPacingSetters get _pacingSetters => _RenPyPacingSetters(
     setTextCps: _setTextCps,
     setAutoDelay: _setAutoDelay,
@@ -506,7 +608,7 @@ class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            widget.childBuilder(_preferences, _openBacklog),
+            widget.childBuilder(_preferences, _openBacklog, _setStageFit),
             if (!_gameMenuOpen && !_backlogOpen)
               _RenPyPacingToggles(
                 skip: _preferences.skip,

@@ -14,15 +14,15 @@ environment:
   sdk: ^3.7.2
 
 dependencies:
-  audioplayers: ^6.6.0
   flutter:
     sdk: flutter
+  http: ^1.5.0
   renpy_core: ^0.0.3
   renpy_parser: ^0.0.2
   shared_preferences: ^2.5.5
+  sound_dart: ^0.0.1
 
 dev_dependencies:
-  audioplayers_platform_interface: ^7.1.1
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
