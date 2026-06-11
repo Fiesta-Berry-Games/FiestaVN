@@ -146,6 +146,22 @@ class FlyCodec {
         'layers': [for (final layer in s.layers) _encodeLayer(layer)],
       });
     }
+    if (s is RenPyCameraStatement) {
+      return _obj('camera', {
+        'layer': s.layer,
+        'at_expression': s.atExpression,
+        'with_expression': s.withExpression,
+        'body': s.body,
+      });
+    }
+    if (s is RenPyTranslateStatement) {
+      return _obj('translate', {
+        'language': s.language,
+        'label': s.label,
+        'block': _encodeBlock(s.block),
+        'strings': s.strings,
+      });
+    }
     if (s is RenPyWithStatement) {
       return _obj('with', {'transition': s.transition});
     }
@@ -613,6 +629,34 @@ class FlyCodec {
           layers,
           filename,
           line,
+        );
+
+      case 'camera':
+        o.allow(const {
+          'type',
+          'layer',
+          'at_expression',
+          'with_expression',
+          'body',
+        });
+        return RenPyCameraStatement(
+          o.optionalString('layer'),
+          o.optionalString('at_expression'),
+          o.optionalString('with_expression'),
+          filename,
+          line,
+          body: o.stringList('body'),
+        );
+
+      case 'translate':
+        o.allow(const {'type', 'language', 'label', 'block', 'strings'});
+        return RenPyTranslateStatement(
+          o.requiredString('language'),
+          o.requiredString('label'),
+          _decodeBlock(ctx, o, 'block'),
+          filename,
+          line,
+          strings: o.stringList('strings'),
         );
 
       case 'with':

@@ -1,6 +1,11 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:renfly_editor/main.dart';
+import 'package:renfly_editor/src/editor_screen.dart';
 import 'package:renfly_editor/src/migration_report.dart';
 import 'package:renfly_editor/src/starter_template.dart';
 import 'package:renfly_editor/src/syntax_highlight.dart';
@@ -22,15 +27,27 @@ Future<void> pumpUntil(
   fail('Timed out waiting for $description');
 }
 
-Future<void> pumpEditor(WidgetTester tester) async {
+Future<void> pumpEditor(
+  WidgetTester tester, {
+  PickAssetFiles? pickAssets,
+}) async {
   tester.view.physicalSize = const Size(1600, 1000);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
-    const RenFlyEditorApp(audioPlayback: RenPyNoOpAudioPlayback()),
+    RenFlyEditorApp(
+      audioPlayback: const RenPyNoOpAudioPlayback(),
+      pickAssets: pickAssets,
+    ),
   );
   await tester.pump();
 }
+
+/// A valid 1x1 PNG, so MemoryImage-backed previews decode cleanly in tests.
+final Uint8List tinyPng = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQ'
+  'DwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+);
 
 void main() {
   testWidgets('app builds with toolbar and the starter template loaded', (
@@ -294,9 +311,9 @@ void main() {
   });
 
   test('runRpyToFlyGate reports issues for unstructured constructs', () {
-    const script = 'label start:\n    camera at topleft\n    "Hello"\n';
+    const script = 'label start:\n    frobnicate the widget\n    "Hello"\n';
     final result = runRpyToFlyGate(script);
-    // camera is an unstructured statement — should surface as info.
+    // An unknown construct stays unstructured and must surface in the report.
     expect(result.report.issues, isNotEmpty);
   });
 
@@ -756,6 +773,205 @@ void main() {
 
     final newWidth = editorBox().width!;
     expect(newWidth, greaterThan(initialWidth));
+  });
+
+  // ---------------------------------------------------------------
+  // Session asset management
+  // ---------------------------------------------------------------
+
+  test('sessionAssetPathFor places files by extension kind', () {
+    expect(sessionAssetPathFor('pic.png'), 'game/images/pic.png');
+    expect(sessionAssetPathFor('Pic.JPG'), 'game/images/Pic.JPG');
+    expect(sessionAssetPathFor('track.opus'), 'game/audio/track.opus');
+    expect(sessionAssetPathFor('track.mp3'), 'game/audio/track.mp3');
+    expect(sessionAssetPathFor('notes.txt'), 'game/notes.txt');
+    expect(sessionAssetPathFor('noext'), 'game/noext');
+  });
+
+  testWidgets('Assets panel opens, adds picked files, removes, and the chip '
+      'stays accurate', (tester) async {
+    final picked = <PickedAssetFile>[
+      (name: 'mypic.png', bytes: tinyPng),
+      (name: 'theme.ogg', bytes: Uint8List.fromList([1, 2, 3])),
+      (name: 'notes.txt', bytes: Uint8List.fromList([4, 5])),
+    ];
+    await pumpEditor(tester, pickAssets: () async => picked);
+
+    // Chip starts at zero and the panel opens empty.
+    expect(find.byKey(const ValueKey('editor-assets-chip')), findsOneWidget);
+    expect(find.text('0 assets'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('editor-assets-button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('editor-assets-panel')), findsOneWidget);
+    expect(find.textContaining('No session assets yet'), findsOneWidget);
+    // The how-to-reference hint states the resolver's conventions.
+    expect(find.textContaining('game/images/sylvie.png'), findsOneWidget);
+
+    // Add… lands files under their conventional game/ paths.
+    await tester.tap(find.byKey(const ValueKey('editor-assets-add-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('game/images/mypic.png'), findsOneWidget);
+    expect(find.text('game/audio/theme.ogg'), findsOneWidget);
+    expect(find.text('game/notes.txt'), findsOneWidget);
+    expect(find.text('3 assets'), findsOneWidget);
+
+    // Per-asset Remove updates both the list and the chip.
+    await tester.tap(
+      find.byKey(const ValueKey('editor-asset-remove-game/notes.txt')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('game/notes.txt'), findsNothing);
+    expect(find.text('2 assets'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('editor-assets-close-button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('editor-assets-panel')), findsNothing);
+  });
+
+  testWidgets('an added image asset is resolved and rendered by the preview', (
+    tester,
+  ) async {
+    await pumpEditor(
+      tester,
+      pickAssets: () async => [(name: 'mypic.png', bytes: tinyPng)],
+    );
+
+    await tester.tap(find.byKey(const ValueKey('editor-assets-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('editor-assets-add-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('editor-assets-close-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('1 asset'), findsOneWidget);
+
+    // `scene mypic` resolves to game/images/mypic.png, which is byte-backed,
+    // so the preview renders it through a MemoryImage.
+    await tester.enterText(
+      find.byKey(const ValueKey('editor-script-field')),
+      'label start:\n    scene mypic\n    "Asset preview line"\n',
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+
+    await pumpUntil(
+      tester,
+      () => tester
+          .widgetList<Image>(find.byType(Image))
+          .any((image) => image.image is MemoryImage),
+      description: 'a MemoryImage-backed preview image',
+    );
+  });
+
+  // ---------------------------------------------------------------
+  // Examples menu
+  // ---------------------------------------------------------------
+
+  testWidgets('Examples menu lists the starter story and The Question', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+
+    await tester.tap(find.byKey(const ValueKey('editor-examples-button')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('editor-example-starter')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('editor-example-the-question')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('Examples menu loads The Question without parse errors', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+
+    await tester.tap(find.byKey(const ValueKey('editor-examples-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('editor-example-the-question')),
+    );
+    await tester.pump();
+
+    // The script is loaded asynchronously from the bundled asset.
+    final controller =
+        tester
+            .widget<TextField>(
+              find.byKey(const ValueKey('editor-script-field')),
+            )
+            .controller!;
+    await pumpUntil(
+      tester,
+      () => controller.text.contains('sylvie'),
+      description: 'The Question loaded into the editor',
+    );
+
+    // The open-path migration flow may surface an informational report.
+    await tester.pumpAndSettle();
+    final confirm = find.byKey(const ValueKey('migration-report-confirm'));
+    if (confirm.evaluate().isNotEmpty) {
+      await tester.tap(confirm);
+      await tester.pumpAndSettle();
+    }
+
+    // Diagnostics: parsed with zero errors (status bar never says
+    // "Parse error", and no red error rows exist).
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Parse error'), findsNothing);
+
+    // Loading an example clears the session assets.
+    expect(find.text('0 assets'), findsOneWidget);
+  });
+
+  testWidgets('Examples menu restores the starter story', (tester) async {
+    await pumpEditor(tester);
+
+    // Replace the script, then load the starter example over it (confirming
+    // the discard prompt).
+    await tester.enterText(
+      find.byKey(const ValueKey('editor-script-field')),
+      'label start:\n    "Changed"\n',
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+
+    await tester.tap(find.byKey(const ValueKey('editor-examples-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('editor-example-starter')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Discard changes?'), findsOneWidget);
+    await tester.tap(find.text('Discard'));
+    await tester.pumpAndSettle();
+
+    final field = tester.widget<TextField>(
+      find.byKey(const ValueKey('editor-script-field')),
+    );
+    expect(field.controller?.text, starterTemplate);
+  });
+
+  testWidgets('bundled The Question asset parses with zero errors', (
+    tester,
+  ) async {
+    // Real asset I/O must run outside the test's fake-async zone or it can
+    // hang depending on what earlier tests left in the loader.
+    // cache: false — an earlier test may have started this same load inside
+    // its fake-async zone, leaving a never-completing future in the cache.
+    final text = (await tester.runAsync(
+      () => rootBundle.loadString(
+        'assets/examples/the_question.rpy',
+        cache: false,
+      ),
+    ))!;
+    expect(text, contains('sylvie'));
+    expect(text.startsWith('\uFEFF'), isFalse,
+        reason: 'the bundled copy must not carry a UTF-8 BOM');
+
+    final result = RenPyParser().parse(text, 'the_question.rpy');
+    expect(result.warnings, isEmpty);
+    expect(result.script.statements, isNotEmpty);
   });
 }
 

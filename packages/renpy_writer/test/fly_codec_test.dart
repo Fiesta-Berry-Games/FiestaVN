@@ -350,14 +350,74 @@ label start:
       expect(block[3], {'type': 'pass'});
     });
 
-    test('raw (generic) statements survive', () {
+    test('camera: clause and ATL-block forms', () {
       final doc = roundTrip('''
 label start:
-    camera bg at zoom
+    camera
+    camera bg at zoomed, panned with dissolve
+camera bg at zoomed:
+    rotate 45
+    repeat
 ''');
       final block =
           (scriptOf(doc)[0]['block'] as List).cast<Map<String, Object?>>();
-      expect(block[0], {'type': 'raw', 'text': 'camera bg at zoom'});
+      expect(block[0], {'type': 'camera'},
+          reason: 'a bare camera omits every default-valued key');
+      expect(block[1], {
+        'type': 'camera',
+        'layer': 'bg',
+        'at_expression': 'zoomed, panned',
+        'with_expression': 'dissolve',
+      });
+      final atlForm = scriptOf(doc)[1];
+      expect(atlForm['layer'], 'bg');
+      expect(atlForm['at_expression'], 'zoomed');
+      expect(atlForm['body'], ['rotate 45', 'repeat']);
+    });
+
+    test('translate: block, strings, python, single-line forms', () {
+      final doc = roundTrip('''
+translate french start_a1b2c3d4:
+    e "Bonjour le monde."
+translate french strings:
+    old "Hello"
+    new "Bonjour"
+translate english python:
+    style.default.font = "english.ttf"
+translate english start_screen
+''');
+      final script = scriptOf(doc);
+      expect(script[0]['type'], 'translate');
+      expect(script[0]['language'], 'french');
+      expect(script[0]['label'], 'start_a1b2c3d4');
+      final block = (script[0]['block'] as List).cast<Map<String, Object?>>();
+      expect(block.single['type'], 'say');
+
+      expect(script[1]['label'], 'strings');
+      expect(script[1].containsKey('block'), isFalse,
+          reason: 'a strings block has no parsed statements');
+      expect(script[1]['strings'], ['old "Hello"', 'new "Bonjour"']);
+
+      expect(script[2]['label'], 'python');
+      final pythonBlock =
+          (script[2]['block'] as List).cast<Map<String, Object?>>();
+      expect(pythonBlock.single['type'], 'python');
+      expect(pythonBlock.single['code'],
+          'style.default.font = "english.ttf"');
+
+      expect(script[3],
+          {'type': 'translate', 'language': 'english', 'label': 'start_screen'},
+          reason: 'the single-line form omits the empty block and strings');
+    });
+
+    test('raw (generic) statements survive', () {
+      final doc = roundTrip('''
+label start:
+    frobnicate bg at zoom
+''');
+      final block =
+          (scriptOf(doc)[0]['block'] as List).cast<Map<String, Object?>>();
+      expect(block[0], {'type': 'raw', 'text': 'frobnicate bg at zoom'});
     });
 
     test('comprehensive snippet covers every statement type', () {
@@ -367,7 +427,8 @@ label start:
         'image', 'layeredimage', 'with', 'transform', 'play', 'queue',
         'voice', 'stop', 'pause', 'window', 'python', 'init', 'init_offset',
         'define', 'default', 'screen', 'style', 'nvl', 'if', 'while', 'for',
-        'break', 'continue', 'pass', 'return', 'raw', // all 34
+        'break', 'continue', 'pass', 'return', 'camera', 'translate',
+        'raw', // all 36
       });
     });
   });
@@ -704,6 +765,7 @@ label start(chapter=1):
     pause 0.5
     nvl clear
     camera bg at zoom
+    frobnicate the_widget
     menu choice_menu:
         "What now?"
         set seen_choices
@@ -736,4 +798,9 @@ label left_path:
     return
 label right_path(a, b=2):
     return
+translate french start_a1b2c3d4:
+    e "Bonjour le monde."
+translate french strings:
+    old "Hello"
+    new "Bonjour"
 ''';

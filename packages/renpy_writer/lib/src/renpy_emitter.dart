@@ -121,6 +121,10 @@ class RenPyEmitter {
       lines.add('${_pad(depth)}${_scene(statement)}');
     } else if (statement is RenPyHideStatement) {
       lines.add('${_pad(depth)}${_hide(statement)}');
+    } else if (statement is RenPyCameraStatement) {
+      _camera(statement, depth, lines);
+    } else if (statement is RenPyTranslateStatement) {
+      _translate(statement, depth, lines);
     } else if (statement is RenPyWithStatement) {
       lines.add('${_pad(depth)}with ${statement.transition}');
     } else if (statement is RenPyPythonStatement) {
@@ -276,6 +280,63 @@ class RenPyEmitter {
 
   void _writeClause(StringBuffer buffer, String keyword, String? value) {
     if (value != null) buffer.write(' $keyword $value');
+  }
+
+  void _camera(RenPyCameraStatement statement, int depth, List<String> lines) {
+    final buffer = StringBuffer('${_pad(depth)}camera');
+    if (statement.layer != null) buffer.write(' ${statement.layer}');
+    _writeClause(buffer, 'at', statement.atExpression);
+    _writeClause(buffer, 'with', statement.withExpression);
+    if (statement.body.isEmpty) {
+      lines.add(buffer.toString());
+      return;
+    }
+    lines.add('$buffer:');
+    // Raw ATL body lines already carry their relative indentation.
+    for (final line in statement.body) {
+      lines.add('${_pad(depth + 1)}$line');
+    }
+  }
+
+  void _translate(
+    RenPyTranslateStatement statement,
+    int depth,
+    List<String> lines,
+  ) {
+    final header =
+        '${_pad(depth)}translate ${statement.language} ${statement.label}';
+    if (statement.isStrings) {
+      if (statement.strings.isEmpty) {
+        // The bodiless form re-parses to the same empty statement.
+        lines.add(header);
+        return;
+      }
+      lines.add('$header:');
+      // Raw string-pair lines already carry their relative indentation.
+      for (final line in statement.strings) {
+        lines.add('${_pad(depth + 1)}$line');
+      }
+      return;
+    }
+    if (statement.block.isEmpty) {
+      // Single-line `translate <lang> <label>` form.
+      lines.add(header);
+      return;
+    }
+    if (statement.label == 'python' &&
+        statement.block.length == 1 &&
+        statement.block.first is RenPyPythonStatement) {
+      // A `translate <lang> python:` body is Python source: emit the code
+      // lines directly under the header (the parser re-collects them into a
+      // single python statement, so this is a fixpoint).
+      final python = statement.block.first as RenPyPythonStatement;
+      final code = python.code.trim().isEmpty ? 'pass' : python.code;
+      lines.add('$header:');
+      _rawLines(code, depth + 1, lines);
+      return;
+    }
+    lines.add('$header:');
+    _block(statement.block, depth + 1, lines);
   }
 
   // --------------------------------------------------------------------

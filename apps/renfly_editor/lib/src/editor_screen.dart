@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:renpy_flutter/renpy_flutter.dart';
 import 'package:renpy_parser/renpy_parser.dart';
 import 'package:renpy_writer/renpy_writer.dart';
@@ -20,6 +21,56 @@ const Duration parseDebounce = Duration(milliseconds: 400);
 /// Below this width the editor and preview stack vertically behind tabs.
 const double _narrowBreakpoint = 700;
 
+/// One picked asset file: the picker-reported file name plus content bytes.
+typedef PickedAssetFile = ({String name, Uint8List bytes});
+
+/// Signature of the file picker behind the Assets panel's "Add…" button.
+///
+/// Returns null when the user cancels. Tests inject a fake that returns
+/// in-memory bytes so no platform file dialog is involved.
+typedef PickAssetFiles = Future<List<PickedAssetFile>?> Function();
+
+/// Where an added file lands in the session, by extension: images under
+/// `game/images/`, audio under `game/audio/`, everything else under `game/`.
+String sessionAssetPathFor(String filename) {
+  final base = filename.replaceAll(r'\', '/').split('/').last;
+  final dot = base.lastIndexOf('.');
+  final extension = dot < 0 ? '' : base.substring(dot + 1).toLowerCase();
+  if (const {'png', 'jpg', 'jpeg', 'webp', 'gif'}.contains(extension)) {
+    return 'game/images/$base';
+  }
+  if (const {'ogg', 'opus', 'mp3', 'wav'}.contains(extension)) {
+    return 'game/audio/$base';
+  }
+  return 'game/$base';
+}
+
+/// A bundled example story selectable from the "Examples ▾" menu.
+class EditorExample {
+  const EditorExample(this.id, this.label, this.load);
+
+  /// Stable id used in widget keys (`editor-example-<id>`).
+  final String id;
+
+  /// Menu label.
+  final String label;
+
+  /// Produces the example's `.rpy` source text.
+  final Future<String> Function() load;
+}
+
+/// The built-in examples, in menu order. The starter template stays first;
+/// The Question is the Ren'Py reference game's script (text only — its
+/// images fall back to placeholders and missing audio is skipped).
+final List<EditorExample> editorExamples = [
+  EditorExample('starter', 'Starter story', () async => starterTemplate),
+  EditorExample(
+    'the-question',
+    "The Question (Ren'Py reference)",
+    () => rootBundle.loadString('assets/examples/the_question.rpy'),
+  ),
+];
+
 enum _IssueSeverity { error, warning }
 
 final class _Issue {
@@ -31,11 +82,15 @@ final class _Issue {
 
 /// The single-screen IDE: toolbar, script editor, and live preview.
 class EditorScreen extends StatefulWidget {
-  const EditorScreen({super.key, this.audioPlayback});
+  const EditorScreen({super.key, this.audioPlayback, this.pickAssets});
 
   /// Optional audio backend override for the preview player (tests inject
   /// [RenPyNoOpAudioPlayback]).
   final RenPyAudioPlayback? audioPlayback;
+
+  /// Optional file-picker override for the Assets panel's "Add…" button
+  /// (tests inject in-memory bytes). Defaults to `FilePicker.pickFiles`.
+  final PickAssetFiles? pickAssets;
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -314,32 +369,77 @@ class _EditorScreenState extends State<EditorScreen> {
     _reloadPreview(cursorLine: _cursorLine());
   }
 
-  Future<void> _newScript() async {
-    if (_dirty) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder:
-            (context) => AlertDialog(
-              title: const Text('Discard changes?'),
-              content: const Text(
-                'The editor has unsaved changes. Replace them with the '
-                'starter template?',
+  /// Asks the user to confirm discarding unsaved changes. Returns true when
+  /// the document is clean or the user chose Discard.
+  Future<bool> _confirmDiscard(String message) async {
+    if (!_dirty) return true;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Discard changes?'),
+            content: Text(message),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  child: const Text('Discard'),
-                ),
-              ],
-            ),
-      );
-      if (confirmed != true) return;
-    }
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Discard'),
+              ),
+            ],
+          ),
+    );
+    return confirmed == true;
+  }
+
+  Future<void> _newScript() async {
+    final confirmed = await _confirmDiscard(
+      'The editor has unsaved changes. Replace them with the '
+      'starter template?',
+    );
+    if (!confirmed) return;
     _setScript(starterTemplate);
+  }
+
+  /// Loads a bundled example: confirm-if-dirty, replace the script, clear
+  /// session assets, then run the same migration-report flow as opening a
+  /// `.rpy` file.
+  Future<void> _loadExample(EditorExample example) async {
+    final confirmed = await _confirmDiscard(
+      'The editor has unsaved changes. Replace them with '
+      '"${example.label}"?',
+    );
+    if (!confirmed) return;
+
+    String text;
+    try {
+      text = await example.load();
+    } catch (error) {
+      _showSnackBar('Could not load ${example.label}: $error');
+      return;
+    }
+    // Defensive: some upstream scripts ship with a UTF-8 BOM.
+    if (text.startsWith('\uFEFF')) text = text.substring(1);
+
+    FlyMigrationReport? report;
+    try {
+      report = runRpyToFlyGate(text, filename: '${example.id}.rpy').report;
+    } catch (_) {
+      // Parse failure — will show in the diagnostics strip instead.
+    }
+
+    _setScript(text);
+
+    if (report != null && report.issues.isNotEmpty && mounted) {
+      await showMigrationReportDialog(
+        context,
+        report,
+        title: 'Loaded ${example.label}',
+        confirmLabel: 'OK',
+      );
+    }
   }
 
   Future<void> _open() async {
@@ -446,6 +546,190 @@ class _EditorScreenState extends State<EditorScreen> {
     }
   }
 
+  // --- Session asset management ------------------------------------------
+
+  /// Default "Add…" implementation: any file type, multiple, with bytes.
+  static Future<List<PickedAssetFile>?> _pickAssetFilesWithFilePicker() async {
+    final result = await FilePicker.pickFiles(
+      allowMultiple: true,
+      withData: true,
+    );
+    if (result == null) return null;
+    return [
+      for (final file in result.files)
+        if (file.bytes case final bytes?) (name: file.name, bytes: bytes),
+    ];
+  }
+
+  /// Adds [files] to the session under their conventional `game/` paths and
+  /// pushes the new asset set into the running preview.
+  void addSessionAssets(List<PickedAssetFile> files) {
+    if (files.isEmpty) return;
+    setState(() {
+      for (final file in files) {
+        _assets[sessionAssetPathFor(file.name)] = file.bytes;
+      }
+    });
+    _refreshPreviewAssets();
+  }
+
+  /// Removes the asset stored at [path] and updates the running preview.
+  void removeSessionAsset(String path) {
+    setState(() => _assets.remove(path));
+    _refreshPreviewAssets();
+  }
+
+  /// Re-runs the preview so `availableAssets` reflects the current session
+  /// assets. Leaves a parse-broken preview alone, like hot reload does.
+  void _refreshPreviewAssets() {
+    if (!_hasRun || _parseError != null) return;
+    _reloadPreview(cursorLine: _cursorLine());
+  }
+
+  Future<void> _addAssetsFromPicker() async {
+    final picker = widget.pickAssets ?? _pickAssetFilesWithFilePicker;
+    final List<PickedAssetFile>? picked;
+    try {
+      picked = await picker();
+    } catch (error) {
+      _showSnackBar('Could not add files: $error');
+      return;
+    }
+    if (picked == null || picked.isEmpty) return;
+    addSessionAssets(picked);
+  }
+
+  Future<void> _showAssetsPanel() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        // StatefulBuilder so Add/Remove refresh the open dialog; the screen
+        // itself is refreshed by addSessionAssets/removeSessionAsset.
+        return StatefulBuilder(
+          builder: (dialogContext, panelSetState) {
+            final paths = _assets.keys.toList()..sort();
+            return AlertDialog(
+              key: const ValueKey('editor-assets-panel'),
+              title: Row(
+                children: [
+                  const Expanded(child: Text('Session assets')),
+                  FilledButton.tonalIcon(
+                    key: const ValueKey('editor-assets-add-button'),
+                    onPressed: () async {
+                      await _addAssetsFromPicker();
+                      panelSetState(() {});
+                    },
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Add…'),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 520,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      _assetReferenceHint,
+                      style: Theme.of(dialogContext).textTheme.bodySmall
+                          ?.copyWith(color: Colors.white54),
+                    ),
+                    const SizedBox(height: 12),
+                    if (paths.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 24),
+                        child: Text(
+                          'No session assets yet. Add images or audio, or '
+                          'open a .fly.zip.',
+                          textAlign: TextAlign.center,
+                        ),
+                      )
+                    else
+                      Flexible(
+                        child: ListView(
+                          shrinkWrap: true,
+                          children: [
+                            for (final path in paths)
+                              ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(_assetKindIcon(path), size: 20),
+                                title: Text(
+                                  path,
+                                  style: const TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  _formatByteSize(_assets[path]!.length),
+                                ),
+                                trailing: IconButton(
+                                  key: ValueKey('editor-asset-remove-$path'),
+                                  tooltip: 'Remove',
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    size: 20,
+                                  ),
+                                  onPressed: () {
+                                    removeSessionAsset(path);
+                                    panelSetState(() {});
+                                  },
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  key: const ValueKey('editor-assets-close-button'),
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Close'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// How scripts reach session assets — matches `RenPyImageResolver` (images
+  /// try `game/<name>.<ext>` then `game/images/<name>.<ext>` for
+  /// png/jpg/jpeg/webp/gif, spaces matching underscores, then any file under
+  /// `game/` with that base name) and `RenPyAudioAssetResolver` (audio paths
+  /// are joined onto `game/` verbatim).
+  static const String _assetReferenceHint =
+      'Reference images by bare name: "show sylvie" finds '
+      'game/images/sylvie.png (or .jpg/.jpeg/.webp/.gif, also directly under '
+      'game/, or any game/ file named sylvie; spaces match underscores, so '
+      '"scene bg meadow" finds bg_meadow.png). Reference audio relative to '
+      'game/: \'play music "audio/track.ogg"\'.';
+
+  static IconData _assetKindIcon(String path) {
+    final dot = path.lastIndexOf('.');
+    final extension = dot < 0 ? '' : path.substring(dot + 1).toLowerCase();
+    if (const {'png', 'jpg', 'jpeg', 'webp', 'gif'}.contains(extension)) {
+      return Icons.image_outlined;
+    }
+    if (const {'ogg', 'opus', 'mp3', 'wav'}.contains(extension)) {
+      return Icons.audiotrack_outlined;
+    }
+    return Icons.insert_drive_file_outlined;
+  }
+
+  static String _formatByteSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    }
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
   Future<void> _saveFly() async {
     final FlyMigrationResult gate;
     try {
@@ -475,6 +759,10 @@ class _EditorScreenState extends State<EditorScreen> {
     try {
       zipBytes = FlyArchive.fromScript(
         scriptSource: _scriptController.text,
+        assets: [
+          for (final entry in _assets.entries)
+            FlyArchiveFile(entry.key, entry.value),
+        ],
       );
     } on FlyArchiveException catch (error) {
       _showSnackBar('Cannot package: ${error.message}');
@@ -588,6 +876,51 @@ class _EditorScreenState extends State<EditorScreen> {
                     icon: const Icon(Icons.folder_open, size: 18),
                     label: const Text('Open…'),
                   ),
+                  PopupMenuButton<EditorExample>(
+                    key: const ValueKey('editor-examples-button'),
+                    tooltip: 'Load an example story',
+                    onSelected: _loadExample,
+                    itemBuilder:
+                        (context) => [
+                          for (final example in editorExamples)
+                            PopupMenuItem(
+                              key: ValueKey(
+                                'editor-example-${example.id}',
+                              ),
+                              value: example,
+                              child: Text(example.label),
+                            ),
+                        ],
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.auto_stories_outlined,
+                            size: 18,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Examples ▾',
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  TextButton.icon(
+                    key: const ValueKey('editor-assets-button'),
+                    onPressed: _showAssetsPanel,
+                    icon: const Icon(Icons.collections_outlined, size: 18),
+                    label: const Text('Assets'),
+                  ),
                   TextButton.icon(
                     key: const ValueKey('editor-save-fly-button'),
                     onPressed: _saveFly,
@@ -618,8 +951,39 @@ class _EditorScreenState extends State<EditorScreen> {
             ),
           ),
           const SizedBox(width: 12),
+          _buildAssetsChip(context),
+          const SizedBox(width: 8),
           _buildStatusChip(context),
         ],
+      ),
+    );
+  }
+
+  /// Always-visible count of session assets; tapping it opens the panel.
+  Widget _buildAssetsChip(BuildContext context) {
+    final count = _assets.length;
+    return InkWell(
+      onTap: _showAssetsPanel,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        key: const ValueKey('editor-assets-chip'),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.white24),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.collections_outlined,
+                size: 12, color: Colors.white54),
+            const SizedBox(width: 6),
+            Text(
+              count == 1 ? '1 asset' : '$count assets',
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+          ],
+        ),
       ),
     );
   }

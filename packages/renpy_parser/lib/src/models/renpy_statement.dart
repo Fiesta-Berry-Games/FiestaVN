@@ -610,6 +610,78 @@ class RenPyStyleStatement extends RenPyStatement {
   }
 }
 
+/// Represents a `camera` statement
+/// (`camera [layer] [at expr-list] [with expr][:]`).
+///
+/// The camera statement applies transform properties to a whole layer.
+/// [layer] is the layer name, or null when omitted (Ren'Py then targets the
+/// default `master` layer). [atExpression] and [withExpression] keep their
+/// clause expressions as raw source text, like [RenPyShowStatement]. An
+/// optional trailing `:` introduces an ATL block whose raw indented lines are
+/// kept in [body], mirroring how `image name:` captures its ATL body.
+class RenPyCameraStatement extends RenPyStatement {
+  final String? layer;
+  final String? atExpression;
+  final String? withExpression;
+  final List<String> body;
+
+  RenPyCameraStatement(
+    this.layer,
+    this.atExpression,
+    this.withExpression,
+    String filename,
+    int linenumber, {
+    this.body = const [],
+  }) : super(filename, linenumber);
+
+  @override
+  String toString() => 'Camera${layer != null ? ': $layer' : ''}';
+}
+
+/// Represents a `translate <language> <label>` statement.
+///
+/// Ren'Py ships localization as top-level translate blocks; all of their
+/// source forms map onto this one model:
+///
+/// * `translate <lang> <label>:` — [block] holds the body parsed as ordinary
+///   statements (dialogue, show, with, ...).
+/// * `translate <lang> python:` — [label] is the literal `python` and [block]
+///   holds a single [RenPyPythonStatement] carrying the whole indented body.
+/// * `translate <lang> strings:` — [label] is the literal `strings` and the
+///   body (the `old "..."` / `new "..."` pair lines) is kept verbatim, with
+///   relative indentation, in [strings]; [block] stays empty. The raw-line
+///   representation is chosen over parsed pairs because it is faithful to any
+///   body content (comments, conditions, multi-line strings) by construction.
+/// * `translate <lang> <label>` (single line, no body) — [block] and
+///   [strings] are both empty.
+class RenPyTranslateStatement extends RenPyBlockStatement {
+  /// The language identifier, e.g. `french` (or `None` for the base language).
+  final String language;
+
+  /// The translation label, or the literal `strings` / `python` for those
+  /// special block forms.
+  final String label;
+
+  /// The raw body lines of a `translate <lang> strings:` block. Empty for
+  /// every other form.
+  final List<String> strings;
+
+  /// Whether this is a `translate <lang> strings:` block (body in [strings]).
+  bool get isStrings => label == 'strings';
+
+  RenPyTranslateStatement(
+    this.language,
+    this.label,
+    List<RenPyStatement> block,
+    String filename,
+    int linenumber, {
+    this.strings = const [],
+  }) : super(block, filename, linenumber);
+
+  @override
+  String toString() => 'Translate $language: $label';
+}
+
 /// Represents a Ren'Py ATL transform declaration.
 ///
 /// [body] keeps the raw indented ATL lines for back-compat. [atl] holds the

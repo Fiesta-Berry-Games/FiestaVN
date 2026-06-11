@@ -297,6 +297,25 @@ class FlyMigrator {
             statement.body.join('\n'),
           ),
         );
+      } else if (statement is RenPyCameraStatement &&
+          statement.body.isNotEmpty) {
+        issues.add(
+          _rawBody(
+            statement,
+            'camera statement has a raw (unstructured) ATL body',
+            statement.body.join('\n'),
+          ),
+        );
+      } else if (statement is RenPyTranslateStatement &&
+          statement.strings.isNotEmpty) {
+        issues.add(
+          _rawBody(
+            statement,
+            'translate ${statement.language} strings block is kept as raw '
+            'lines only',
+            statement.strings.join('\n'),
+          ),
+        );
       } else if (statement is RenPyStyleStatement && statement.style == null) {
         issues.add(
           _rawBody(

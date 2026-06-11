@@ -85,6 +85,17 @@ void _describe(RenPyStatement s, int depth, List<String> out) {
     out.add(
       '${pad}Hide(${s.imageName}|${s.onLayerExpression}|${s.withExpression})',
     );
+  } else if (s is RenPyCameraStatement) {
+    out.add(
+      '${pad}Camera(${s.layer}|${s.atExpression}|${s.withExpression}'
+      '|body=${s.body.join(';')})',
+    );
+  } else if (s is RenPyTranslateStatement) {
+    out.add(
+      '${pad}Translate(${s.language}|${s.label}'
+      '|strings=${s.strings.join(';')})',
+    );
+    _describeBlock(s.block, depth + 1, out);
   } else if (s is RenPyWithStatement) {
     out.add('${pad}With(${s.transition})');
   } else if (s is RenPyDefineStatement) {
@@ -487,10 +498,43 @@ layeredimage eileen:
 ''');
     });
 
+    test('camera: bare, layer, at, with, and ATL-block forms', () {
+      expectFixpoint(r'''
+label start:
+    camera
+    camera bg
+    camera at flat
+    camera bg with ease
+    camera bg at zoomed, panned with dissolve
+camera:
+    perspective True
+    xpos 0
+    linear 1.0 xpos 100
+camera bg at zoomed:
+    rotate 45
+    repeat
+''');
+    });
+
+    test('translate: say block, strings, python, single-line forms', () {
+      expectFixpoint(r'''
+translate french start_a1b2c3d4:
+    e "Bonjour le monde."
+translate french strings:
+    old "Hello"
+    new "Bonjour"
+translate english python:
+    style.default.font = "english.ttf"
+    if config.developer:
+        pass
+translate english start_screen
+''');
+    });
+
     test('generic (unrecognized) statements pass through', () {
       expectFixpoint(r'''
 label start:
-    camera bg at zoom
+    frobnicate bg at zoom
 ''');
     });
 
@@ -575,6 +619,8 @@ style foo is bar
           RenPyStyleStatement,
           RenPyTransformStatement,
           RenPyLayeredImageStatement,
+          RenPyCameraStatement,
+          RenPyTranslateStatement,
           RenPyGenericStatement,
         }),
       );
@@ -765,6 +811,30 @@ style foo is bar
       expectEmits(text, text);
     });
 
+    test('camera: clause and ATL-block forms', () {
+      const text =
+          'label start:\n'
+          '    camera\n'
+          '    camera bg at zoomed, panned with dissolve\n'
+          'camera bg at zoomed:\n'
+          '    rotate 45\n'
+          '    repeat\n';
+      expectEmits(text, text);
+    });
+
+    test('translate: block, strings, python, and single-line forms', () {
+      const text =
+          'translate french start_a1b2c3d4:\n'
+          '    e "Bonjour le monde."\n'
+          'translate french strings:\n'
+          '    old "Hello"\n'
+          '    new "Bonjour"\n'
+          'translate english python:\n'
+          '    style.default.font = "english.ttf"\n'
+          'translate english start_screen\n';
+      expectEmits(text, text);
+    });
+
     test('empty block emits an explicit pass', () {
       final label = RenPyLabelStatement('empty', [], 'test.rpy', 1);
       expect(
@@ -852,6 +922,7 @@ label start(chapter=1):
     pause 0.5
     nvl clear
     camera bg at zoom
+    frobnicate the_widget
     menu choice_menu:
         "What now?"
         set seen_choices
@@ -884,4 +955,9 @@ label left_path:
     return
 label right_path(a, b=2):
     return
+translate french start_a1b2c3d4:
+    e "Bonjour le monde."
+translate french strings:
+    old "Hello"
+    new "Bonjour"
 ''';

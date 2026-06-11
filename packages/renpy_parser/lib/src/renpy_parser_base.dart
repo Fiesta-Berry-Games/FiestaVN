@@ -185,6 +185,13 @@ class RenPyParser {
       return _parseSceneStatement(line, warnings);
     }
 
+    // Parse camera statement (shares the show/scene clause grammar).
+    if (text == 'camera' ||
+        text.startsWith('camera ') ||
+        text.startsWith('camera:')) {
+      return _parseCameraStatement(line, warnings);
+    }
+
     if (text.startsWith('play ')) {
       return _parsePlayStatement(line, warnings);
     }
@@ -293,14 +300,11 @@ class RenPyParser {
       return _parseReturnStatement(line, warnings);
     }
 
-    // Recognize `translate` blocks as no-ops. Real Ren'Py games ship
-    // localization via top-level `translate <lang> ...` statements
-    // (`python:`, `strings:`, an `<identifier>:` say block, or a single-line
-    // form). When running the default language we ignore all translations, so
-    // we return a `RenPyPassStatement` (which the runner already no-ops) and
-    // discard the block body without re-parsing it.
-    if (text == 'translate' || text.startsWith('translate ')) {
-      return RenPyPassStatement(line.filename, line.number);
+    // Parse `translate` blocks. Real Ren'Py games ship localization via
+    // top-level `translate <lang> ...` statements (`python:`, `strings:`, an
+    // `<identifier>:` say block, or a single-line form).
+    if (text.startsWith('translate ')) {
+      return _parseTranslateStatement(line, warnings);
     }
 
     // If we couldn't identify the statement type, create a generic statement.
@@ -695,7 +699,7 @@ class RenPyParser {
   // be mistaken for a say speaker now that the say pattern accepts attribute
   // tokens after the leading identifier (e.g. `show text "..."`).
   static final _sayKeywordGuard = RegExp(
-    r'''^(?:show|scene|hide|play|stop|queue|voice|jump|call|with|nvl|window|pause|menu|label|image|define|default|screen|style|transform|init|python|return|pass|if|elif|else|while|for|break|continue)\b''',
+    r'''^(?:show|scene|camera|translate|hide|play|stop|queue|voice|jump|call|with|nvl|window|pause|menu|label|image|define|default|screen|style|transform|init|python|return|pass|if|elif|else|while|for|break|continue)\b''',
   );
 
   bool _isSayStatement(String text) {
@@ -1369,6 +1373,130 @@ class RenPyParser {
       line.number,
       onLayerExpression: parts.clauses['onlayer'],
       zOrderExpression: parts.clauses['zorder'],
+    );
+  }
+
+  /// Parses a `camera` statement.
+  ///
+  /// Accepted forms (all clauses optional, raw-string expressions):
+  ///
+  ///     camera
+  ///     camera <layer>
+  ///     camera [<layer>] at <expr-list>
+  ///     camera [<layer>] with <expr>
+  ///     camera [<layer>] [at ...] [with ...]:
+  ///         <ATL block>
+  ///
+  /// The optional trailing `:` introduces an ATL block captured as raw lines,
+  /// mirroring the `image name:` / `transform` handling.
+  RenPyCameraStatement _parseCameraStatement(
+    GroupedLine line,
+    List<String> warnings,
+  ) {
+    var text = line.text.trim();
+    final hasBlock = text.endsWith(':');
+    if (hasBlock) text = text.substring(0, text.length - 1).trimRight();
+
+    String? layer;
+    String? atExpression;
+    String? withExpression;
+
+    final rest =
+        text == 'camera' ? '' : text.substring('camera'.length).trim();
+    if (rest.isNotEmpty) {
+      final parts = _parseImageStatementParts(rest, line, 'camera', const [
+        'at',
+        'with',
+      ], requireImageName: false);
+      layer = parts.imageName.isEmpty ? null : parts.imageName;
+      atExpression = parts.clauses['at'];
+      withExpression = parts.clauses['with'];
+    }
+
+    return RenPyCameraStatement(
+      layer,
+      atExpression,
+      withExpression,
+      line.filename,
+      line.number,
+      body: hasBlock ? _transformBodyLines(line.block) : const [],
+    );
+  }
+
+  /// Parses a `translate <language> <label>[:]` statement.
+  ///
+  /// * `translate <lang> strings:` keeps its body as raw lines (`strings`).
+  /// * `translate <lang> python:` reconstructs its body as a single
+  ///   [RenPyPythonStatement] in the block (the body is Python code, not
+  ///   Ren'Py script).
+  /// * Any other `translate <lang> <label>:` parses its body as ordinary
+  ///   statements; the single-line form has an empty block.
+  RenPyTranslateStatement _parseTranslateStatement(
+    GroupedLine line,
+    List<String> warnings,
+  ) {
+    final text = line.text.trim();
+    final match = RegExp(
+      r'^translate\s+([a-zA-Z_]\w*)\s+([a-zA-Z_][\w.]*)\s*:?$',
+    ).firstMatch(text);
+    if (match == null) {
+      throw RenPyParseError(
+        'Invalid translate statement syntax',
+        line.filename,
+        line.number,
+        0,
+      );
+    }
+
+    final language = match.group(1)!;
+    final label = match.group(2)!;
+
+    if (label == 'strings') {
+      return RenPyTranslateStatement(
+        language,
+        label,
+        const [],
+        line.filename,
+        line.number,
+        strings: _transformBodyLines(line.block),
+      );
+    }
+
+    if (label == 'python') {
+      // The body is Python source, not Ren'Py script: reconstruct it with
+      // relative indentation exactly like a `python:` block.
+      List<RenPyStatement> block = const [];
+      if (line.block.isNotEmpty) {
+        final pythonBlock = <String>[];
+        _collectPythonBlockLines(
+          line.block,
+          line.block.first.indent,
+          pythonBlock,
+        );
+        block = [
+          RenPyPythonStatement(
+            pythonBlock.join('\n'),
+            false,
+            line.filename,
+            line.number,
+          ),
+        ];
+      }
+      return RenPyTranslateStatement(
+        language,
+        label,
+        block,
+        line.filename,
+        line.number,
+      );
+    }
+
+    return RenPyTranslateStatement(
+      language,
+      label,
+      _parseBlock(line.block, warnings),
+      line.filename,
+      line.number,
     );
   }
 

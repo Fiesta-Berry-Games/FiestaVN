@@ -1,3 +1,20 @@
+## 0.0.3 - 2026-06-11
+
+- New `RenPyCameraStatement`: `camera [layer] [at expr-list] [with expr]`
+  parses into structured layer/at/with fields, with an optional trailing `:`
+  ATL block captured as raw `body` lines (mirroring `image name:`).
+  Previously `camera` lines fell through to `RenPyGenericStatement`.
+- New `RenPyTranslateStatement`: `translate <language> <label>:` blocks parse
+  their body as ordinary statements; `translate <lang> python:` reconstructs
+  its body as a single `RenPyPythonStatement`; `translate <lang> strings:`
+  keeps its body verbatim in a `strings` raw-line list. Previously every
+  translate block collapsed to `RenPyPassStatement` and its body was
+  discarded.
+
+## 0.0.2
+
+- Resolve type-related analyzer warnings (no API changes).
+
 ## 0.0.1 - 2026-06-08
 
 First public release. Parses Ren'Py `.rpy` script files into a typed Dart AST.

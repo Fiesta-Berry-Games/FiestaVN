@@ -73,7 +73,7 @@ void main() {
       () {
         const source = '''
 label start:
-    camera bg with ease
+    frobnicate the widget
     "hello"
 ''';
         final result = migrator.rpyToFly(source, filename: 'exotic.rpy');
@@ -87,12 +87,12 @@ label start:
         expect(issue.severity, FlyMigrationSeverity.lossy);
         expect(issue.filename, 'exotic.rpy');
         expect(issue.linenumber, 2);
-        expect(issue.snippet, 'camera bg with ease');
-        expect(issue.message, contains('camera bg with ease'));
+        expect(issue.snippet, 'frobnicate the widget');
+        expect(issue.message, contains('frobnicate the widget'));
         expect(result.report.isFaithful, isFalse);
 
         // The raw text still travels through the .fly document.
-        expect(result.output, contains('camera bg with ease'));
+        expect(result.output, contains('frobnicate the widget'));
       },
     );
 
@@ -218,7 +218,7 @@ image eyes blink:
       "type": "label",
       "name": "start",
       "block": [
-        {"type": "raw", "text": "camera bg with ease"},
+        {"type": "raw", "text": "frobnicate the widget"},
         {"type": "return"}
       ]
     }
@@ -232,7 +232,7 @@ image eyes blink:
               .where((issue) => issue.kind == 'unstructured-statement')
               .toList();
       expect(unstructured, hasLength(1));
-      expect(unstructured.single.snippet, 'camera bg with ease');
+      expect(unstructured.single.snippet, 'frobnicate the widget');
       // The raw text re-parses to the same raw statement, so the round trip
       // itself does not diverge.
       expect(
@@ -260,7 +260,7 @@ image eyes blink:
     test('report summarizes severities', () {
       const source = '''
 label start:
-    camera bg with ease
+    frobnicate the widget
 ''';
       final report = migrator.verifyRoundTrip(source);
       expect(report.isFaithful, isFalse);

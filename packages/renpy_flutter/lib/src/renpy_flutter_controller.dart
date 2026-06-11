@@ -238,6 +238,10 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
 
   bool _skipEnabled = false;
   bool _autoForwardEnabled = false;
+
+  /// Whether the current dialogue line has fully revealed (reported by the
+  /// view via [notifyTextRevealed]); reset on each new line.
+  bool _textRevealed = false;
   bool _suppressBacklog = false;
   double _autoDelay = 1.0;
 
@@ -375,6 +379,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     _pauseTimer?.cancel();
     _autoTimer?.cancel();
     _autoTimer = null;
+    _textRevealed = false;
     _runner = null;
     _diagnostics.clear();
     _gameRoot = gameRoot;
@@ -482,11 +487,14 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
 
   /// Enables or disables auto-forward. Auto only advances after a line has
   /// finished revealing; the view signals that through [notifyTextRevealed].
+  /// Enabling while the current line is already revealed schedules the
+  /// advance immediately, so the toggle takes effect on the parked line.
   set autoForwardEnabled(bool value) {
     if (_autoForwardEnabled == value) return;
     _autoForwardEnabled = value;
     if (value) {
       _skipEnabled = false;
+      if (_textRevealed) _maybeScheduleAuto();
     } else {
       _autoTimer?.cancel();
       _autoTimer = null;
@@ -498,8 +506,10 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   set autoDelay(double value) => _autoDelay = value;
 
   /// Called by the dialogue view once the current line is fully revealed so
-  /// auto-forward can begin its delay. Has no effect unless auto is enabled.
+  /// auto-forward can begin its delay. The revealed state is remembered so
+  /// enabling auto afterwards still advances the parked line.
   void notifyTextRevealed() {
+    _textRevealed = true;
     if (!_autoForwardEnabled) return;
     _maybeScheduleAuto();
   }
@@ -731,6 +741,7 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
     _pauseTimer = null;
     _autoTimer?.cancel();
     _autoTimer = null;
+    _textRevealed = false;
     _recordBacklog(
       RenPyBacklogEntry(
         character: event.displayName,
