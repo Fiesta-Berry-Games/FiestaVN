@@ -78,19 +78,38 @@ typedef LoadBundledAssets = Future<Map<String, Uint8List>> Function();
 /// (where renfly_editor's assets live under the `packages/renfly_editor/`
 /// prefix).
 Future<String> loadEditorAssetString(String path) async {
-  try {
-    return await rootBundle.loadString(path);
-  } catch (_) {
+  if (_editorAssetsArePackaged == true) {
     return rootBundle.loadString('packages/renfly_editor/$path');
+  }
+  try {
+    final text = await rootBundle.loadString(path);
+    _editorAssetsArePackaged = false;
+    return text;
+  } catch (_) {
+    final text = await rootBundle.loadString('packages/renfly_editor/$path');
+    _editorAssetsArePackaged = true;
+    return text;
   }
 }
 
+/// Whether the editor's own assets live under the `packages/renfly_editor/`
+/// prefix (true when composed inside a host app). Learned on the first
+/// successful load so later loads skip the 404-producing wrong attempt.
+bool? _editorAssetsArePackaged;
+
 /// Byte-loading counterpart of [loadEditorAssetString].
 Future<ByteData> _loadEditorAssetBytes(String path) async {
-  try {
-    return await rootBundle.load(path);
-  } catch (_) {
+  if (_editorAssetsArePackaged == true) {
     return rootBundle.load('packages/renfly_editor/$path');
+  }
+  try {
+    final data = await rootBundle.load(path);
+    _editorAssetsArePackaged = false;
+    return data;
+  } catch (_) {
+    final data = await rootBundle.load('packages/renfly_editor/$path');
+    _editorAssetsArePackaged = true;
+    return data;
   }
 }
 
@@ -282,8 +301,14 @@ class _EditorScreenState extends State<EditorScreen> {
   late final RenPyFlutterController _previewController;
 
   /// Memory-only stores so editor preview runs never pollute persisted saves.
+  /// The stage defaults to letterbox (fit): the preview pane is often
+  /// near-square, where the player's auto fill mode would crop off the
+  /// stage's left/right edges — hiding characters shown `at left`/`at right`.
+  /// Authors need to see the whole stage.
   final RenPyMemoryPreferenceStore _preferenceStore =
-      RenPyMemoryPreferenceStore();
+      RenPyMemoryPreferenceStore({
+        RenPyPlayerPreferences.stageFitKey: RenPyStageFit.fit.name,
+      });
 
   /// Assets bundled with the opened script (from a `.fly.zip`), keyed by
   /// archive path (e.g. `game/images/bg.png`). The preview resolves images
@@ -350,6 +375,7 @@ class _EditorScreenState extends State<EditorScreen> {
     _previewController
       ..removeListener(_onPreviewAdvanced)
       ..dispose();
+    _previewAudioPlayback.dispose();
     super.dispose();
   }
 
@@ -1853,7 +1879,7 @@ class _EditorScreenState extends State<EditorScreen> {
     return RenPyPlayer(
       controller: _previewController,
       backgroundColor: const Color(0xFF121212),
-      audioPlayback: widget.audioPlayback,
+      audioPlayback: widget.audioPlayback ?? _previewAudioPlayback,
       preferenceStore: _preferenceStore,
       showRestartButton: true,
       onRestart: _run,
@@ -1880,6 +1906,12 @@ class _EditorScreenState extends State<EditorScreen> {
       },
     );
   }
+
+  /// Plays preview audio from the session assets (bundled example music and
+  /// .fly.zip tracks live in [_assets], not the Flutter asset bundle, so the
+  /// player's default bundle-backed playback would 404).
+  late final RenPyBytesAudioPlayback _previewAudioPlayback =
+      RenPyBytesAudioPlayback(const {}, readAsset: (path) => _assets[path]);
 
   /// Resolves preview image paths against the opened archive's assets,
   /// falling back to Flutter bundle assets for paths we don't carry.

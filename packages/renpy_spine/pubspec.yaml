@@ -19,7 +19,7 @@ dependencies:
     sdk: flutter
   renpy_core: ^0.0.3
   renpy_flutter: ^0.0.1
-  spine_flutter: ^4.2.36
+  spine_flutter: '>=4.2.36 <4.3.0'
 
 dev_dependencies:
   flutter_test:

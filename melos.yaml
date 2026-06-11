@@ -40,11 +40,19 @@ scripts:
       cp -r "$MELOS_ROOT_PATH/apps/renspine/build/web" "$MELOS_ROOT_PATH/apps/fiestavn.com/spine"
     description: Build renspine for web and copy output to apps/fiestavn.com/spine/.
 
+  build:spine-editor:
+    run: |
+      cd "$MELOS_ROOT_PATH/apps/renspine_editor" && flutter build web --base-href /spine-edit/
+      rm -rf "$MELOS_ROOT_PATH/apps/fiestavn.com/spine-edit"
+      cp -r "$MELOS_ROOT_PATH/apps/renspine_editor/build/web" "$MELOS_ROOT_PATH/apps/fiestavn.com/spine-edit"
+    description: Build renspine_editor for web and copy output to apps/fiestavn.com/spine-edit/.
+
   build:web:
     run: |
       melos run build:player
       melos run build:editor
       melos run build:spine
+      melos run build:spine-editor
     description: Build player, editor, and spine web targets.
 
   build:sites:

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="FiestaVN — an open-source project for playing Ren'Py visual novels on any platform. Home of RenFly, the Ren'Py player for web, desktop, and mobile.">
-  <title>FiestaVN — Ren'Py visual novels on any platform</title>
+  <title>FiestaVN: play and edit Ren'Py visual novels in Flutter, now with RenSpine for animation!</title>
   <link rel="icon" type="image/png" href="/assets/favicon.png">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -24,33 +24,22 @@
 
   <main>
     <section class="hero">
-      <h1>Ren'Py visual novels, on any platform.</h1>
-      <p class="subtitle">FiestaVN is an open-source project for playing and creating Ren'Py visual novels natively on web, desktop, and mobile.</p>
+      <h1>RenFly: Ren'Py visual novels in Flutter</h1>
+      <p class="subtitle">RenFly is an open-source project for playing and creating Ren'Py visual novels in Flutter on web, desktop, and mobile.</p>
       <div class="cta-row">
         <a class="play-button" href="https://renfly.org/">▶ PLAY</a>
         <a class="edit-button" href="/edit/">✎ EDIT</a>
       </div>
     </section>
 
-    <section class="apps" id="apps">
-      <h2>Apps</h2>
-      <div class="cards">
-        <article class="card">
-          <h3>RenFly Player</h3>
-          <p>Play Ren'Py games in your browser, on your desktop, or on your phone — no engine port required. Bundled demo games included, or open your own project folder.</p>
-          <a class="card-cta" href="https://renfly.org/">Play now at renfly.org →</a>
-        </article>
-        <article class="card">
-          <h3>RenFly Editor</h3>
-          <p>Write, preview, and package Ren'Py visual novels from the same engine that plays them — with live preview, migration fidelity reports, and one-file .fly.zip export.</p>
-          <a class="card-cta" href="/edit/">Open the editor →</a>
-        </article>
-        <article class="card">
-          <h3>RenSpine</h3>
-          <p>Bring characters to life with Spine skeletal animation — skins and animation mixing instead of static sprites, right inside RenFly visual novels.</p>
-          <a class="card-cta" href="/spine/">See the showcase →</a>
-        </article>
-      </div>
+    <section class="about" id="about">
+      <h2>About</h2>
+      <p>
+        FiestaVN is an open-source Dart and Flutter implementation of the Ren'Py visual novel
+        engine, built by Fiesta Berry Games.  Its first app, <a href="https://renfly.org/">RenFly</a>,
+        plays Ren'Py games wherever Flutter runs.  The parser, engine core, and Flutter
+        runtime are published as standalone packages you can build on and are all licensed MIT.
+      </p>
     </section>
 
     <section class="renspine" id="renspine">
@@ -62,16 +51,31 @@
         mixing — instead of static sprites. Try the <a href="/spine/">live demo</a>, or build
         on the <code>packages/renpy_spine</code> package in the FiestaVN monorepo.
       </p>
+      <div class="cta-row">
+        <a class="play-button" href="/spine/">▶ PLAY</a>
+        <a class="edit-button" href="/spine-edit/">✎ EDIT</a>
+      </div>
     </section>
 
-    <section class="about" id="about">
-      <h2>About</h2>
-      <p>
-        FiestaVN is an open-source Dart and Flutter implementation of the Ren'Py visual novel
-        engine, built by FiestaBerry. Its first app, <a href="https://renfly.org/">RenFly</a>,
-        plays Ren'Py games natively wherever Flutter runs. The parser, engine core, and Flutter
-        runtime are published as standalone packages you can build on.
-      </p>
+    <section class="apps" id="apps">
+      <h2>Apps</h2>
+      <div class="cards">
+        <article class="card">
+          <h3>RenFly Player</h3>
+          <p>Play Ren'Py games in your browser, on your desktop, or on your phone. Bundled demo games included, or open your own project folder.</p>
+          <a class="card-cta" href="https://renfly.org/">Play now at renfly.org →</a>
+        </article>
+        <article class="card">
+          <h3>RenFly Editor</h3>
+          <p>Write, preview, and package Ren'Py visual novels with live preview, migration fidelity reports, and one-file .fly.zip export.</p>
+          <a class="card-cta" href="/edit/">Open the editor →</a>
+        </article>
+        <article class="card">
+          <h3>RenSpine</h3>
+          <p>Play and edit animated visual novels with characters that come to life with Spine skeletal animation, skins, and animation mixing instead of static sprites in Flutter with RenSpine.</p>
+          <a class="card-cta" href="/spine/">See the showcase →</a>
+        </article>
+      </div>
     </section>
   </main>
 
@@ -80,6 +84,7 @@
     <div class="footer-links">
       <a href="https://fiestavn.com">FiestaVN</a>
       <a href="https://renfly.org">RenFly</a>
+      <a href="https://fiestavn.com/spine/">RenSpine</a>
       <a href="https://github.com/Fiesta-Berry-Games/FiestaVN" target="_blank" rel="noopener">GitHub</a>
       <a href="https://github.com/Fiesta-Berry-Games/FiestaVN/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
   </footer>

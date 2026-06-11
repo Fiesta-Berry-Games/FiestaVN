@@ -108,9 +108,9 @@ class _SpineSpriteWidgetState extends State<SpineSpriteWidget> {
     if (skin == null) return;
 
     _controller.skeleton
-      ..setSkin2(skin)
-      ..setupPoseSlots();
-    _appliedSkin = wanted ?? skin.name;
+      ..setSkin(skin)
+      ..setSlotsToSetupPose();
+    _appliedSkin = wanted ?? skin.getName();
   }
 
   spine.Skin? _findSkin(spine.SkeletonData data, String? wanted) {
@@ -119,12 +119,12 @@ class _SpineSpriteWidgetState extends State<SpineSpriteWidget> {
       final skin = data.findSkin(name);
       if (skin != null) return skin;
     }
-    return data.defaultSkin;
+    return data.getDefaultSkin();
   }
 
   void _applyAnimation() {
     // Cross-fade between animations on the same track.
-    _controller.animationStateData.defaultMix = widget.mixSeconds;
+    _controller.animationStateData.setDefaultMix(widget.mixSeconds);
 
     final data = _controller.skeletonData;
     spine.Animation? animation;
@@ -136,7 +136,7 @@ class _SpineSpriteWidgetState extends State<SpineSpriteWidget> {
     // Nothing matched: fall back to the skeleton's first animation so the
     // sprite never freezes in setup pose.
     if (animation == null) {
-      final animations = data.animations;
+      final animations = data.getAnimations();
       if (animations.isEmpty) {
         debugPrint(
           'SpineSpriteWidget: no animation named "${widget.animation}" and '
@@ -146,9 +146,8 @@ class _SpineSpriteWidgetState extends State<SpineSpriteWidget> {
       }
       animation = animations[0];
     }
-    if (animation == null) return;
 
-    _controller.animationState.setAnimation2(0, animation, true).trackTime = 0;
+    _controller.animationState.setAnimation(0, animation, true).setTrackTime(0);
   }
 
   /// The animation names tried, in order, for [SpineSpriteWidget.animation].

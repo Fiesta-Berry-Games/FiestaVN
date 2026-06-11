@@ -311,4 +311,9 @@ a:hover {
     padding: 0.65rem 2rem;
     font-size: 1rem;
   }
+
+  .edit-button {
+    padding: calc(0.65rem - 2px) calc(2rem - 2px);
+    font-size: 1rem;
+  }
 }

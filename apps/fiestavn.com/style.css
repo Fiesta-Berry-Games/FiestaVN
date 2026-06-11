@@ -207,15 +207,17 @@ a:hover {
   letter-spacing: 0.08em;
 }
 
-/* About */
+/* About / RenSpine */
 
-.about {
+.about,
+.renspine {
   max-width: 44rem;
   margin: 0 auto;
   padding: 2rem 1.25rem 3.5rem;
 }
 
-.about p {
+.about p,
+.renspine p {
   color: var(--text-muted);
   margin: 0;
 }

@@ -18,6 +18,7 @@ image sylvieb giggle = "sylvie blue giggle.png"
 image sylvieb surprised = "sylvie blue surprised.png"
 
 label start:
+    play music "illurock.opus"
     scene bg meadow
     show sylvieg normal at left
     show sylvieb normal at right
