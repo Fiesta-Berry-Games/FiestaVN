@@ -50,18 +50,138 @@ void main() {
 
       expect(decoded.name, 'My Game');
       expect(decoded.script, 'game/script.fly');
+      expect(decoded.files, ['game/images/bg meadow.png', 'game/script.fly']);
+      expect(decoded.sizes, isNull);
+      expect(jsonDecode(json), {
+        'version': 1,
+        'name': 'My Game',
+        'script': 'game/script.fly',
+        'files': ['game/images/bg meadow.png', 'game/script.fly'],
+      });
+    });
+
+    test('round-trips with sizes', () {
+      final manifest = FlyStreamManifest(
+        name: 'My Game',
+        script: 'game/script.fly',
+        files: ['game/images/bg meadow.png', 'game/script.fly'],
+        sizes: {
+          // Deliberately unsorted: the manifest stores sizes sorted by path.
+          'game/script.fly': 512,
+          'game/images/bg meadow.png': 2048,
+        },
+      );
+
+      final json = manifest.encode();
+      final decoded = FlyStreamManifest.decode(json);
+
+      expect(decoded.sizes, {
+        'game/images/bg meadow.png': 2048,
+        'game/script.fly': 512,
+      });
+      expect(jsonDecode(json), {
+        'version': 1,
+        'name': 'My Game',
+        'script': 'game/script.fly',
+        'files': ['game/images/bg meadow.png', 'game/script.fly'],
+        'sizes': {'game/images/bg meadow.png': 2048, 'game/script.fly': 512},
+      });
+    });
+
+    test('allows partial sizes (any subset of files)', () {
+      final manifest = FlyStreamManifest(
+        script: 'game/script.fly',
+        files: ['game/images/bg.png', 'game/script.fly'],
+        sizes: {'game/script.fly': 512},
+      );
+
+      final decoded = FlyStreamManifest.decode(manifest.encode());
+      expect(decoded.sizes, {'game/script.fly': 512});
+    });
+
+    test('rejects sizes paths that are not listed in files', () {
       expect(
-        decoded.files,
-        ['game/images/bg meadow.png', 'game/script.fly'],
+        () => FlyStreamManifest(
+          script: 'game/script.fly',
+          files: ['game/script.fly'],
+          sizes: {'game/images/bg.png': 2048},
+        ),
+        throwsFlyArchiveException(
+          'sizes path "game/images/bg.png" is not listed',
+        ),
+      );
+    });
+
+    test('rejects negative sizes', () {
+      expect(
+        () => FlyStreamManifest(
+          script: 'game/script.fly',
+          files: ['game/script.fly'],
+          sizes: {'game/script.fly': -1},
+        ),
+        throwsFlyArchiveException('negative byte length'),
+      );
+    });
+
+    test('sizes is unmodifiable', () {
+      final manifest = FlyStreamManifest(
+        script: 'game/script.fly',
+        files: ['game/script.fly'],
+        sizes: {'game/script.fly': 512},
       );
       expect(
-        jsonDecode(json),
-        {
-          'version': 1,
-          'name': 'My Game',
-          'script': 'game/script.fly',
-          'files': ['game/images/bg meadow.png', 'game/script.fly'],
-        },
+        () => manifest.sizes!['game/script.fly'] = 0,
+        throwsUnsupportedError,
+      );
+    });
+
+    test('decode accepts a missing sizes key as null', () {
+      final decoded = FlyStreamManifest.decode(
+        '{"version": 1, "script": "game/script.fly", '
+        '"files": ["game/script.fly"]}',
+      );
+      expect(decoded.sizes, isNull);
+    });
+
+    test('decode rejects a sizes value that is not an object', () {
+      expect(
+        () => FlyStreamManifest.decode(
+          '{"version": 1, "script": "game/script.fly", '
+          '"files": ["game/script.fly"], "sizes": [512]}',
+        ),
+        throwsFlyArchiveException('"sizes" must be an object'),
+      );
+    });
+
+    test('decode rejects non-integer sizes values', () {
+      expect(
+        () => FlyStreamManifest.decode(
+          '{"version": 1, "script": "game/script.fly", '
+          '"files": ["game/script.fly"], '
+          '"sizes": {"game/script.fly": "big"}}',
+        ),
+        throwsFlyArchiveException('only integer byte lengths'),
+      );
+      expect(
+        () => FlyStreamManifest.decode(
+          '{"version": 1, "script": "game/script.fly", '
+          '"files": ["game/script.fly"], '
+          '"sizes": {"game/script.fly": 1.5}}',
+        ),
+        throwsFlyArchiveException('only integer byte lengths'),
+      );
+    });
+
+    test('decode rejects sizes paths that are not listed in files', () {
+      expect(
+        () => FlyStreamManifest.decode(
+          '{"version": 1, "script": "game/script.fly", '
+          '"files": ["game/script.fly"], '
+          '"sizes": {"game/images/bg.png": 2048}}',
+        ),
+        throwsFlyArchiveException(
+          'sizes path "game/images/bg.png" is not listed',
+        ),
       );
     });
 
@@ -178,37 +298,66 @@ void main() {
 
   group('FlyStreamManifest.fromFiles', () {
     test('selects the script and keeps every file, sorted', () {
-      final manifest = FlyStreamManifest.fromFiles(
-        ['game/script.fly', 'game/images/bg.png', 'game/audio/theme.ogg'],
-        name: 'Demo',
-      );
+      final manifest = FlyStreamManifest.fromFiles([
+        'game/script.fly',
+        'game/images/bg.png',
+        'game/audio/theme.ogg',
+      ], name: 'Demo');
       expect(manifest.name, 'Demo');
       expect(manifest.script, 'game/script.fly');
+      expect(manifest.files, [
+        'game/audio/theme.ogg',
+        'game/images/bg.png',
+        'game/script.fly',
+      ]);
+      expect(manifest.sizes, isNull);
+    });
+
+    test('passes sizes through to the manifest', () {
+      final manifest = FlyStreamManifest.fromFiles(
+        ['game/script.fly', 'game/images/bg.png'],
+        sizes: {'game/script.fly': 512, 'game/images/bg.png': 2048},
+      );
+      expect(manifest.sizes, {
+        'game/images/bg.png': 2048,
+        'game/script.fly': 512,
+      });
+    });
+
+    test('rejects sizes paths that are not in the file list', () {
       expect(
-        manifest.files,
-        ['game/audio/theme.ogg', 'game/images/bg.png', 'game/script.fly'],
+        () => FlyStreamManifest.fromFiles(
+          ['game/script.fly'],
+          sizes: {'game/images/bg.png': 2048},
+        ),
+        throwsFlyArchiveException(
+          'sizes path "game/images/bg.png" is not listed',
+        ),
       );
     });
 
     test('.fly beats .rpy', () {
-      final manifest = FlyStreamManifest.fromFiles(
-        ['game/script.rpy', 'game/script.fly'],
-      );
+      final manifest = FlyStreamManifest.fromFiles([
+        'game/script.rpy',
+        'game/script.fly',
+      ]);
       expect(manifest.script, 'game/script.fly');
     });
 
     test('prefers game/script.fly among multiple .fly candidates', () {
-      final manifest = FlyStreamManifest.fromFiles(
-        ['game/chapter2.fly', 'game/script.fly'],
-      );
+      final manifest = FlyStreamManifest.fromFiles([
+        'game/chapter2.fly',
+        'game/script.fly',
+      ]);
       expect(manifest.script, 'game/script.fly');
     });
 
     test('rejects a .rpy-only game with the migrate-first message', () {
       expect(
-        () => FlyStreamManifest.fromFiles(
-          ['game/script.rpy', 'game/images/bg.png'],
-        ),
+        () => FlyStreamManifest.fromFiles([
+          'game/script.rpy',
+          'game/images/bg.png',
+        ]),
         throwsFlyArchiveException(
           '.rpy games must be migrated to .fly before streaming',
         ),
@@ -251,8 +400,10 @@ void main() {
       File(zipPath).writeAsBytesSync(zipBytes);
       final out = '${temp.path}/out';
 
-      final result =
-          await buildStreamableDirectory(input: zipPath, outputDir: out);
+      final result = await buildStreamableDirectory(
+        input: zipPath,
+        outputDir: out,
+      );
 
       expect(result.scriptPath, 'game/script.fly');
       expect(result.migrationReport, isNull);
@@ -262,20 +413,18 @@ void main() {
         utf8.encode(smallStoryAsFly()).length + image.length,
       );
       expect(File('$out/game/script.fly').existsSync(), isTrue);
-      expect(
-        File('$out/game/images/bg meadow.png').readAsBytesSync(),
-        image,
-      );
+      expect(File('$out/game/images/bg meadow.png').readAsBytesSync(), image);
 
       final manifest = FlyStreamManifest.decode(
         File('$out/${FlyStreamManifest.fileName}').readAsStringSync(),
       );
       expect(manifest.name, 'demo'); // .fly.zip suffix stripped
       expect(manifest.script, 'game/script.fly');
-      expect(
-        manifest.files,
-        ['game/images/bg meadow.png', 'game/script.fly'],
-      );
+      expect(manifest.files, ['game/images/bg meadow.png', 'game/script.fly']);
+      expect(manifest.sizes, {
+        'game/images/bg meadow.png': image.length,
+        'game/script.fly': utf8.encode(smallStoryAsFly()).length,
+      });
     });
 
     test('migrates an .rpy directory input to .fly with a report', () async {
@@ -311,35 +460,46 @@ void main() {
       expect(manifest.name, 'My Game');
       expect(manifest.script, 'game/script.fly');
       expect(manifest.files, ['game/images/bg.png', 'game/script.fly']);
+      // The migrated .fly script's size is recorded, not the .rpy source's.
+      expect(manifest.sizes, {
+        'game/images/bg.png': 3,
+        'game/script.fly': File('$out/game/script.fly').lengthSync(),
+      });
     });
 
-    test('treats a bare game directory (no game/ subtree) as the game root',
-        () async {
-      final inDir = '${temp.path}/bare';
-      File('$inDir/script.fly')
-        ..createSync(recursive: true)
-        ..writeAsStringSync(smallStoryAsFly());
-      final out = '${temp.path}/out';
+    test(
+      'treats a bare game directory (no game/ subtree) as the game root',
+      () async {
+        final inDir = '${temp.path}/bare';
+        File('$inDir/script.fly')
+          ..createSync(recursive: true)
+          ..writeAsStringSync(smallStoryAsFly());
+        final out = '${temp.path}/out';
 
-      final result =
-          await buildStreamableDirectory(input: inDir, outputDir: out);
+        final result = await buildStreamableDirectory(
+          input: inDir,
+          outputDir: out,
+        );
 
-      expect(result.scriptPath, 'game/script.fly');
-      expect(File('$out/game/script.fly').existsSync(), isTrue);
-    });
+        expect(result.scriptPath, 'game/script.fly');
+        expect(File('$out/game/script.fly').existsSync(), isTrue);
+      },
+    );
 
-    test('regenerates a stale input manifest instead of copying it',
-        () async {
+    test('regenerates a stale input manifest instead of copying it', () async {
       final inDir = '${temp.path}/stale';
       File('$inDir/game/script.fly')
         ..createSync(recursive: true)
         ..writeAsStringSync(smallStoryAsFly());
-      File('$inDir/${FlyStreamManifest.fileName}')
-          .writeAsStringSync('{"stale": true}');
+      File(
+        '$inDir/${FlyStreamManifest.fileName}',
+      ).writeAsStringSync('{"stale": true}');
       final out = '${temp.path}/out';
 
-      final result =
-          await buildStreamableDirectory(input: inDir, outputDir: out);
+      final result = await buildStreamableDirectory(
+        input: inDir,
+        outputDir: out,
+      );
 
       expect(result.manifest.files, ['game/script.fly']);
       final manifest = FlyStreamManifest.decode(
@@ -382,10 +542,7 @@ void main() {
         ..writeAsStringSync(badIndent);
 
       await expectLater(
-        buildStreamableDirectory(
-          input: inDir,
-          outputDir: '${temp.path}/out',
-        ),
+        buildStreamableDirectory(input: inDir, outputDir: '${temp.path}/out'),
         throwsFlyArchiveException('does not parse'),
       );
     });

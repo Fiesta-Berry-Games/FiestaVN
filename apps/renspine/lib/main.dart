@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:renpy_flutter/renpy_flutter.dart';
 import 'package:renpy_spine/renpy_spine.dart';
 
+import 'spine_preloader.dart';
+
 /// The Spine characters available to the demo games' `show` statements.
 ///
 /// Both characters are skins of the shared chibi-stickers skeleton: a Ren'Py
@@ -37,8 +39,20 @@ Future<void> main() async {
   runApp(const FiestaVNApp());
 }
 
+/// Builds the screen pushed when a game launches. Tests inject a stub so
+/// navigation can be asserted without booting the full Ren'Py player.
+typedef GameScreenBuilder = Widget Function(String assetPath, String title);
+
 class FiestaVNApp extends StatelessWidget {
-  const FiestaVNApp({super.key});
+  const FiestaVNApp({super.key, this.loadAsset, this.gameScreenBuilder});
+
+  /// Seam for the Spine asset preloader; defaults to `rootBundle.load`.
+  @visibleForTesting
+  final AssetLoader? loadAsset;
+
+  /// Seam for the pushed game screen; defaults to [GameScreen].
+  @visibleForTesting
+  final GameScreenBuilder? gameScreenBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -46,21 +60,57 @@ class FiestaVNApp extends StatelessWidget {
       title: 'RenSpine - FiestaVN Demo',
       theme: ThemeData.dark(useMaterial3: true),
       debugShowCheckedModeBanner: false,
-      home: const _LauncherScreen(),
+      home: _LauncherScreen(
+        loadAsset: loadAsset,
+        gameScreenBuilder: gameScreenBuilder,
+      ),
     );
   }
 }
 
 /// Choose which game to play.
-class _LauncherScreen extends StatelessWidget {
-  const _LauncherScreen();
+///
+/// Before pushing a game it preloads the Spine assets the game's characters
+/// need (on web those are network fetches), showing a determinate per-file
+/// progress bar on the launcher tile. The success bit is remembered by the
+/// preloader, so a second launch navigates immediately.
+class _LauncherScreen extends StatefulWidget {
+  const _LauncherScreen({this.loadAsset, this.gameScreenBuilder});
 
-  // Convenience helper
-  void _startGame(BuildContext ctx, String assetPath, String title) {
-    Navigator.of(ctx).push(
-      MaterialPageRoute(
-        builder: (_) => GameScreen(assetPath: assetPath, title: title),
-      ),
+  final AssetLoader? loadAsset;
+  final GameScreenBuilder? gameScreenBuilder;
+
+  @override
+  State<_LauncherScreen> createState() => _LauncherScreenState();
+}
+
+class _LauncherScreenState extends State<_LauncherScreen> {
+  late final SpineAssetPreloader _preloader = SpineAssetPreloader(
+    characters: kSpineCharacters,
+    loadAsset: widget.loadAsset,
+  );
+
+  @override
+  void dispose() {
+    _preloader.dispose();
+    super.dispose();
+  }
+
+  Future<void> _startGame(String assetPath, String title) async {
+    if (!_preloader.isLoaded) {
+      try {
+        await _preloader.ensureLoaded();
+      } catch (_) {
+        // The preloader records the error; the tile shows a retry button.
+        return;
+      }
+      if (!mounted) return;
+    }
+    final buildGame =
+        widget.gameScreenBuilder ??
+        (path, gameTitle) => GameScreen(assetPath: path, title: gameTitle);
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => buildGame(assetPath, title)),
     );
   }
 
@@ -69,20 +119,57 @@ class _LauncherScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Choose a demo game')),
       body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ElevatedButton.icon(
-              icon: const Icon(Icons.celebration),
-              label: const Text('Fiesta Skit - Spine Showcase'),
-              onPressed:
-                  () => _startGame(
-                    context,
-                    'assets/games/1/game/script.rpy',
-                    'Fiesta Skit',
+        child: ListenableBuilder(
+          listenable: _preloader,
+          builder: (context, _) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ElevatedButton.icon(
+                  key: const ValueKey('fiesta-skit-tile'),
+                  icon: const Icon(Icons.celebration),
+                  label: const Text('Fiesta Skit - Spine Showcase'),
+                  onPressed:
+                      _preloader.isLoading
+                          ? null
+                          : () => _startGame(
+                            'assets/games/1/game/script.rpy',
+                            'Fiesta Skit',
+                          ),
+                ),
+                if (_preloader.isLoading) ...[
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: 240,
+                    child: LinearProgressIndicator(
+                      key: const ValueKey('spine-preload-progress'),
+                      value: _preloader.progress,
+                    ),
                   ),
-            ),
-          ],
+                  const SizedBox(height: 8),
+                  Text(
+                    'Loading characters… '
+                    '${_preloader.loadedCount}/${_preloader.totalCount}',
+                    key: const ValueKey('spine-preload-progress-label'),
+                  ),
+                ] else if (_preloader.error != null) ...[
+                  const SizedBox(height: 16),
+                  const Text('Could not load the characters.'),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    key: const ValueKey('spine-preload-retry'),
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Retry'),
+                    onPressed:
+                        () => _startGame(
+                          'assets/games/1/game/script.rpy',
+                          'Fiesta Skit',
+                        ),
+                  ),
+                ],
+              ],
+            );
+          },
         ),
       ),
     );

@@ -63,8 +63,10 @@ final class FlyStreamResult {
 /// [FlyStreamResult.migrationReport].
 ///
 /// The manifest [name] defaults to the input's base name (with a trailing
-/// `.fly.zip` / `.zip` stripped). A non-empty [outputDir] is refused unless
-/// [force] is true, in which case its previous contents are deleted.
+/// `.fly.zip` / `.zip` stripped) and its `sizes` map records each written
+/// file's byte length so players can budget downloads. A non-empty
+/// [outputDir] is refused unless [force] is true, in which case its previous
+/// contents are deleted.
 ///
 /// Throws [FlyArchiveException] when the input does not exist or is invalid,
 /// the single-script rule is violated, an `.rpy` script does not parse, or
@@ -113,6 +115,7 @@ Future<FlyStreamResult> buildStreamableDirectory({
   final manifest = FlyStreamManifest.fromFiles(
     [for (final e in entries) e.path],
     name: name ?? _defaultName(input),
+    sizes: {for (final e in entries) e.path: e.bytes.length},
   );
 
   // Write the output tree.

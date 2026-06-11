@@ -427,6 +427,11 @@ class RenPyFlutterController extends ValueNotifier<RenPyGameStatus> {
   /// null before any script runs.
   int? get currentLine => _runner?.currentLine;
 
+  /// The top-level label most recently entered by the runner, or null before
+  /// any script runs. Streaming hosts use this to map playback position to an
+  /// asset-plan segment (e.g. to show a "still streaming" indicator).
+  String? get currentLabel => _runner?.currentLabel;
+
   /// Advances dialogue and input pauses until execution reaches [line]
   /// (1-based in the loaded file), a menu or other non-advanceable state, or
   /// [maxSteps] advances — whichever comes first. Used by editors to bring a

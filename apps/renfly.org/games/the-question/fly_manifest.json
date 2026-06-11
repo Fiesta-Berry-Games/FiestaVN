@@ -17,5 +17,21 @@
     "game/images/sylvie green smile.png",
     "game/images/sylvie green surprised.png",
     "game/script.fly"
-  ]
+  ],
+  "sizes": {
+    "game/illurock.opus": 234646,
+    "game/images/bg club.jpg": 984435,
+    "game/images/bg lecturehall.jpg": 125015,
+    "game/images/bg meadow.jpg": 733434,
+    "game/images/bg uni.jpg": 445192,
+    "game/images/sylvie blue giggle.png": 228229,
+    "game/images/sylvie blue normal.png": 228982,
+    "game/images/sylvie blue smile.png": 229629,
+    "game/images/sylvie blue surprised.png": 228428,
+    "game/images/sylvie green giggle.png": 264896,
+    "game/images/sylvie green normal.png": 265734,
+    "game/images/sylvie green smile.png": 266526,
+    "game/images/sylvie green surprised.png": 265591,
+    "game/script.fly": 15267
+  }
 }

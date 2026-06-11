@@ -6,7 +6,10 @@
   --border: #2c2c2c;
   --text: #e0e0e0;
   --text-muted: #8a8a8a;
-  --accent: #ff5a6e;       /* strawberry coral, from the Fiesta Berry mark */
+  --accent: #ff5a6e;
+  --accent-2: #f0c060;      /* straw-hat gold, also from the mark */
+  --accent-2-hover: #f6d189;
+  --accent-2-ink: #221608;  /* dark text on gold fills */       /* strawberry coral, from the Fiesta Berry mark */
   --accent-hover: #ff7585;
 }
 
@@ -316,4 +319,42 @@ a:hover {
     padding: calc(0.65rem - 2px) calc(2rem - 2px);
     font-size: 1rem;
   }
+}
+
+
+/* RenSpine: gold variant so the sibling product reads distinct from RenFly */
+
+.renspine a {
+  color: var(--accent-2);
+}
+
+.renspine a:hover {
+  color: var(--accent-2-hover);
+}
+
+.renspine-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.renspine .play-button {
+  color: var(--accent-2-ink);
+  background: var(--accent-2);
+}
+
+.renspine .play-button:hover {
+  color: var(--accent-2-ink);
+  background: var(--accent-2-hover);
+}
+
+.renspine .edit-button {
+  color: var(--accent-2);
+  border-color: var(--accent-2);
+}
+
+.renspine .edit-button:hover {
+  color: var(--accent-2-hover);
+  border-color: var(--accent-2-hover);
 }

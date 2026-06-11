@@ -294,7 +294,10 @@ class _GameLibraryScreenState extends State<GameLibraryScreen> {
                       key: const ValueKey('demo_game_streamed_the_question'),
                       leading: const Icon(Icons.cloud_download),
                       title: const Text('The Question (.fly, streamed)'),
-                      subtitle: const Text('Assets download as the story needs them'),
+                      subtitle: const Text(
+                        'Assets stream as the story needs them · '
+                        'starts at the first scene',
+                      ),
                       trailing: const Icon(Icons.play_arrow),
                       onTap:
                           () => _startStreamedGame(

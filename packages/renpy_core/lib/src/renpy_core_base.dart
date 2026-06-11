@@ -1,5 +1,6 @@
 library renpy_core;
 
+export 'renpy_asset_plan.dart';
 export 'renpy_atl.dart';
 export 'renpy_audio_event.dart';
 export 'renpy_diagnostic.dart';
