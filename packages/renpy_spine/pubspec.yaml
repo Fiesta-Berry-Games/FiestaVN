@@ -1,0 +1,27 @@
+name: renpy_spine
+description: >-
+  Spine character displayables for the FiestaVN Ren'Py engine: show
+  Spine-animated sprites from Ren'Py scripts.
+version: 0.0.1
+repository: https://git.cypherstack.com/FiestaBerry/fiestavn
+homepage: https://git.cypherstack.com/FiestaBerry/fiestavn
+topics:
+  - renpy
+  - visual-novel
+  - spine
+  - animation
+
+environment:
+  sdk: ^3.7.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  renpy_core: ^0.0.3
+  renpy_flutter: ^0.0.1
+  spine_flutter: ^4.2.36
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0

@@ -174,7 +174,8 @@ a:hover {
 
 /* PLAY button — primary CTA on mobile, secondary under the iframe on desktop */
 
-.play-button {
+.play-button,
+.edit-button {
   display: inline-block;
   padding: 1rem 3rem;
   font-size: 1.35rem;
@@ -186,9 +187,26 @@ a:hover {
   transition: background 0.15s ease;
 }
 
+.play-button {
+  color: #fff;
+  background: var(--accent);
+}
+
 .play-button:hover {
   color: #fff;
   background: var(--accent-hover);
+}
+
+.edit-button {
+  color: var(--accent);
+  background: transparent;
+  border: 2px solid var(--accent);
+  padding: calc(1rem - 2px) calc(3rem - 2px);
+}
+
+.edit-button:hover {
+  color: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 /* About */

@@ -1,7 +1,28 @@
 import 'package:flutter/material.dart';
-import 'package:renspine/widgets/spine_layer.dart';
 import 'package:renpy_flutter/renpy_flutter.dart';
-import 'package:spine_flutter/spine_flutter.dart' show initSpineFlutter;
+import 'package:renpy_spine/renpy_spine.dart';
+
+/// The Spine characters available to the demo games' `show` statements.
+///
+/// Both characters are skins of the shared chibi-stickers skeleton: a Ren'Py
+/// image such as `Image("erikari-emotes/angry.spine")` selects the `erikari`
+/// skin and the `emotes/angry` animation.
+const kSpineCharacters = [
+  SpineCharacter(
+    tag: 'erikari',
+    atlasAsset: 'assets/chibi-stickers/export/chibi-stickers.atlas',
+    skeletonAsset: 'assets/chibi-stickers/export/chibi-stickers-pro.skel',
+    defaultSkin: 'erikari',
+    idleAnimation: 'movement/idle-front',
+  ),
+  SpineCharacter(
+    tag: 'harri',
+    atlasAsset: 'assets/chibi-stickers/export/chibi-stickers.atlas',
+    skeletonAsset: 'assets/chibi-stickers/export/chibi-stickers-pro.skel',
+    defaultSkin: 'harri',
+    idleAnimation: 'movement/idle-front',
+  ),
+];
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -79,8 +100,7 @@ class GameScreen extends StatelessWidget {
       body: RenPyAssetPlayer(
         scriptAsset: assetPath,
         backgroundColor: Colors.grey.shade900,
-        imageLayerBuilder:
-            (context, controller) => SpineLayer(controller: controller),
+        imageLayerBuilder: spineImageLayerBuilder(characters: kSpineCharacters),
       ),
     );
   }

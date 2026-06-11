@@ -42,8 +42,10 @@ dependencies:
     path: ../../packages/renpy_flutter
   sound_flutter: ^0.0.1
 
-  # Spine 2D runtime.
-  spine_flutter: ^4.2.36
+  # Spine character bridge for the Ren'Py player. Wraps the spine_flutter
+  # runtime and re-exports initSpineFlutter.
+  renpy_spine:
+    path: ../../packages/renpy_spine
 
 dependency_overrides:
   renpy_parser:

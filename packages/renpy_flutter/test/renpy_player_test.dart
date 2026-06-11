@@ -44,6 +44,107 @@ label start:
     },
   );
 
+  testWidgets('portrait viewports cover the stage and can toggle back', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    "Hello."
+''',
+    });
+    final preferenceStore = RenPyMemoryPreferenceStore();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+          preferenceStore: preferenceStore,
+        ),
+      ),
+    );
+    await _pumpUntil(tester, find.text('Hello.'));
+
+    // Portrait defaults to the cover view: the world sits in a BoxFit.cover
+    // FittedBox instead of a letterboxed AspectRatio stage.
+    const stageKey = ValueKey('renpy-player-stage');
+    final fitted = tester.widget<FittedBox>(
+      find
+          .descendant(of: find.byKey(stageKey), matching: find.byType(FittedBox))
+          .first,
+    );
+    expect(fitted.fit, BoxFit.cover);
+    expect(
+      find.descendant(
+        of: find.byKey(stageKey),
+        matching: find.byType(RenPyImageLayer),
+      ),
+      findsOneWidget,
+    );
+
+    // The toggle flips back to the classic zoomed-out letterbox and persists
+    // the choice.
+    await tester.tap(find.byKey(const ValueKey('renpy-stage-fit-toggle')));
+    await tester.pump();
+
+    final stage = tester.widget<AspectRatio>(
+      find.byKey(stageKey).first,
+    );
+    expect(stage.aspectRatio, RenPyScreenSize.fallback.aspectRatio);
+    expect(
+      preferenceStore.load()[RenPyPlayerPreferences.stageFitKey],
+      RenPyStageFit.fit.name,
+    );
+
+    // And forward again into the cover view.
+    await tester.tap(find.byKey(const ValueKey('renpy-stage-fit-toggle')));
+    await tester.pump();
+    expect(
+      preferenceStore.load()[RenPyPlayerPreferences.stageFitKey],
+      RenPyStageFit.fill.name,
+    );
+  });
+
+  testWidgets('matching-aspect viewports keep the letterboxed stage', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final bundle = _MemoryAssetBundle({
+      'assets/game/script.rpy': '''
+label start:
+    "Hello."
+''',
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RenPyAssetPlayer(
+          scriptAsset: 'assets/game/script.rpy',
+          bundle: bundle,
+          availableAssets: const {},
+        ),
+      ),
+    );
+    await _pumpUntil(tester, find.text('Hello.'));
+
+    const stageKey = ValueKey('renpy-player-stage');
+    expect(
+      tester.widget<AspectRatio>(find.byKey(stageKey)).aspectRatio,
+      RenPyScreenSize.fallback.aspectRatio,
+    );
+    // No visible difference between fit and fill here, so no toggle.
+    expect(find.byKey(const ValueKey('renpy-stage-fit-toggle')), findsNothing);
+  });
+
   testWidgets('asset player can restart the loaded script', (tester) async {
     final bundle = _MemoryAssetBundle({
       'assets/game/script.rpy': '''
