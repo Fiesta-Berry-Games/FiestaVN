@@ -1,0 +1,45 @@
+name: renspine_editor
+description: "RenSpine Editor: write and preview Spine-animated Ren'Py visual novels."
+publish_to: 'none'
+
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.7.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # The whole IDE (toolbar, script editor, live preview, assets panel,
+  # examples menu, character gallery) comes from renfly_editor; this app only
+  # composes its injection seams with the Spine bridge.
+  renfly_editor:
+    path: ../renfly_editor
+  renpy_core:
+    path: ../../packages/renpy_core
+  renpy_flutter:
+    path: ../../packages/renpy_flutter
+  # Spine character bridge for the Ren'Py player. Wraps the spine_flutter
+  # runtime and re-exports initSpineFlutter.
+  renpy_spine:
+    path: ../../packages/renpy_spine
+
+dependency_overrides:
+  renpy_parser:
+    path: ../../packages/renpy_parser
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  renpy_parser:
+    path: ../../packages/renpy_parser
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/examples/spine_demo.rpy
+    # The chibi-stickers Spine skeleton (atlas + binary skeleton + texture),
+    # copied from apps/renspine/assets/chibi-stickers/export/ so the editor
+    # bundles the same characters the showcase app stages.
+    - assets/chibi-stickers/export/

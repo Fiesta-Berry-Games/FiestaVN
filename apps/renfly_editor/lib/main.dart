@@ -7,7 +7,12 @@ void main() => runApp(const RenFlyEditorApp());
 
 /// RenFly Editor: a web-first Ren'Py visual novel editor with live preview.
 class RenFlyEditorApp extends StatelessWidget {
-  const RenFlyEditorApp({super.key, this.audioPlayback, this.pickAssets});
+  const RenFlyEditorApp({
+    super.key,
+    this.audioPlayback,
+    this.pickAssets,
+    this.loadBundledAssets,
+  });
 
   /// Overridable audio backend, primarily so widget tests can inject
   /// [RenPyNoOpAudioPlayback] and avoid platform audio plugins.
@@ -16,6 +21,10 @@ class RenFlyEditorApp extends StatelessWidget {
   /// Overridable asset picker for the Assets panel, so widget tests can
   /// inject in-memory files instead of a platform file dialog.
   final PickAssetFiles? pickAssets;
+
+  /// Overridable startup loader for the bundled example art, so widget tests
+  /// can inject in-memory bytes instead of real asset I/O.
+  final LoadBundledAssets? loadBundledAssets;
 
   @override
   Widget build(BuildContext context) {
@@ -37,7 +46,11 @@ class RenFlyEditorApp extends StatelessWidget {
           style: FilledButton.styleFrom(backgroundColor: accent),
         ),
       ),
-      home: EditorScreen(audioPlayback: audioPlayback, pickAssets: pickAssets),
+      home: EditorScreen(
+        audioPlayback: audioPlayback,
+        pickAssets: pickAssets,
+        loadBundledAssets: loadBundledAssets,
+      ),
     );
   }
 }

@@ -20,3 +20,6 @@ apps/renfly.org/play/
 
 # fiestavn.com deploy output (RenFly Editor web build is copied here at deploy time)
 apps/fiestavn.com/edit/
+
+# fiestavn.com deploy output (RenSpine web build is copied here at deploy time)
+apps/fiestavn.com/spine/

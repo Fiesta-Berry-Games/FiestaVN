@@ -5,11 +5,11 @@ import 'package:renpy_spine/renpy_spine.dart';
 import 'package:renspine/main.dart';
 
 void main() {
-  testWidgets('launcher lists Reference Game 1', (tester) async {
+  testWidgets('launcher lists the Fiesta Skit showcase', (tester) async {
     await tester.pumpWidget(const FiestaVNApp());
 
     expect(find.text('Choose a demo game'), findsOneWidget);
-    expect(find.text('Reference Game 1'), findsOneWidget);
+    expect(find.text('Fiesta Skit - Spine Showcase'), findsOneWidget);
   });
 
   testWidgets('app builds with the package-provided Spine image layer', (

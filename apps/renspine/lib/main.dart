@@ -22,6 +22,13 @@ const kSpineCharacters = [
     defaultSkin: 'harri',
     idleAnimation: 'movement/idle-front',
   ),
+  SpineCharacter(
+    tag: 'misaki',
+    atlasAsset: 'assets/chibi-stickers/export/chibi-stickers.atlas',
+    skeletonAsset: 'assets/chibi-stickers/export/chibi-stickers-pro.skel',
+    defaultSkin: 'misaki',
+    idleAnimation: 'movement/idle-front',
+  ),
 ];
 
 Future<void> main() async {
@@ -49,10 +56,12 @@ class _LauncherScreen extends StatelessWidget {
   const _LauncherScreen();
 
   // Convenience helper
-  void _startGame(BuildContext ctx, String assetPath) {
-    Navigator.of(
-      ctx,
-    ).push(MaterialPageRoute(builder: (_) => GameScreen(assetPath: assetPath)));
+  void _startGame(BuildContext ctx, String assetPath, String title) {
+    Navigator.of(ctx).push(
+      MaterialPageRoute(
+        builder: (_) => GameScreen(assetPath: assetPath, title: title),
+      ),
+    );
   }
 
   @override
@@ -64,10 +73,14 @@ class _LauncherScreen extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             ElevatedButton.icon(
-              icon: const Icon(Icons.looks_one),
-              label: const Text('Reference Game 1'),
+              icon: const Icon(Icons.celebration),
+              label: const Text('Fiesta Skit - Spine Showcase'),
               onPressed:
-                  () => _startGame(context, 'assets/games/1/game/script.rpy'),
+                  () => _startGame(
+                    context,
+                    'assets/games/1/game/script.rpy',
+                    'Fiesta Skit',
+                  ),
             ),
           ],
         ),
@@ -78,13 +91,19 @@ class _LauncherScreen extends StatelessWidget {
 
 /// The game screen itself.
 class GameScreen extends StatelessWidget {
-  const GameScreen({super.key, required this.assetPath});
+  const GameScreen({super.key, required this.assetPath, this.title});
   final String assetPath;
 
-  /// Derives a title from the asset path. Prefers the segment after "games/"
-  /// (e.g. "assets/games/1/game/script.rpy" -> "1"), otherwise falls back to
-  /// the file name so unexpected layouts never throw.
+  /// Display title for the app bar; falls back to a path-derived name.
+  final String? title;
+
+  /// Derives a title from the asset path. Prefers the explicit [title], then
+  /// the segment after "games/" (e.g. "assets/games/1/game/script.rpy" ->
+  /// "1"), otherwise falls back to the file name so unexpected layouts never
+  /// throw.
   String get _title {
+    final explicit = title;
+    if (explicit != null && explicit.isNotEmpty) return explicit;
     final segments = assetPath.split('/').where((s) => s.isNotEmpty).toList();
     final gamesIdx = segments.indexOf('games');
     if (gamesIdx != -1 && gamesIdx + 1 < segments.length) {

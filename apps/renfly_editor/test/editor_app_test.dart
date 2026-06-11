@@ -27,9 +27,12 @@ Future<void> pumpUntil(
   fail('Timed out waiting for $description');
 }
 
+/// Pumps the editor with an injected bundled-art loader ([bundledAssets],
+/// empty by default) so no real asset I/O runs inside the fake-async zone.
 Future<void> pumpEditor(
   WidgetTester tester, {
   PickAssetFiles? pickAssets,
+  Map<String, Uint8List> bundledAssets = const {},
 }) async {
   tester.view.physicalSize = const Size(1600, 1000);
   tester.view.devicePixelRatio = 1.0;
@@ -38,6 +41,7 @@ Future<void> pumpEditor(
     RenFlyEditorApp(
       audioPlayback: const RenPyNoOpAudioPlayback(),
       pickAssets: pickAssets,
+      loadBundledAssets: () async => bundledAssets,
     ),
   );
   await tester.pump();
@@ -48,6 +52,16 @@ final Uint8List tinyPng = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQ'
   'DwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
 );
+
+/// In-memory stand-in for the bundled The Question art: the real session
+/// paths, with [tinyPng] bytes for images and placeholder bytes for audio.
+final Map<String, Uint8List> fakeBundledAssets = {
+  for (final path in bundledExampleAssetFiles)
+    path: path.endsWith('.opus') ? Uint8List.fromList([1, 2, 3]) : tinyPng,
+};
+
+/// The number of [fakeBundledAssets], as the assets chip reports it.
+final String bundledAssetCount = '${fakeBundledAssets.length} assets';
 
 void main() {
   testWidgets('app builds with toolbar and the starter template loaded', (
@@ -499,7 +513,10 @@ void main() {
     addTearDown(tester.view.reset);
 
     await tester.pumpWidget(
-      const RenFlyEditorApp(audioPlayback: RenPyNoOpAudioPlayback()),
+      RenFlyEditorApp(
+        audioPlayback: const RenPyNoOpAudioPlayback(),
+        loadBundledAssets: () async => const {},
+      ),
     );
     await tester.pump();
 
@@ -866,9 +883,8 @@ void main() {
   // Examples menu
   // ---------------------------------------------------------------
 
-  testWidgets('Examples menu lists the starter story and The Question', (
-    tester,
-  ) async {
+  testWidgets('Examples menu lists the starter story, The Question, and '
+      'Sylvie & Sylvie', (tester) async {
     await pumpEditor(tester);
 
     await tester.tap(find.byKey(const ValueKey('editor-examples-button')));
@@ -880,6 +896,14 @@ void main() {
     );
     expect(
       find.byKey(const ValueKey('editor-example-the-question')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('editor-example-sylvie-and-sylvie')),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Sylvie & Sylvie (two-character demo)'),
       findsOneWidget,
     );
   });
@@ -972,6 +996,373 @@ void main() {
     final result = RenPyParser().parse(text, 'the_question.rpy');
     expect(result.warnings, isEmpty);
     expect(result.script.statements, isNotEmpty);
+  });
+
+  // ---------------------------------------------------------------
+  // Bundled example art
+  // ---------------------------------------------------------------
+
+  test('bundledExampleAssetFiles covers the sprites, backgrounds, and music',
+      () {
+    expect(
+      bundledExampleAssetFiles
+          .where((path) => path.startsWith('game/images/sylvie '))
+          .length,
+      8,
+    );
+    expect(
+      bundledExampleAssetFiles
+          .where((path) => path.startsWith('game/images/bg '))
+          .length,
+      4,
+    );
+    expect(bundledExampleAssetFiles, contains('game/illurock.opus'));
+  });
+
+  testWidgets('bundled The Question art ships in the asset bundle', (
+    tester,
+  ) async {
+    // Real asset I/O must run outside the test's fake-async zone or it can
+    // hang (see the bundled-script test above). Every other test injects an
+    // in-memory loader, so these keys are not poisoned in the cache.
+    for (final path in bundledExampleAssetFiles) {
+      final data = (await tester.runAsync(
+        () => rootBundle.load('assets/examples/the_question/$path'),
+      ))!;
+      expect(data.lengthInBytes, greaterThan(0), reason: path);
+    }
+  });
+
+  testWidgets('bundled Sylvie & Sylvie asset parses with zero warnings', (
+    tester,
+  ) async {
+    final text = (await tester.runAsync(
+      () => rootBundle.loadString(
+        'assets/examples/sylvie_and_sylvie.rpy',
+        cache: false,
+      ),
+    ))!;
+    expect(text, contains('Sylvie (green)'));
+    expect(text.startsWith('\uFEFF'), isFalse,
+        reason: 'the bundled copy must not carry a UTF-8 BOM');
+
+    final result = RenPyParser().parse(text, 'sylvie_and_sylvie.rpy');
+    expect(result.warnings, isEmpty);
+    expect(result.script.statements, isNotEmpty);
+  });
+
+  testWidgets('bundled art preloads into the session at startup', (
+    tester,
+  ) async {
+    await pumpEditor(tester, bundledAssets: fakeBundledAssets);
+    await pumpUntil(
+      tester,
+      () => find.text(bundledAssetCount).evaluate().isNotEmpty,
+      description: 'preloaded bundled art in the assets chip',
+    );
+
+    // The preloaded art is listed in the Assets panel under session paths.
+    await tester.tap(find.byKey(const ValueKey('editor-assets-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('game/illurock.opus'), findsOneWidget);
+    expect(find.text('game/images/bg club.jpg'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('editor-assets-close-button')));
+    await tester.pumpAndSettle();
+  });
+
+  // ---------------------------------------------------------------
+  // Character gallery
+  // ---------------------------------------------------------------
+
+  test('groupGalleryImages groups variants by tag and splits out backgrounds',
+      () {
+    final gallery = groupGalleryImages([
+      'game/images/sylvie green smile.png',
+      'game/images/sylvie blue normal.png',
+      'game/images/bg meadow.jpg',
+      'game/images/hero.png',
+      'game/audio/theme.ogg',
+      'game/illurock.opus',
+      'game/images/nested/extra.png',
+      'game/images/notes.txt',
+    ]);
+
+    expect(gallery.characters.keys.toSet(), {'sylvie', 'hero'});
+    expect(
+      gallery.characters['sylvie']!.map((image) => image.showName).toList(),
+      ['sylvie blue normal', 'sylvie green smile'],
+    );
+    expect(gallery.characters['hero']!.single.showName, 'hero');
+    expect(gallery.backgrounds.single.showName, 'bg meadow');
+    expect(gallery.backgrounds.single.variant, 'meadow');
+  });
+
+  testWidgets('character gallery lists Sylvie variants and backgrounds from '
+      'the preloaded art', (tester) async {
+    await pumpEditor(tester, bundledAssets: fakeBundledAssets);
+    await pumpUntil(
+      tester,
+      () => find.text(bundledAssetCount).evaluate().isNotEmpty,
+      description: 'preloaded bundled art',
+    );
+
+    await tester.tap(find.byKey(const ValueKey('editor-gallery-button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('editor-gallery-panel')), findsOneWidget);
+
+    // Section headers: the sprite tag and the backgrounds group.
+    expect(find.text('sylvie'), findsOneWidget);
+    expect(find.text('Backgrounds'), findsOneWidget);
+
+    for (final variant in const [
+      'blue giggle',
+      'blue normal',
+      'blue smile',
+      'blue surprised',
+      'green giggle',
+      'green normal',
+      'green smile',
+      'green surprised',
+    ]) {
+      expect(
+        find.byKey(ValueKey('editor-gallery-show-sylvie $variant')),
+        findsOneWidget,
+      );
+      // Each variant offers at-left/center/right placement shortcuts.
+      expect(
+        find.byKey(ValueKey('editor-gallery-show-sylvie $variant-left')),
+        findsOneWidget,
+      );
+    }
+    for (final background in const ['club', 'lecturehall', 'meadow', 'uni']) {
+      expect(
+        find.byKey(ValueKey('editor-gallery-scene-bg $background')),
+        findsOneWidget,
+      );
+    }
+
+    // Thumbnails render the session bytes via Image.memory.
+    final thumbnails = tester.widgetList<Image>(
+      find.descendant(
+        of: find.byKey(const ValueKey('editor-gallery-panel')),
+        matching: find.byType(Image),
+      ),
+    );
+    expect(thumbnails.length, 12);
+    expect(thumbnails.every((image) => image.image is MemoryImage), isTrue);
+
+    await tester.tap(find.byKey(const ValueKey('editor-gallery-close-button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('editor-gallery-panel')), findsNothing);
+  });
+
+  testWidgets('tapping a gallery variant inserts a show statement at the '
+      'cursor line', (tester) async {
+    await pumpEditor(tester, bundledAssets: fakeBundledAssets);
+    await pumpUntil(
+      tester,
+      () => find.text(bundledAssetCount).evaluate().isNotEmpty,
+      description: 'preloaded bundled art',
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('editor-script-field')),
+      'label start:\n    "Alpha"\n    "Beta"\n',
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    final controller =
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('editor-script-field')))
+            .controller!;
+    // Park the cursor in the "Alpha" line (line 2).
+    controller.selection = const TextSelection.collapsed(offset: 17);
+    await tester.pump(const Duration(milliseconds: 500));
+
+    await tester.tap(find.byKey(const ValueKey('editor-gallery-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('editor-gallery-show-sylvie green smile')),
+    );
+    await tester.pumpAndSettle();
+
+    // The dialog closed and the show landed on its own line under "Alpha",
+    // indented to match the block.
+    expect(find.byKey(const ValueKey('editor-gallery-panel')), findsNothing);
+    expect(
+      controller.text,
+      'label start:\n    "Alpha"\n    show sylvie green smile\n    "Beta"\n',
+    );
+
+    // The caret sits at the end of the inserted line, so a placement
+    // shortcut stacks the next show right below it.
+    await tester.tap(find.byKey(const ValueKey('editor-gallery-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey('editor-gallery-show-sylvie blue normal-right'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      controller.text,
+      'label start:\n    "Alpha"\n    show sylvie green smile\n'
+      '    show sylvie blue normal at right\n    "Beta"\n',
+    );
+  });
+
+  testWidgets('tapping a gallery background inserts a scene statement', (
+    tester,
+  ) async {
+    await pumpEditor(tester, bundledAssets: fakeBundledAssets);
+    await pumpUntil(
+      tester,
+      () => find.text(bundledAssetCount).evaluate().isNotEmpty,
+      description: 'preloaded bundled art',
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('editor-script-field')),
+      'label start:\n    "Alpha"\n',
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    final controller =
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('editor-script-field')))
+            .controller!;
+    controller.selection = const TextSelection.collapsed(offset: 17);
+    await tester.pump(const Duration(milliseconds: 500));
+
+    await tester.tap(find.byKey(const ValueKey('editor-gallery-button')));
+    await tester.pumpAndSettle();
+    final meadow = find.byKey(const ValueKey('editor-gallery-scene-bg meadow'));
+    await tester.ensureVisible(meadow);
+    await tester.pumpAndSettle();
+    await tester.tap(meadow);
+    await tester.pumpAndSettle();
+
+    expect(
+      controller.text,
+      'label start:\n    "Alpha"\n    scene bg meadow\n',
+    );
+  });
+
+  testWidgets('two-character helper inserts paired shows at left and right', (
+    tester,
+  ) async {
+    await pumpEditor(tester, bundledAssets: fakeBundledAssets);
+    await pumpUntil(
+      tester,
+      () => find.text(bundledAssetCount).evaluate().isNotEmpty,
+      description: 'preloaded bundled art',
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('editor-script-field')),
+      'label start:\n    "Alpha"\n',
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    final controller =
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('editor-script-field')))
+            .controller!;
+    controller.selection = const TextSelection.collapsed(offset: 17);
+    await tester.pump(const Duration(milliseconds: 500));
+
+    await tester.tap(find.byKey(const ValueKey('editor-gallery-button')));
+    await tester.pumpAndSettle();
+
+    // Pick the left and right characters, then insert the pair.
+    await tester.tap(find.byKey(const ValueKey('editor-gallery-pair-left')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find
+          .byKey(const ValueKey('editor-gallery-pair-left-sylvie green smile'))
+          .last,
+      warnIfMissed: false,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('editor-gallery-pair-right')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find
+          .byKey(const ValueKey('editor-gallery-pair-right-sylvie blue giggle'))
+          .last,
+      warnIfMissed: false,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('editor-gallery-pair-insert')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('editor-gallery-panel')), findsNothing);
+    expect(
+      controller.text,
+      'label start:\n    "Alpha"\n    show sylvie green smile at left\n'
+      '    show sylvie blue giggle at right\n',
+    );
+  });
+
+  testWidgets('Sylvie & Sylvie example loads, parses clean, and previews '
+      'with sprites', (tester) async {
+    await pumpEditor(tester, bundledAssets: fakeBundledAssets);
+    await pumpUntil(
+      tester,
+      () => find.text(bundledAssetCount).evaluate().isNotEmpty,
+      description: 'preloaded bundled art',
+    );
+
+    await tester.tap(find.byKey(const ValueKey('editor-examples-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('editor-example-sylvie-and-sylvie')),
+    );
+    await tester.pump();
+
+    // The script is loaded asynchronously from the bundled asset.
+    final controller =
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('editor-script-field')))
+            .controller!;
+    await pumpUntil(
+      tester,
+      () => controller.text.contains('Sylvie (green)'),
+      description: 'Sylvie & Sylvie loaded into the editor',
+    );
+
+    // The open-path migration flow may surface an informational report.
+    await tester.pumpAndSettle();
+    final confirm = find.byKey(const ValueKey('migration-report-confirm'));
+    if (confirm.evaluate().isNotEmpty) {
+      await tester.tap(confirm);
+      await tester.pumpAndSettle();
+    }
+
+    // Parsed clean: no errors and no warnings after the debounce.
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Parse error'), findsNothing);
+    expect(find.textContaining('warning'), findsNothing);
+
+    // Loading an example keeps the bundled art in the session.
+    expect(find.text(bundledAssetCount), findsOneWidget);
+
+    // The preview auto-runs to the first dialogue line (the text also exists
+    // in the editor's TextField, so wait for a second occurrence) ...
+    await pumpUntil(
+      tester,
+      () =>
+          find
+              .textContaining('Hey! You look exactly like me.')
+              .evaluate()
+              .length >=
+          2,
+      attempts: 200,
+      description: 'first Sylvie & Sylvie dialogue in the preview',
+    );
+
+    // ... with the meadow and both Sylvies resolved from session bytes.
+    final spriteImages = tester
+        .widgetList<Image>(find.byType(Image))
+        .where((image) => image.image is MemoryImage);
+    expect(spriteImages.length, greaterThanOrEqualTo(3));
   });
 }
 

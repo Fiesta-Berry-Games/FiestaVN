@@ -144,6 +144,7 @@ class RenPyPlayer extends StatelessWidget {
     VoidCallback onOpenBacklog, {
     required Size viewport,
     required ValueChanged<RenPyStageFit> setStageFit,
+    required _RenPyPacingSetters pacing,
   }) {
     const stageKey = ValueKey('renpy-player-stage');
     final fill = _resolveStageFill(preferences.stageFit, viewport);
@@ -162,6 +163,7 @@ class RenPyPlayer extends StatelessWidget {
       onOpenBacklog,
       fill: fill,
       setStageFit: _stageFitToggleVisible(viewport) ? setStageFit : null,
+      pacing: pacing,
     );
 
     if (!fill) {
@@ -208,6 +210,7 @@ class RenPyPlayer extends StatelessWidget {
     VoidCallback onOpenBacklog, {
     required bool fill,
     ValueChanged<RenPyStageFit>? setStageFit,
+    required _RenPyPacingSetters pacing,
   }) {
     controller
       ..autoDelay = preferences.autoDelay
@@ -308,6 +311,15 @@ class RenPyPlayer extends StatelessWidget {
             );
           },
         ),
+        // Anchored inside the stage so the toggles sit on the game area
+        // rather than floating in the surrounding letterbox; last in the
+        // stack so dialogue tap surfaces don't swallow their taps.
+        _RenPyPacingToggles(
+          skip: preferences.skip,
+          autoForward: preferences.autoForward,
+          onSkipChanged: pacing.setSkip,
+          onAutoForwardChanged: pacing.setAutoForward,
+        ),
       ],
     );
   }
@@ -356,7 +368,7 @@ class RenPyPlayer extends StatelessWidget {
       },
       onKeyEvent: (event) => _handleKeyEvent(context, event),
       onPointerSignal: (event) => _handlePointerSignal(context, event),
-      childBuilder: (preferences, openBacklog, setStageFit) {
+      childBuilder: (preferences, openBacklog, setStageFit, pacing) {
         return LayoutBuilder(
           builder: (context, constraints) {
             return Stack(
@@ -369,6 +381,7 @@ class RenPyPlayer extends StatelessWidget {
                   openBacklog,
                   viewport: constraints.biggest,
                   setStageFit: setStageFit,
+                  pacing: pacing,
                 ),
               ],
             );
@@ -411,6 +424,7 @@ class _RenPyInputSurface extends StatefulWidget {
     RenPyPlayerPreferences preferences,
     VoidCallback openBacklog,
     ValueChanged<RenPyStageFit> setStageFit,
+    _RenPyPacingSetters pacing,
   )
   childBuilder;
   final Widget Function(
@@ -608,14 +622,12 @@ class _RenPyInputSurfaceState extends State<_RenPyInputSurface> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            widget.childBuilder(_preferences, _openBacklog, _setStageFit),
-            if (!_gameMenuOpen && !_backlogOpen)
-              _RenPyPacingToggles(
-                skip: _preferences.skip,
-                autoForward: _preferences.autoForward,
-                onSkipChanged: _setSkip,
-                onAutoForwardChanged: _setAutoForward,
-              ),
+            widget.childBuilder(
+              _preferences,
+              _openBacklog,
+              _setStageFit,
+              _pacingSetters,
+            ),
             if (_gameMenuOpen)
               widget.gameMenuBuilder(
                 _closeGameMenu,

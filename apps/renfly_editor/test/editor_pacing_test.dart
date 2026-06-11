@@ -1,7 +1,12 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:renfly_editor/main.dart';
 import 'package:renpy_flutter/renpy_flutter.dart';
+
+/// No bundled art: real asset I/O can't run inside the fake-async test zone.
+Future<Map<String, Uint8List>> noBundledAssets() async => const {};
 
 Future<void> pumpUntil(
   WidgetTester tester,
@@ -22,7 +27,10 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
-      const RenFlyEditorApp(audioPlayback: RenPyNoOpAudioPlayback()),
+      RenFlyEditorApp(
+        audioPlayback: const RenPyNoOpAudioPlayback(),
+        loadBundledAssets: noBundledAssets,
+      ),
     );
     await tester.pump();
 

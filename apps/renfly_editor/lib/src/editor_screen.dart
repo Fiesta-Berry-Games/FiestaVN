@@ -45,6 +45,70 @@ String sessionAssetPathFor(String filename) {
   return 'game/$base';
 }
 
+/// Where The Question's bundled art lives in the Flutter asset bundle.
+const String _bundledArtRoot = 'assets/examples/the_question';
+
+/// The Question's art files, as session asset paths relative to
+/// [_bundledArtRoot]. They are copies of apps/renfly_player's reference-game
+/// assets: four backgrounds, eight Sylvie sprites, and the music track.
+const List<String> bundledExampleAssetFiles = [
+  'game/images/bg club.jpg',
+  'game/images/bg lecturehall.jpg',
+  'game/images/bg meadow.jpg',
+  'game/images/bg uni.jpg',
+  'game/images/sylvie blue giggle.png',
+  'game/images/sylvie blue normal.png',
+  'game/images/sylvie blue smile.png',
+  'game/images/sylvie blue surprised.png',
+  'game/images/sylvie green giggle.png',
+  'game/images/sylvie green normal.png',
+  'game/images/sylvie green smile.png',
+  'game/images/sylvie green surprised.png',
+  'game/illurock.opus',
+];
+
+/// Signature of the startup loader that fills the session's asset map with
+/// the bundled example art, keyed by session path (`game/images/...`,
+/// `game/illurock.opus`). Tests inject in-memory bytes so no real asset I/O
+/// runs inside the fake-async test zone.
+typedef LoadBundledAssets = Future<Map<String, Uint8List>> Function();
+
+/// Loads one of the editor's own bundled assets as a string, whether the
+/// editor runs standalone (plain asset key) or composed inside a host app
+/// (where renfly_editor's assets live under the `packages/renfly_editor/`
+/// prefix).
+Future<String> loadEditorAssetString(String path) async {
+  try {
+    return await rootBundle.loadString(path);
+  } catch (_) {
+    return rootBundle.loadString('packages/renfly_editor/$path');
+  }
+}
+
+/// Byte-loading counterpart of [loadEditorAssetString].
+Future<ByteData> _loadEditorAssetBytes(String path) async {
+  try {
+    return await rootBundle.load(path);
+  } catch (_) {
+    return rootBundle.load('packages/renfly_editor/$path');
+  }
+}
+
+/// Default [LoadBundledAssets]: reads The Question's art out of the Flutter
+/// asset bundle so every preview can `scene bg lecturehall` and
+/// `show sylvie green smile` with real art out of the box.
+Future<Map<String, Uint8List>> loadBundledExampleAssets() async {
+  final loaded = <String, Uint8List>{};
+  for (final path in bundledExampleAssetFiles) {
+    final data = await _loadEditorAssetBytes('$_bundledArtRoot/$path');
+    loaded[path] = data.buffer.asUint8List(
+      data.offsetInBytes,
+      data.lengthInBytes,
+    );
+  }
+  return loaded;
+}
+
 /// A bundled example story selectable from the "Examples ▾" menu.
 class EditorExample {
   const EditorExample(this.id, this.label, this.load);
@@ -60,16 +124,96 @@ class EditorExample {
 }
 
 /// The built-in examples, in menu order. The starter template stays first;
-/// The Question is the Ren'Py reference game's script (text only — its
-/// images fall back to placeholders and missing audio is skipped).
+/// The Question is the Ren'Py reference game's script, and Sylvie & Sylvie
+/// stages two sprites at once — both preview with the bundled art that
+/// [loadBundledExampleAssets] seeds into the session at startup.
 final List<EditorExample> editorExamples = [
   EditorExample('starter', 'Starter story', () async => starterTemplate),
   EditorExample(
     'the-question',
     "The Question (Ren'Py reference)",
-    () => rootBundle.loadString('assets/examples/the_question.rpy'),
+    () => loadEditorAssetString('assets/examples/the_question.rpy'),
+  ),
+  EditorExample(
+    'sylvie-and-sylvie',
+    'Sylvie & Sylvie (two-character demo)',
+    () => loadEditorAssetString('assets/examples/sylvie_and_sylvie.rpy'),
   ),
 ];
+
+/// One image asset in the character gallery, named by the filename
+/// convention `<tag> <variant...>.<ext>` under `game/images/` (e.g. tag
+/// `sylvie`, variant `green smile`).
+class GalleryImage {
+  const GalleryImage(this.tag, this.variant, this.path);
+
+  /// The first word of the filename — a sprite tag like `sylvie`, or `bg`.
+  final String tag;
+
+  /// The remaining words joined by spaces (may be empty).
+  final String variant;
+
+  /// The session asset path, e.g. `game/images/sylvie green smile.png`.
+  final String path;
+
+  /// The name `show`/`scene` statements use, e.g. `sylvie green smile`.
+  String get showName => variant.isEmpty ? tag : '$tag $variant';
+}
+
+/// Groups session image assets for the character gallery: direct children of
+/// `game/images/` split into characters keyed by tag, with the `bg` tag
+/// pulled out as backgrounds. Non-image paths are ignored. Lists come back
+/// sorted by path so the gallery order is stable.
+({Map<String, List<GalleryImage>> characters, List<GalleryImage> backgrounds})
+groupGalleryImages(Iterable<String> assetPaths) {
+  const prefix = 'game/images/';
+  final characters = <String, List<GalleryImage>>{};
+  final backgrounds = <GalleryImage>[];
+  final sorted = assetPaths.toList()..sort();
+  for (final path in sorted) {
+    if (!path.startsWith(prefix)) continue;
+    final base = path.substring(prefix.length);
+    if (base.contains('/')) continue;
+    final dot = base.lastIndexOf('.');
+    final extension = dot < 0 ? '' : base.substring(dot + 1).toLowerCase();
+    if (!const {'png', 'jpg', 'jpeg', 'webp', 'gif'}.contains(extension)) {
+      continue;
+    }
+    final words =
+        base.substring(0, dot).split(' ')..removeWhere((word) => word.isEmpty);
+    if (words.isEmpty) continue;
+    final image = GalleryImage(words.first, words.skip(1).join(' '), path);
+    if (image.tag == 'bg') {
+      backgrounds.add(image);
+    } else {
+      characters.putIfAbsent(image.tag, () => []).add(image);
+    }
+  }
+  return (characters: characters, backgrounds: backgrounds);
+}
+
+/// Builds the preview player's image layer, replacing the editor's default
+/// [RenPyImageLayer]. The editor hands over its live [controller], the
+/// [screenSize] parsed from the current script (or the fallback), and its
+/// session-asset-aware [imageProvider], so hosts can compose their own layer
+/// (e.g. a Spine overlay) without re-implementing asset resolution.
+typedef EditorPreviewLayerBuilder =
+    Widget Function(
+      BuildContext context,
+      RenPyFlutterController controller,
+      RenPyScreenSize screenSize,
+      ImageProvider<Object> Function(String assetPath) imageProvider,
+    );
+
+/// Builds an extra section appended to the Characters gallery dialog.
+/// [insertStatements] closes the dialog and inserts the given script lines at
+/// the editor cursor (indented to the surrounding block), exactly like the
+/// built-in gallery tiles do.
+typedef GallerySectionBuilder =
+    Widget Function(
+      BuildContext context,
+      void Function(List<String> statements) insertStatements,
+    );
 
 enum _IssueSeverity { error, warning }
 
@@ -82,7 +226,17 @@ final class _Issue {
 
 /// The single-screen IDE: toolbar, script editor, and live preview.
 class EditorScreen extends StatefulWidget {
-  const EditorScreen({super.key, this.audioPlayback, this.pickAssets});
+  const EditorScreen({
+    super.key,
+    this.audioPlayback,
+    this.pickAssets,
+    this.loadBundledAssets,
+    this.title = 'RenFly Editor',
+    this.imageLayerBuilder,
+    this.extraExamples = const [],
+    this.extraGallerySection,
+    this.extraPreviewAssets = const {},
+  });
 
   /// Optional audio backend override for the preview player (tests inject
   /// [RenPyNoOpAudioPlayback]).
@@ -91,6 +245,32 @@ class EditorScreen extends StatefulWidget {
   /// Optional file-picker override for the Assets panel's "Add…" button
   /// (tests inject in-memory bytes). Defaults to `FilePicker.pickFiles`.
   final PickAssetFiles? pickAssets;
+
+  /// Optional override for the startup load of the bundled example art
+  /// (tests inject in-memory bytes). Defaults to [loadBundledExampleAssets].
+  final LoadBundledAssets? loadBundledAssets;
+
+  /// The toolbar title. Host apps composing this screen can rebrand it
+  /// (e.g. 'RenSpine Editor').
+  final String title;
+
+  /// Optional preview image-layer override. When null the editor renders the
+  /// default [RenPyImageLayer] resolved against the session assets.
+  final EditorPreviewLayerBuilder? imageLayerBuilder;
+
+  /// Extra examples appended after [editorExamples] in the "Examples ▾" menu.
+  final List<EditorExample> extraExamples;
+
+  /// Optional extra section appended to the Characters gallery dialog (e.g. a
+  /// host's "Spine characters" section with its own tiles and insertions).
+  final GallerySectionBuilder? extraGallerySection;
+
+  /// Virtual asset paths merged into the preview's `availableAssets` on every
+  /// load, alongside the session assets. Hosts whose image layer resolves
+  /// paths outside the session byte map (e.g. `game/erikari-emotes/wave.spine`
+  /// rendered by a Spine runtime) list them here so the player does not flag
+  /// them as unresolved.
+  final Set<String> extraPreviewAssets;
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -109,6 +289,11 @@ class _EditorScreenState extends State<EditorScreen> {
   /// archive path (e.g. `game/images/bg.png`). The preview resolves images
   /// from here so characters and backgrounds actually display.
   final Map<String, Uint8List> _assets = {};
+
+  /// The bundled example art, loaded once at startup and re-seeded into
+  /// [_assets] whenever a new script replaces the session, so every preview
+  /// has The Question's backgrounds and Sylvie sprites available.
+  Map<String, Uint8List> _bundledAssets = const {};
 
   Timer? _debounce;
   Timer? _followDebounce;
@@ -144,6 +329,9 @@ class _EditorScreenState extends State<EditorScreen> {
       slotStore: RenPyMemoryRunnerSnapshotSlotStore(),
     )..addListener(_onPreviewAdvanced);
     _parseForDiagnostics(notify: false);
+    // Bundled art loads asynchronously so it never blocks the first build;
+    // the preview refreshes when the bytes arrive.
+    _loadBundledAssets();
     // The preview is live from launch: start the script once the first frame
     // has mounted the player layers, then follow edits and the cursor.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -299,7 +487,7 @@ class _EditorScreenState extends State<EditorScreen> {
         _scriptController.text,
         filename: 'editor.rpy',
         gameRoot: 'game',
-        availableAssets: _assets.keys.toSet(),
+        availableAssets: {..._assets.keys, ...widget.extraPreviewAssets},
         startLabel: cursorLine == null ? null : _labelForLine(cursorLine),
       );
       if (cursorLine != null) {
@@ -548,6 +736,28 @@ class _EditorScreenState extends State<EditorScreen> {
 
   // --- Session asset management ------------------------------------------
 
+  /// Loads the bundled example art into the session. New entries never
+  /// overwrite assets the user already added under the same path.
+  Future<void> _loadBundledAssets() async {
+    final loader = widget.loadBundledAssets ?? loadBundledExampleAssets;
+    final Map<String, Uint8List> loaded;
+    try {
+      loaded = await loader();
+    } catch (_) {
+      // Missing bundled art is not fatal — previews fall back to
+      // placeholders, exactly as before the art shipped.
+      return;
+    }
+    if (!mounted || loaded.isEmpty) return;
+    _bundledAssets = loaded;
+    setState(() {
+      for (final entry in loaded.entries) {
+        _assets.putIfAbsent(entry.key, () => entry.value);
+      }
+    });
+    _refreshPreviewAssets();
+  }
+
   /// Default "Add…" implementation: any file type, multiple, with bytes.
   static Future<List<PickedAssetFile>?> _pickAssetFilesWithFilePicker() async {
     final result = await FilePicker.pickFiles(
@@ -730,6 +940,374 @@ class _EditorScreenState extends State<EditorScreen> {
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
+  // --- Character gallery ---------------------------------------------------
+
+  /// Inserts [statements] as new lines below the editor's cursor line, each
+  /// indented to match the surrounding block, and parks the caret at the end
+  /// of the insertion. The controller listener then runs the normal change
+  /// pipeline (dirty flag, debounced parse, hot reload at the new cursor).
+  void _insertStatementsAtCursor(List<String> statements) {
+    if (statements.isEmpty) return;
+    final text = _scriptController.text;
+    final selection = _scriptController.selection;
+    final offset = (selection.isValid ? selection.baseOffset : text.length)
+        .clamp(0, text.length);
+    final lineStart = offset == 0 ? 0 : text.lastIndexOf('\n', offset - 1) + 1;
+    var lineEnd = text.indexOf('\n', offset);
+    if (lineEnd < 0) lineEnd = text.length;
+    final indent = _insertionIndent(text, lineStart);
+    final insertion = [
+      for (final statement in statements) '$indent$statement',
+    ].join('\n');
+    _scriptController.value = TextEditingValue(
+      text: '${text.substring(0, lineEnd)}\n$insertion${text.substring(lineEnd)}',
+      selection: TextSelection.collapsed(offset: lineEnd + 1 + insertion.length),
+    );
+  }
+
+  /// The indentation for a statement inserted below the line starting at
+  /// [lineStart]: the nearest non-blank line at or above the cursor sets the
+  /// level, one level (four spaces) deeper when that line opens a block with
+  /// a trailing `:`. Defaults to one level in an all-blank document.
+  static String _insertionIndent(String text, int lineStart) {
+    var start = lineStart;
+    while (true) {
+      var end = text.indexOf('\n', start);
+      if (end < 0) end = text.length;
+      final line = text.substring(start, end);
+      if (line.trim().isNotEmpty) {
+        final indent = RegExp(r'^ *').firstMatch(line)!.group(0)!;
+        return line.trimRight().endsWith(':') ? '$indent    ' : indent;
+      }
+      if (start == 0) return '    ';
+      start = start < 2 ? 0 : text.lastIndexOf('\n', start - 2) + 1;
+    }
+  }
+
+  /// Closes the gallery dialog and inserts [statements] at the cursor line.
+  void _insertFromGallery(BuildContext dialogContext, List<String> statements) {
+    Navigator.of(dialogContext).pop();
+    _insertStatementsAtCursor(statements);
+  }
+
+  /// The character gallery: session images grouped into characters and
+  /// backgrounds by filename convention, with tap-to-insert thumbnails,
+  /// at-left/center/right placement shortcuts, and a two-character helper.
+  Future<void> _showCharacterGallery() async {
+    String? pairLeft;
+    String? pairRight;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        // StatefulBuilder so the two-character dropdowns refresh in place.
+        return StatefulBuilder(
+          builder: (dialogContext, panelSetState) {
+            final gallery = groupGalleryImages(_assets.keys);
+            final tags = gallery.characters.keys.toList()..sort();
+            final variantNames = [
+              for (final tag in tags)
+                for (final image in gallery.characters[tag]!) image.showName,
+            ];
+            final theme = Theme.of(dialogContext);
+            // A host-provided section (e.g. Spine characters) keeps the
+            // gallery meaningful even when no image assets are loaded.
+            final extraSection = widget.extraGallerySection?.call(
+              dialogContext,
+              (statements) => _insertFromGallery(dialogContext, statements),
+            );
+            final isEmpty =
+                tags.isEmpty &&
+                gallery.backgrounds.isEmpty &&
+                extraSection == null;
+            return AlertDialog(
+              key: const ValueKey('editor-gallery-panel'),
+              title: const Text('Character gallery'),
+              content: SizedBox(
+                width: 640,
+                child:
+                    isEmpty
+                        ? const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 24),
+                          child: Text(
+                            'No image assets yet. Add images named like '
+                            '"sylvie green smile.png" or "bg meadow.jpg" '
+                            'via the Assets panel.',
+                            textAlign: TextAlign.center,
+                          ),
+                        )
+                        : SingleChildScrollView(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Tap a sprite to insert "show …" at the '
+                                'cursor; L / C / R place it at left, center, '
+                                'or right. Backgrounds insert "scene …".',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: Colors.white54,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              for (final tag in tags) ...[
+                                Text(tag, style: theme.textTheme.titleSmall),
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 12,
+                                  runSpacing: 12,
+                                  children: [
+                                    for (final image
+                                        in gallery.characters[tag]!)
+                                      _galleryCharacterTile(
+                                        dialogContext,
+                                        image,
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                              ],
+                              if (variantNames.length >= 2) ...[
+                                Text(
+                                  'Two characters',
+                                  style: theme.textTheme.titleSmall,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Insert a pair of shows at left and right, '
+                                  'ready for back-and-forth dialogue.',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: Colors.white54,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: DropdownButton<String>(
+                                        key: const ValueKey(
+                                          'editor-gallery-pair-left',
+                                        ),
+                                        isExpanded: true,
+                                        hint: const Text('Left character'),
+                                        value: pairLeft,
+                                        items: [
+                                          for (final name in variantNames)
+                                            DropdownMenuItem(
+                                              key: ValueKey(
+                                                'editor-gallery-pair-left-'
+                                                '$name',
+                                              ),
+                                              value: name,
+                                              child: Text(name),
+                                            ),
+                                        ],
+                                        onChanged:
+                                            (value) => panelSetState(
+                                              () => pairLeft = value,
+                                            ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: DropdownButton<String>(
+                                        key: const ValueKey(
+                                          'editor-gallery-pair-right',
+                                        ),
+                                        isExpanded: true,
+                                        hint: const Text('Right character'),
+                                        value: pairRight,
+                                        items: [
+                                          for (final name in variantNames)
+                                            DropdownMenuItem(
+                                              key: ValueKey(
+                                                'editor-gallery-pair-right-'
+                                                '$name',
+                                              ),
+                                              value: name,
+                                              child: Text(name),
+                                            ),
+                                        ],
+                                        onChanged:
+                                            (value) => panelSetState(
+                                              () => pairRight = value,
+                                            ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    FilledButton.tonal(
+                                      key: const ValueKey(
+                                        'editor-gallery-pair-insert',
+                                      ),
+                                      onPressed:
+                                          pairLeft == null || pairRight == null
+                                              ? null
+                                              : () => _insertFromGallery(
+                                                dialogContext,
+                                                [
+                                                  'show $pairLeft at left',
+                                                  'show $pairRight at right',
+                                                ],
+                                              ),
+                                      child: const Text('Insert pair'),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                              ],
+                              if (gallery.backgrounds.isNotEmpty) ...[
+                                Text(
+                                  'Backgrounds',
+                                  style: theme.textTheme.titleSmall,
+                                ),
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 12,
+                                  runSpacing: 12,
+                                  children: [
+                                    for (final image in gallery.backgrounds)
+                                      _galleryThumb(
+                                        dialogContext,
+                                        key: ValueKey(
+                                          'editor-gallery-scene-'
+                                          '${image.showName}',
+                                        ),
+                                        bytes: _assets[image.path]!,
+                                        label:
+                                            image.variant.isEmpty
+                                                ? image.tag
+                                                : image.variant,
+                                        tooltip:
+                                            'Insert "scene ${image.showName}"',
+                                        onTap:
+                                            () => _insertFromGallery(
+                                              dialogContext,
+                                              ['scene ${image.showName}'],
+                                            ),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                              if (extraSection != null) ...[
+                                const SizedBox(height: 16),
+                                extraSection,
+                              ],
+                            ],
+                          ),
+                        ),
+              ),
+              actions: [
+                TextButton(
+                  key: const ValueKey('editor-gallery-close-button'),
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Close'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// A character variant tile: the thumbnail inserts a plain `show`, and the
+  /// L / C / R shortcuts underneath insert `show … at left|center|right`.
+  Widget _galleryCharacterTile(BuildContext dialogContext, GalleryImage image) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _galleryThumb(
+          dialogContext,
+          key: ValueKey('editor-gallery-show-${image.showName}'),
+          bytes: _assets[image.path]!,
+          label: image.variant.isEmpty ? image.tag : image.variant,
+          tooltip: 'Insert "show ${image.showName}"',
+          onTap:
+              () =>
+                  _insertFromGallery(dialogContext, ['show ${image.showName}']),
+        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final position in const ['left', 'center', 'right'])
+              Tooltip(
+                message: 'Insert "show ${image.showName} at $position"',
+                child: InkWell(
+                  key: ValueKey(
+                    'editor-gallery-show-${image.showName}-$position',
+                  ),
+                  borderRadius: BorderRadius.circular(4),
+                  onTap:
+                      () => _insertFromGallery(dialogContext, [
+                        'show ${image.showName} at $position',
+                      ]),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    child: Text(
+                      position.substring(0, 1).toUpperCase(),
+                      style: Theme.of(dialogContext).textTheme.labelSmall
+                          ?.copyWith(color: Colors.white70),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// A small tappable thumbnail (72×72 [Image.memory]) with a caption.
+  Widget _galleryThumb(
+    BuildContext dialogContext, {
+    required Key key,
+    required Uint8List bytes,
+    required String label,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        key: key,
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(
+                color: const Color(0xFF202020),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Image.memory(
+                bytes,
+                fit: BoxFit.contain,
+                gaplessPlayback: true,
+              ),
+            ),
+            const SizedBox(height: 4),
+            SizedBox(
+              width: 80,
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(dialogContext).textTheme.labelSmall,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _saveFly() async {
     final FlyMigrationResult gate;
     try {
@@ -799,8 +1377,11 @@ class _EditorScreenState extends State<EditorScreen> {
   }
 
   void _setScript(String text, {Map<String, Uint8List> assets = const {}}) {
+    // Replacing the session keeps the bundled example art available (an
+    // opened archive's own files win on path conflicts).
     _assets
       ..clear()
+      ..addAll(_bundledAssets)
       ..addAll(assets);
     _suppressDirty = true;
     _scriptController.text = text;
@@ -853,7 +1434,7 @@ class _EditorScreenState extends State<EditorScreen> {
       child: Row(
         children: [
           Text(
-            'RenFly Editor',
+            widget.title,
             style: Theme.of(
               context,
             ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
@@ -882,7 +1463,10 @@ class _EditorScreenState extends State<EditorScreen> {
                     onSelected: _loadExample,
                     itemBuilder:
                         (context) => [
-                          for (final example in editorExamples)
+                          for (final example in [
+                            ...editorExamples,
+                            ...widget.extraExamples,
+                          ])
                             PopupMenuItem(
                               key: ValueKey(
                                 'editor-example-${example.id}',
@@ -920,6 +1504,12 @@ class _EditorScreenState extends State<EditorScreen> {
                     onPressed: _showAssetsPanel,
                     icon: const Icon(Icons.collections_outlined, size: 18),
                     label: const Text('Assets'),
+                  ),
+                  TextButton.icon(
+                    key: const ValueKey('editor-gallery-button'),
+                    onPressed: _showCharacterGallery,
+                    icon: const Icon(Icons.people_alt_outlined, size: 18),
+                    label: const Text('Characters'),
                   ),
                   TextButton.icon(
                     key: const ValueKey('editor-save-fly-button'),
@@ -1272,6 +1862,15 @@ class _EditorScreenState extends State<EditorScreen> {
       dialogueImageProvider: _previewImageProvider,
       screenImageProvider: _previewImageProvider,
       imageLayerBuilder: (context, controller) {
+        final builder = widget.imageLayerBuilder;
+        if (builder != null) {
+          return builder(
+            context,
+            controller,
+            screenSize ?? RenPyScreenSize.fallback,
+            _previewImageProvider,
+          );
+        }
         return RenPyImageLayer(
           controller: controller,
           imageProvider: _previewImageProvider,

@@ -182,8 +182,11 @@ class RenPyImageResolver {
       addCandidate(alias);
     }
 
+    // `.spine` counts as an extension so names like
+    // `erikari erikari-emotes/wave.spine` resolve to a `.spine` asset path
+    // (routed to a Spine layer by hosts) instead of growing `.png` candidates.
     final hasExtension = RegExp(
-      r'\.(png|jpg|jpeg|webp|gif)$',
+      r'\.(png|jpg|jpeg|webp|gif|spine)$',
       caseSensitive: false,
     ).hasMatch(clean);
     if (hasExtension) {
