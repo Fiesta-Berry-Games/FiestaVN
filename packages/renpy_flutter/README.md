@@ -22,7 +22,7 @@ interactive Flutter UI:
 - **Image layer** (`RenPyImageLayer`) - scene and sprite compositing with
   z-order, layeredimage composites, and ATL transform animation.
 - **Audio layer** (`RenPyAudioLayer`) - multi-channel play/stop/queue with
-  fade-in/fade-out and per-mixer volume/mute via `audioplayers`.
+  fade-in/fade-out and per-mixer volume/mute via `sound_dart`.
 - **Screen-language displayables** (`RenPyScreenLayer`) - renders `show screen`
   / `call screen` output including `text`, `imagebutton`, `textbutton`, and
   common layout containers.
@@ -139,4 +139,4 @@ See the [`example/`](example/) directory for a minimal runnable Flutter app.
 
 <https://git.cypherstack.com/FiestaBerry/fiestavn>
 
-MIT License - Copyright 2025 Fiesta Berry LLC
+MIT License - Copyright 2025-2026 Fiesta Berry Games

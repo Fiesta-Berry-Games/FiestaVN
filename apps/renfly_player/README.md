@@ -26,16 +26,3 @@ Pick a target device with `-d`, for example `flutter run -d linux`,
 flutter test
 ```
 
-## Linux desktop audio
-
-Audio playback uses `audioplayers`, whose Linux backend needs the GStreamer
-development packages installed before `flutter run -d linux` can configure the
-native build:
-
-```bash
-sudo apt update
-sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
-```
-
-See the monorepo `README.md` ("Linux desktop audio") for details. Web builds
-do not need these packages because the browser provides audio.

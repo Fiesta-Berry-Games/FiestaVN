@@ -27,23 +27,6 @@ fiestavn/                     # FiestaVN Melos monorepo with only Dart and Flutt
 - [Dart SDK](https://dart.dev/get-dart)
 - [Melos](https://melos.invertase.dev/getting-started)
 
-#### Linux desktop audio
-
-The RenFly example app uses `audioplayers` for Ren'Py music and sound
-playback. On Linux desktop, the `audioplayers_linux` backend requires
-GStreamer development packages to be installed before `flutter run -d linux`
-can generate native build files:
-
-```bash
-sudo apt update
-sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
-```
-
-Without these packages, CMake may fail while configuring
-`audioplayers_linux` with an error such as `gstreamer-1.0` not found. Web
-builds do not need these Linux packages because browser audio is provided by
-the browser runtime instead of native Linux libraries.
-
 ### Setup
 
 1. Initialize the monorepo:

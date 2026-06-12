@@ -15,7 +15,7 @@ Initial release.
   including font registration and in-memory audio via `RenPyBytesAudioPlayback`.
 - `RenPyImageLayer` - sprite/scene compositor with ATL transform support.
 - `RenPyAudioLayer` + `RenPyAudioPlayback` - multi-channel audio with fade in/out,
-  queue, and mixer volume/mute; production backend via `audioplayers`.
+  queue, and mixer volume/mute; production backend via `sound_dart`.
 - `RenPyScreenLayer` - renders Ren'Py screen-language displayables.
 - `RenPyDialogueView`, `RenPyMenuSelector`, `RenPyBacklogView`,
   `RenPyPauseView` - individual chrome widgets.

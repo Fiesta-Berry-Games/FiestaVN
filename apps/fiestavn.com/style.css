@@ -6,11 +6,15 @@
   --border: #2c2c2c;
   --text: #e0e0e0;
   --text-muted: #8a8a8a;
-  --accent: #ff5a6e;       /* strawberry coral, from the Fiesta Berry mark */
-  --accent-hover: #ff7585;
-  --accent-2: #f0c060;      /* straw-hat gold, also from the mark */
+  /* palette — mirrors the logo top to bottom: teal band, gold brim, strawberry */
+  --accent:         #3ec0bc;  /* teal-green band — primary links and hero CTAs */
+  --accent-hover:   #65ceca;
+  --accent-ink:     #0d2221;  /* dark text on teal fills */
+  --accent-2:       #f0c060;  /* straw-hat gold */
   --accent-2-hover: #f6d189;
-  --accent-2-ink: #221608;  /* dark text on gold fills */
+  --accent-2-ink:   #221608;  /* dark text on gold fills */
+  --accent-3:       #ff5a6e;  /* strawberry coral — app cards and tertiary CTAs */
+  --accent-3-hover: #ff7585;
 }
 
 html {
@@ -123,12 +127,12 @@ a:hover {
 }
 
 .play-button {
-  color: #fff;
+  color: var(--accent-ink);
   background: var(--accent);
 }
 
 .play-button:hover {
-  color: #fff;
+  color: var(--accent-ink);
   background: var(--accent-hover);
 }
 
@@ -195,6 +199,15 @@ a:hover {
 .card-cta {
   font-weight: 600;
   font-size: 0.95rem;
+}
+
+/* App cards sit below the RenSpine section — coral for the bottom tier */
+.apps .card-cta {
+  color: var(--accent-3);
+}
+
+.apps .card-cta:hover {
+  color: var(--accent-3-hover);
 }
 
 .card-ctas {
