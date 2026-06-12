@@ -61,6 +61,19 @@ TextEditingController editorController(WidgetTester tester) =>
         .controller!;
 
 void main() {
+  testWidgets('boots with the Fiesta rehearsal Spine demo loaded', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+
+    // The initial example replaces the starter template as soon as it loads.
+    final field = find.byKey(const ValueKey('editor-script-field'));
+    await tester.pump(const Duration(milliseconds: 200));
+    final text = tester.widget<TextField>(field).controller!.text;
+    expect(text, contains('.spine'));
+    expect(text, isNot(contains('Welcome to RenFly Editor.')));
+  });
+
   testWidgets('app builds with the RenSpine Editor title and a live preview', (
     tester,
   ) async {
@@ -76,15 +89,18 @@ void main() {
       findsOneWidget,
     );
 
-    // The starter template is loaded and the preview is live from launch.
-    expect(editorController(tester).text, starterTemplate);
+    // The Spine demo loads as the startup script and the preview is live
+    // from launch.
     expect(find.text('Running'), findsOneWidget);
     await pumpUntil(
       tester,
       () =>
-          find.textContaining('Welcome to RenFly Editor.').evaluate().length >=
+          find
+              .textContaining('Welcome to the RenSpine Editor!')
+              .evaluate()
+              .length >=
           2,
-      description: 'auto-started preview',
+      description: 'auto-started Spine demo preview',
     );
   });
 

@@ -237,7 +237,7 @@ packages:
       path: "../renpy_parser"
       relative: true
     source: path
-    version: "0.0.2"
+    version: "0.0.3"
   shared_preferences:
     dependency: "direct main"
     description:

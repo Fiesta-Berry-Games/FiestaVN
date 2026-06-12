@@ -73,6 +73,7 @@ class RenSpineEditorApp extends StatelessWidget {
         loadBundledAssets: loadBundledAssets,
         imageLayerBuilder: imageLayerBuilder ?? spinePreviewImageLayer,
         extraExamples: renSpineEditorExamples,
+        initialExample: renSpineEditorExamples.first,
         extraPreviewAssets: spinePreviewAssets(),
         extraGallerySection:
             (context, insertStatements) => SpineGallerySection(

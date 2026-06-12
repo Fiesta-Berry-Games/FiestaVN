@@ -89,7 +89,7 @@ final List<EditorExample> renSpineEditorExamples = [
   EditorExample(
     'spine-demo',
     'Fiesta rehearsal (Spine two-character demo)',
-    () => rootBundle.loadString('assets/examples/spine_demo.rpy'),
+    () => rootBundle.loadString('assets/examples/spine_demo.rpy', cache: false),
   ),
 ];
 

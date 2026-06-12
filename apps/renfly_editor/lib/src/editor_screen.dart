@@ -78,15 +78,21 @@ typedef LoadBundledAssets = Future<Map<String, Uint8List>> Function();
 /// (where renfly_editor's assets live under the `packages/renfly_editor/`
 /// prefix).
 Future<String> loadEditorAssetString(String path) async {
+  // cache: false throughout — a cached loadString future created inside one
+  // widget test's fake-async zone never completes for the next test, and
+  // these script files are small enough to re-read.
   if (_editorAssetsArePackaged == true) {
-    return rootBundle.loadString('packages/renfly_editor/$path');
+    return rootBundle.loadString('packages/renfly_editor/$path', cache: false);
   }
   try {
-    final text = await rootBundle.loadString(path);
+    final text = await rootBundle.loadString(path, cache: false);
     _editorAssetsArePackaged = false;
     return text;
   } catch (_) {
-    final text = await rootBundle.loadString('packages/renfly_editor/$path');
+    final text = await rootBundle.loadString(
+      'packages/renfly_editor/$path',
+      cache: false,
+    );
     _editorAssetsArePackaged = true;
     return text;
   }
@@ -255,6 +261,7 @@ class EditorScreen extends StatefulWidget {
     this.extraExamples = const [],
     this.extraGallerySection,
     this.extraPreviewAssets = const {},
+    this.initialExample,
   });
 
   /// Optional audio backend override for the preview player (tests inject
@@ -279,6 +286,11 @@ class EditorScreen extends StatefulWidget {
 
   /// Extra examples appended after [editorExamples] in the "Examples ▾" menu.
   final List<EditorExample> extraExamples;
+
+  /// The example loaded into the editor at startup instead of the starter
+  /// template (e.g. the RenSpine editor opens on its Spine demo). The starter
+  /// shows for the moment the example takes to load.
+  final EditorExample? initialExample;
 
   /// Optional extra section appended to the Characters gallery dialog (e.g. a
   /// host's "Spine characters" section with its own tiles and insertions).
@@ -364,6 +376,19 @@ class _EditorScreenState extends State<EditorScreen> {
       setState(() => _hasRun = true);
       _reloadPreview(cursorLine: _cursorLine());
     });
+    final initial = widget.initialExample;
+    if (initial != null) {
+      unawaited(
+        initial.load().then((text) {
+          // Apply only while the untouched starter is still up, so a user
+          // (or test) that already loaded something else is never clobbered.
+          if (!mounted || _dirty || _scriptController.text != starterTemplate) {
+            return;
+          }
+          _setScript(text);
+        }),
+      );
+    }
   }
 
   @override

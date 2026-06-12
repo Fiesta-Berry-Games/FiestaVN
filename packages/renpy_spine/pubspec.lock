@@ -57,14 +57,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.7"
-  cupertino_icons:
-    dependency: "direct main"
-    description:
-      name: cupertino_icons
-      sha256: "41e005c33bd814be4d3096aff55b1908d419fde52ca656c8c47719ec745873cd"
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.0.9"
   fake_async:
     dependency: transitive
     description:
@@ -259,31 +251,24 @@ packages:
   renpy_core:
     dependency: "direct main"
     description:
-      path: "../../packages/renpy_core"
+      path: "../renpy_core"
       relative: true
     source: path
     version: "0.0.3"
   renpy_flutter:
     dependency: "direct main"
     description:
-      path: "../../packages/renpy_flutter"
+      path: "../renpy_flutter"
       relative: true
     source: path
     version: "0.0.1"
   renpy_parser:
     dependency: "direct overridden"
     description:
-      path: "../../packages/renpy_parser"
+      path: "../renpy_parser"
       relative: true
     source: path
     version: "0.0.3"
-  renpy_spine:
-    dependency: "direct main"
-    description:
-      path: "../../packages/renpy_spine"
-      relative: true
-    source: path
-    version: "0.0.1"
   shared_preferences:
     dependency: transitive
     description:
@@ -353,14 +338,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.0.1"
-  sound_flutter:
-    dependency: "direct main"
-    description:
-      name: sound_flutter
-      sha256: d5ba8231b68609333488b5d84e32d7b698c2b9d33ba8e8536dfa2953d3552e72
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.0.1"
   source_span:
     dependency: transitive
     description:
@@ -370,7 +347,7 @@ packages:
     source: hosted
     version: "1.10.2"
   spine_flutter:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: spine_flutter
       sha256: "195dfd2936f6938cefb91862dab2b59ecd08d9fecf4c208d3ad5f72fe5e0715a"

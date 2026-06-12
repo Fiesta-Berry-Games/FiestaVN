@@ -322,7 +322,18 @@ a:hover {
 }
 
 
-/* RenSpine: gold variant so the sibling product reads distinct from RenFly */
+/* RenSpine: a centered gold sub-hero, matching fiestavn.com's treatment, so
+   the sibling product reads distinct from RenFly */
+
+.renspine {
+  text-align: center;
+}
+
+.renspine p {
+  max-width: 36rem;
+  margin-left: auto;
+  margin-right: auto;
+}
 
 .renspine a {
   color: var(--accent-2);
@@ -335,6 +346,7 @@ a:hover {
 .renspine-actions {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 1rem;
   margin-top: 1.25rem;
 }
